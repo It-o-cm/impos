@@ -104,6 +104,8 @@ public class TicketParkingService {
             return i18n.get("op.ticketIntrouvable2");
         }
         draft.status = Ticket.TicketStatus.PARKED;
+        // BO-06-06-01: when it was parked, kept whatever happens next.
+        draft.parkedAt = java.time.LocalDateTime.now();
         draft.persist();
         technicalEventService.log(TechnicalEvent.EventType.TICKET_PARKED, draft.ticketNumber);
         // LC-04-01-02: the parked receipt carries the ticket number — the
@@ -155,10 +157,18 @@ public class TicketParkingService {
             return i18n.get("op.ticketAttenteIntrouvable");
         }
         draft.status = Ticket.TicketStatus.OPEN;
+        // BO-06-06-01: the recall is dated and named, so the state of pending
+        // tickets can tell a cart that came back from one still waiting.
+        draft.resumedAt = java.time.LocalDateTime.now();
+        draft.resumedTerminalId = ticketNumberService.getTerminalId();
         draft.persist();
         ticketRecoveryService.restoreDraft(draft);
         technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, draft.ticketNumber);
-        LOGGER.infof("Ticket repris ID: %d (%s)", draft.id, draft.ticketNumber);
+        // BO-03-03-07: the resume ticket, where the store administers it. A
+        // local resume keeps its number, so the document's two numbers are the
+        // same one — it states both anyway, because it is the SAME document
+        // that serves the inter-till resume.
+        ticketPrinterService.printResumeTicket(draft, draft.ticketNumber);
         LOGGER.info("Exiting method resume");
         return null;
     }
@@ -212,11 +222,19 @@ public class TicketParkingService {
             LOGGER.info("Exiting method resumeForeign");
             return i18n.get("op.ticketCoursMettezAttente");
         }
+        // BO-03-03-07: the number the parked paper carried, read BEFORE the
+        // resume re-homes the ticket onto this register.
+        String parkedNumber = foreign.ticketNumber;
         foreign.status = Ticket.TicketStatus.OPEN;
+        // BO-06-06-01: the recalling lane is written BEFORE the re-homing
+        // overwrites the parking one — after it, the two are the same.
+        foreign.resumedAt = java.time.LocalDateTime.now();
+        foreign.resumedTerminalId = ticketNumberService.getTerminalId();
         foreign.terminalId = ticketNumberService.getTerminalId();
         foreign.persist();
         ticketRecoveryService.restoreDraft(foreign);
         technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, foreign.ticketNumber);
+        ticketPrinterService.printResumeTicket(foreign, parkedNumber);
         LOGGER.infof("Ticket repris inter-caisses ID: %d (%s)", foreign.id, foreign.ticketNumber);
         LOGGER.info("Exiting method resumeForeign");
         return null;

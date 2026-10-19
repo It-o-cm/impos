@@ -266,6 +266,17 @@ public class Employee extends BaseEntity {
     public boolean mustChangePassword = false;
 
     /**
+     * When this employee's secret was last changed, or null when it never was
+     * (BO-01-02-12).
+     *
+     * <p>Referential data like the password itself: the node is the authority
+     * on both, and the register compares this stamp against the administered
+     * delay to decide whether to demand a new PIN at the post.
+     */
+    @jakarta.persistence.Column(name = "password_changed_at")
+    public LocalDateTime passwordChangedAt;
+
+    /**
      * Indicates whether the account is currently locked out after repeated
      * PIN failures.
      *
@@ -441,5 +452,30 @@ public class Employee extends BaseEntity {
     public int getChecksum() {
         return Objects.hash(firstName, lastName, password, role, badgeId, active, email,
                 legalEntity, forcingLevel, advanceLimit);
+    }
+
+    /**
+     * Whether this account's secret has passed the administered expiry delay
+     * (BO-01-02-12).
+     *
+     * <p>A delay of zero or less is the ABSENCE of a policy and never an
+     * instant expiry: a shop that administers nothing must not find every
+     * account demanding a new secret at the next sign-in.
+     *
+     * <p>A secret that was NEVER changed is expired as soon as a policy
+     * exists, because an account still carrying the code it was created with
+     * is exactly the one the policy is written for.
+     *
+     * @param days the administered delay in days, zero or less meaning none
+     * @return true when a new secret must be demanded
+     */
+    public boolean secretExpired(int days) {
+        if (days <= 0) {
+            return false;
+        }
+        if (passwordChangedAt == null) {
+            return true;
+        }
+        return passwordChangedAt.plusDays(days).isBefore(LocalDateTime.now());
     }
 }

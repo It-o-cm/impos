@@ -227,7 +227,10 @@
                             {#else}
                                 {#for p in state.payment.payments}
                                     <div class="pay-history-entry{#if state.payment.isOnCurrentPage(p_index)} on-page{/if}{#if state.payment.isAmongLastTwo(p_index)} recent-two{/if}">
-                                        <span class="phe-method">{p.method}{#if p.voucher && p.voucherNumber}<span class="phe-sub">N° {p.voucherNumber}</span>{/if}</span>
+                                        <!-- LC-06-03-07 : la reprise d'acompte se nomme, comme
+                                             tout moyen de reglement ; les autres cles brutes
+                                             restent ce qu'elles etaient. -->
+                                        <span class="phe-method">{#if p.isDepositRecovery()}{inject:i18n.get('pay.repriseAcompte')}{else}{p.method}{/if}{#if p.voucher && p.voucherNumber}<span class="phe-sub">N° {p.voucherNumber}</span>{/if}</span>
                                         <span class="phe-amount">{p.formattedAmount} €</span>
                                         <!-- EXP-63 : annuler CE règlement sans purger les autres. -->
                                         <a href="/action/payment-cancel/{p_index}" class="phe-cancel" title="{inject:i18n.get('pay.annulerReglement')}" style="margin-left:10px;color:var(--danger);text-decoration:none;font-weight:bold;">✕</a>

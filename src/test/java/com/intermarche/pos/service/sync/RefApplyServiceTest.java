@@ -155,6 +155,12 @@ class RefApplyServiceTest {
         insert.buttonSize = null;
         insert.displayOrder = 2;
         insert.salesVolume = 40L;
+        // BO-03-01-21/-22/-23: the scope descends with the group.
+        insert.islandCodes = "AVANT";
+        insert.terminalIds = "C04;C05";
+        insert.tpvTypes = "CASH_REGISTER";
+        // BO-03-01-19: and so do the translated wordings.
+        insert.labels = "nl=Zuivel";
         RefPayloads.TouchGroupDto update = new RefPayloads.TouchGroupDto();
         update.familyCode = "F2";
         update.buttonSize = "LARGE";
@@ -178,9 +184,20 @@ class RefApplyServiceTest {
             assertEquals("NORMAL", inserted.buttonSize);
             assertEquals(2, inserted.displayOrder);
             assertEquals(40L, inserted.salesVolume);
+            assertEquals("AVANT", inserted.islandCodes);
+            assertEquals("C04;C05", inserted.terminalIds);
+            assertEquals("CASH_REGISTER", inserted.tpvTypes);
+            assertEquals("nl=Zuivel", inserted.labels);
             assertEquals("LARGE", existing.buttonSize);
             assertEquals(7, existing.displayOrder);
             assertEquals(5L, existing.salesVolume);
+            // The snapshot scopes F2 nowhere: it goes back to being drawn
+            // everywhere, which is what a group with no scope has always been.
+            assertNull(existing.islandCodes);
+            assertNull(existing.terminalIds);
+            assertNull(existing.tpvTypes);
+            // The snapshot names no wording for F2 either: the stale one goes.
+            assertNull(existing.labels);
             verify(stale, times(1)).delete();
         }
     }
@@ -993,6 +1010,8 @@ class RefApplyServiceTest {
     void applyCurrenciesInsertsUpdatesDefaultsRateAndDeactivates() {
         RefApplyService service = new RefApplyService();
         RefPayloads.CurrencyDto insert = currencyDto("USD", "0.9");
+        // BO-03-02-39: the change tender descends verbatim, empty included.
+        insert.changeTenderCode = "ESP";
         RefPayloads.CurrencyDto update = currencyDto("GBP", null);
         RefPayloads.CurrencyDto blank = currencyDto("CHF", "   ");
         RefPayloads.CurrencyDto invalid = currencyDto("JPY", "abc");
@@ -1020,8 +1039,10 @@ class RefApplyServiceTest {
             Currency usd = created.constructed().get(0);
             assertEquals("USD", usd.code);
             assertEquals(new BigDecimal("0.9"), usd.euroPerUnit);
+            assertEquals("ESP", usd.changeTenderCode);
             verify(usd, times(1)).persist();
             assertEquals(BigDecimal.ONE, existing.euroPerUnit);
+            assertNull(existing.changeTenderCode);
             verify(existing, times(1)).persist();
             Currency chf = created.constructed().get(1);
             assertEquals(BigDecimal.ONE, chf.euroPerUnit);
@@ -1202,7 +1223,17 @@ class RefApplyServiceTest {
         update.currency = "FRF";
         update.checkDigit = false;
         update.priority = 20;
+        // BO-03-06-56/-60/-61: the destination descends verbatim, and a range
+        // from an older node stays an ARTICLE range.
+        insert.purpose = "REFUND";
+        // BO-03-06-43: the promotion a range names descends with it, and a
+        // snapshot naming none leaves the range triggering nothing.
+        insert.promotionCode = "PROMO_RENTREE";
+        insert.lookupUrl = "https://partenaire.test/bons/{code}";
         ArticleBarcodeRange existing = mock(ArticleBarcodeRange.class);
+        existing.purpose = ArticleBarcodeRange.Purpose.TARE;
+        existing.promotionCode = "PROMO_PERIMEE";
+        existing.lookupUrl = "https://ancien.test/?c=";
         ArticleBarcodeRange seen = mock(ArticleBarcodeRange.class);
         seen.code = "R1";
         seen.active = true;
@@ -1233,9 +1264,19 @@ class RefApplyServiceTest {
             assertEquals(2, inserted.valueDecimals);
             assertEquals(CouponField.PriceCurrency.EUR, inserted.currency);
             assertTrue(inserted.checkDigit);
+            assertEquals(ArticleBarcodeRange.Purpose.REFUND, inserted.purpose);
+            assertEquals("PROMO_RENTREE", inserted.promotionCode);
+            assertEquals("https://partenaire.test/bons/{code}", inserted.lookupUrl);
             assertEquals("^21\\d{11}$", inserted.matchPattern);
             verify(inserted, times(1)).persist();
 
+            // The snapshot names no destination for R2: it goes back to ARTICLE,
+            // which is what every range was before the column existed.
+            assertEquals(ArticleBarcodeRange.Purpose.ARTICLE, existing.purpose);
+            // The snapshot names no promotion either: the stale one goes away
+            // rather than lingering on a range the back office changed.
+            assertNull(existing.promotionCode);
+            assertNull(existing.lookupUrl);
             assertEquals("297", existing.prefix);
             assertEquals(16, existing.codeLength);
             assertEquals(ArticleBarcodeRange.ValueSource.WEIGHT, existing.valueSource);
@@ -1368,6 +1409,12 @@ class RefApplyServiceTest {
         insert.changeTenderCode = "CASH";
         insert.refundAllowed = true;
         insert.fidelityReported = true;
+        // BO-03-09-30: the VIC product code descends verbatim, and a snapshot
+        // naming none leaves the tender carrying nothing.
+        insert.vicProductCode = "{DAJ}01";
+        // BO-03-02-27/-29: the two self-service rules descend as well.
+        insert.selfServiceAllowed = false;
+        insert.selfServiceSupervision = true;
         RefPayloads.TenderDefinitionDto update = new RefPayloads.TenderDefinitionDto();
         update.code = "CHEQUE";
         update.functionalId = "020";
@@ -1431,6 +1478,9 @@ class RefApplyServiceTest {
             assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening.IF_CHANGE_DUE,
                     inserted.drawerOpening);
             assertEquals("CASH", inserted.changeTenderCode);
+            assertEquals("{DAJ}01", inserted.vicProductCode);
+            assertFalse(inserted.selfServiceAllowed);
+            assertTrue(inserted.selfServiceSupervision);
             assertTrue(inserted.refundAllowed);
             assertTrue(inserted.fidelityReported);
             verify(inserted, times(1)).persist();
@@ -1446,6 +1496,7 @@ class RefApplyServiceTest {
             assertEquals(new java.math.BigDecimal("8.00"), existing.maxChangeAmount);
             assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.INFO,
                     existing.maxChangeControl);
+            assertNull(existing.vicProductCode);
             assertTrue(existing.changeAllowed);
             assertTrue(existing.cashierDeclaration);
             assertTrue(existing.automaticWithdrawal);
@@ -2027,6 +2078,13 @@ class RefApplyServiceTest {
         insert.cashierDisplayResolution = "1024x768";
         insert.customerDisplayType = "NONE";
         insert.menuTemplateCode = "MENU_LS";
+        // BO-03-09-15/-24/-25/-26: the peripherals as the store administered them.
+        insert.scaleProtocol = "DIGI";
+        insert.scaleAddress = "10.0.0.8";
+        insert.scalePort = 4001;
+        insert.coinMachineProtocol = "GLORY";
+        insert.coinMachineAddress = "10.0.0.9";
+        insert.coinMachinePort = 5001;
 
         RefPayloads.CheckoutPointDto update = new RefPayloads.CheckoutPointDto();
         update.terminalId = "POS08";
@@ -2091,6 +2149,14 @@ class RefApplyServiceTest {
             assertEquals(com.intermarche.pos.domain.store.DisplayType.NONE,
                     inserted.customerDisplayType);
             assertEquals("MENU_LS", inserted.menuTemplateCode);
+            assertEquals(com.intermarche.pos.domain.store.ScaleProtocol.DIGI,
+                    inserted.scaleProtocol);
+            assertEquals("10.0.0.8", inserted.scaleAddress);
+            assertEquals(Integer.valueOf(4001), inserted.scalePort);
+            assertEquals(com.intermarche.pos.domain.store.CoinMachineProtocol.GLORY,
+                    inserted.coinMachineProtocol);
+            assertEquals("10.0.0.9", inserted.coinMachineAddress);
+            assertEquals(Integer.valueOf(5001), inserted.coinMachinePort);
             verify(inserted, times(1)).persist();
 
             // The existing row was updated in place, and the two values this
@@ -2099,6 +2165,15 @@ class RefApplyServiceTest {
             assertNull(existing.tpvType);
             assertNull(existing.cashierDisplayType);
             assertNull(existing.customerDisplayType);
+            // BO-03-09-15/-24/-25/-26: a snapshot naming no protocol leaves the
+            // register with NONE — no machine, which is what it had before the
+            // column existed, and never a protocol nobody administered.
+            assertEquals(com.intermarche.pos.domain.store.ScaleProtocol.NONE,
+                    existing.scaleProtocol);
+            assertNull(existing.scalePort);
+            assertEquals(com.intermarche.pos.domain.store.CoinMachineProtocol.NONE,
+                    existing.coinMachineProtocol);
+            assertNull(existing.coinMachinePort);
             verify(existing, times(1)).persist();
 
             // The sweep deactivated the absent ACTIVE point and left the absent

@@ -784,6 +784,67 @@ class ValuationServiceTest {
         assertEquals("AMOUNT", basket.cardPromotions.get(0).promotionType);
         assertEquals(new BigDecimal("0.50"), basket.cardPromotions.get(0).value);
         assertEquals("IMMEDIATE_DISCOUNT", basket.cardPromotions.get(0).benefit);
+        // BO-03-06-43: nothing was scanned, so the barcode-armed block stays
+        // absent — the two promotion vehicles are independent.
+        assertNull(basket.scannedPromotions);
+    }
+
+    /**
+     * The promotions a barcode ARMED on the ticket travel in the basket by
+     * NAME (BO-03-06-43): the register does not know what they are worth and
+     * does not pretend to. An untouched ticket leaves the block absent, so the
+     * request is the one the engine received before it existed.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateCarriesThePromotionsABarcodeArmed() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("42.00"));
+        Store store = new Store();
+        store.code = "0034";
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        // The query mock is built BEFORE the static stubbing: building it
+        // stubs a mock of its own, and a stubbing opened inside another one
+        // is what Mockito reports as an unfinished stubbing.
+        PanacheQuery<Store> storeQuery = query(store);
+        TicketState armed = ticketWith(item("L1", "1", "10", "1"));
+        armed.armPromotion("PROMO_RENTREE");
+        armed.armPromotion("PROMO_NOEL");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(armed, null, null, LocalDateTime.of(2026, 9, 23, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        assertEquals(java.util.List.of("PROMO_RENTREE", "PROMO_NOEL"),
+                captor.getValue().scannedPromotions);
+    }
+
+    /**
+     * A ticket where no promotion barcode was scanned leaves the block absent
+     * (the other leg of the guard).
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateWithoutAnArmedPromotionLeavesTheBlockAbsent() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("42.00"));
+        Store store = new Store();
+        store.code = "0034";
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        PanacheQuery<Store> storeQuery = query(store);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(item("L1", "1", "10", "1")), null, null,
+                    LocalDateTime.of(2026, 9, 23, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        assertNull(captor.getValue().scannedPromotions);
     }
 
     /**

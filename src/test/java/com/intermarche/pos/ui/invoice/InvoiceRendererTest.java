@@ -16,6 +16,16 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.MockedStatic;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests of {@link InvoiceRenderer}, the degraded rendering of a document onto a
@@ -27,6 +37,38 @@ import static org.junit.jupiter.api.Assertions.*;
  * wider than the paper — is asserted on both.
  */
 class InvoiceRendererTest {
+    /** The static mock silencing the catalog for every test, closed after each. */
+    private MockedStatic<PanacheEntityBase> panache;
+
+    /**
+     * The document funnels of this class read the VAT referential (the legal
+     * mentions, {@code VatRate.findByRate}) and, in places, the administered
+     * document names — plain unit tests have no persistence context to
+     * answer either with, so the catalog is silent for every test: no rate
+     * resolves to a regime, so no mention prints, and every layout falls
+     * back to the register's own wording.
+     */
+    @BeforeEach
+    void silenceTheCatalog() {
+        panache = mockStatic(PanacheEntityBase.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Object> nothing = mock(PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(anyString(), any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(anyString(), any(Object[].class)))
+                .thenReturn(java.util.List.of());
+    }
+
+    /**
+     * Closes the static mock the {@code @BeforeEach} opened, on the same
+     * thread Mockito requires.
+     */
+    @AfterEach
+    void closeTheCatalog() {
+        panache.close();
+    }
+
 
     /**
      * Builds a ticket line.

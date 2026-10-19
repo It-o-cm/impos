@@ -1,9 +1,11 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.balance.BalanceTicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.util.Arrays;
 import java.util.List;
@@ -78,7 +80,9 @@ class BalanceTicketScanHandlerTest {
         BalanceTicketService service = mock(BalanceTicketService.class);
         ScanContext ctx = new ScanContext(COUNTER_CODE, newState());
         ctx.handled = true;
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
         assertTrue(ctx.handled);
         verifyNoInteractions(service);
     }
@@ -91,7 +95,9 @@ class BalanceTicketScanHandlerTest {
     void nullCodeFallsThrough() {
         BalanceTicketService service = mock(BalanceTicketService.class);
         ScanContext ctx = new ScanContext(null, newState());
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
         assertFalse(ctx.handled);
         verifyNoInteractions(service);
     }
@@ -104,7 +110,9 @@ class BalanceTicketScanHandlerTest {
     void nonInStoreCodeFallsThrough() {
         BalanceTicketService service = mock(BalanceTicketService.class);
         ScanContext ctx = new ScanContext(RETAIL_CODE, newState());
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
         assertFalse(ctx.handled);
         verifyNoInteractions(service);
     }
@@ -117,7 +125,9 @@ class BalanceTicketScanHandlerTest {
     void foreignPrefixFallsThrough() {
         BalanceTicketService service = mock(BalanceTicketService.class);
         ScanContext ctx = new ScanContext(OTHER_PREFIX_CODE, newState());
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
         assertFalse(ctx.handled);
         verifyNoInteractions(service);
     }
@@ -130,7 +140,9 @@ class BalanceTicketScanHandlerTest {
     void badChecksumFallsThrough() {
         BalanceTicketService service = mock(BalanceTicketService.class);
         ScanContext ctx = new ScanContext(BAD_CHECKSUM_CODE, newState());
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
         assertFalse(ctx.handled);
         verifyNoInteractions(service);
     }
@@ -144,7 +156,151 @@ class BalanceTicketScanHandlerTest {
         BalanceTicketService service = mock(BalanceTicketService.class);
         PosState state = newState();
         ScanContext ctx = new ScanContext(COUNTER_CODE, state);
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(service).integrate(eq(state), eq(REFERENCE));
+    }
+
+    /**
+     * Opens a static mock answering NO administered range, which is what every
+     * store looked like before the destination column existed.
+     *
+     * @return the static mock
+     */
+    private MockedStatic<ArticleBarcodeRange> noAdministeredRange() {
+        MockedStatic<ArticleBarcodeRange> ranges = mockStatic(ArticleBarcodeRange.class);
+        ranges.when(() -> ArticleBarcodeRange.findMatching(any())).thenReturn(null);
+        return ranges;
+    }
+
+    /**
+     * Builds a range administered as a counter-ticket plan, reading the
+     * reference where the store says it is (BO-03-06-56).
+     *
+     * @param prefix the literal head
+     * @param length the total code length
+     * @param position the 0-based start of the reference
+     * @param referenceLength the number of characters of the reference
+     * @return the administered range
+     */
+    private ArticleBarcodeRange bagRange(String prefix, int length, int position,
+                                         int referenceLength) {
+        ArticleBarcodeRange range = new ArticleBarcodeRange();
+        range.code = "SACHET_" + prefix;
+        range.label = "Sachet comptoir";
+        range.prefix = prefix;
+        range.codeLength = length;
+        range.codeKind = com.intermarche.pos.domain.barcode.CouponField.Kind.NUMERIC;
+        range.articlePosition = position;
+        range.articleLength = referenceLength;
+        range.valueSource = ArticleBarcodeRange.ValueSource.PRICE;
+        range.valuePosition = 0;
+        range.valueLength = 1;
+        range.checkDigit = false;
+        range.purpose = ArticleBarcodeRange.Purpose.BALANCE_TICKET;
+        range.matchPattern = "^" + prefix + "\\d{" + (length - prefix.length()) + "}$";
+        return range;
+    }
+
+    /**
+     * Opens a static mock answering the given range for every code.
+     *
+     * @param range the administered range
+     * @return the static mock
+     */
+    private MockedStatic<ArticleBarcodeRange> administeredRange(ArticleBarcodeRange range) {
+        MockedStatic<ArticleBarcodeRange> ranges = mockStatic(ArticleBarcodeRange.class);
+        ranges.when(() -> ArticleBarcodeRange.findMatching(any())).thenReturn(range);
+        return ranges;
+    }
+
+    /**
+     * An ADMINISTERED counter-ticket range reads the reference where the store
+     * says it is, in a code of its own length — which is what proves the layout
+     * is administered and not compiled in (BO-03-06-56).
+     */
+    @Test
+    void anAdministeredRangeReadsItsOwnLayout() {
+        BalanceTicketService service = mock(BalanceTicketService.class);
+        PosState state = newState();
+        ScanContext ctx = new ScanContext("9900000987654321", state);
+        try (MockedStatic<ArticleBarcodeRange> ranges =
+                administeredRange(bagRange("99", 16, 4, 12))) {
+            newHandler(service).handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(service).integrate(eq(state), eq("000987654321"));
+    }
+
+    /**
+     * The administered reference keeps its leading zeros: the shop matches it
+     * character for character against what the scale pushed.
+     */
+    @Test
+    void theAdministeredReferenceKeepsItsLeadingZeros() {
+        BalanceTicketService service = mock(BalanceTicketService.class);
+        PosState state = newState();
+        ScanContext ctx = new ScanContext(COUNTER_CODE, state);
+        try (MockedStatic<ArticleBarcodeRange> ranges =
+                administeredRange(bagRange("27", 13, 2, 10))) {
+            newHandler(service).handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(service).integrate(eq(state), eq(REFERENCE));
+    }
+
+    /**
+     * A range administered for something else does not make a counter ticket of
+     * the code: the historical 2x layout decides, and a retail code still falls
+     * through (the other leg of the purpose guard).
+     */
+    @Test
+    void aRangeAdministeredForAnotherPurposeIsIgnoredHere() {
+        BalanceTicketService service = mock(BalanceTicketService.class);
+        ArticleBarcodeRange other = bagRange("27", 13, 2, 10);
+        other.purpose = ArticleBarcodeRange.Purpose.ARTICLE;
+        ScanContext retail = new ScanContext(RETAIL_CODE, newState());
+        try (MockedStatic<ArticleBarcodeRange> ranges = administeredRange(other)) {
+            newHandler(service).handle(retail);
+        }
+        assertFalse(retail.handled);
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * An administered range whose check digit is required refuses a 13-character
+     * code failing it, and the historical layout is then the only thing left to
+     * answer — which it does not, the digit being wrong there too.
+     */
+    @Test
+    void theAdministeredCheckDigitIsHonoured() {
+        BalanceTicketService service = mock(BalanceTicketService.class);
+        ArticleBarcodeRange range = bagRange("27", 13, 2, 10);
+        range.checkDigit = true;
+        ScanContext ctx = new ScanContext(BAD_CHECKSUM_CODE, newState());
+        try (MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            newHandler(service).handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * An administered range whose reference segment falls outside the code
+     * reads nothing, and the code is left to the historical layout.
+     */
+    @Test
+    void anUnreadableAdministeredReferenceFallsBack() {
+        BalanceTicketService service = mock(BalanceTicketService.class);
+        PosState state = newState();
+        ScanContext ctx = new ScanContext(COUNTER_CODE, state);
+        try (MockedStatic<ArticleBarcodeRange> ranges =
+                administeredRange(bagRange("27", 13, 40, 10))) {
+            newHandler(service).handle(ctx);
+        }
+        // The 2x fallback recognizes it and picks it up, exactly as before.
         assertTrue(ctx.handled);
         verify(service).integrate(eq(state), eq(REFERENCE));
     }
@@ -157,7 +313,9 @@ class BalanceTicketScanHandlerTest {
     void refusedPickUpStillConsumesTheCode() {
         BalanceTicketService service = mock(BalanceTicketService.class);
         ScanContext ctx = new ScanContext(COUNTER_CODE, newState());
-        newHandler(service).handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler(service).handle(ctx);
+        }
         assertTrue(ctx.handled);
         verify(service).integrate(any(), any());
     }

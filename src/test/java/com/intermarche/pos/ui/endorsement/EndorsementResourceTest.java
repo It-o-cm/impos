@@ -71,6 +71,15 @@ class EndorsementResourceTest {
         resource.ticketService = mock(TicketService.class);
         resource.refundService = mock(RefundService.class);
         resource.homeService = mock(HomeService.class);
+        // Back-office parameters at their catalog defaults: the cumulation is
+        // allowed (BO-03-07-11), so the historical remise and discount replay
+        // assertions hold — the named refusal of LC-03-02-10 states its own.
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(resource.posSettingsService.discountCumulativeOnDiscounted()).thenReturn(true);
+        // The reassignment of a closed ticket to a client (LC-03-06-01): the
+        // replay of an endorsed reassignment goes through the chained service
+        // and never touches the printer here.
+        resource.reassignmentService = mock(com.intermarche.pos.ui.reprintticket.TicketReassignmentService.class);
         return resource;
     }
 
@@ -236,6 +245,65 @@ class EndorsementResourceTest {
         assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).applyRemise(item, new BigDecimal("0.50"));
         verify(resource.ticketService).recalculateTotal(resource.state);
+    }
+
+    /**
+     * LC-03-02-10: a manager may approve a remise on a line the store's
+     * cumulation rule then refuses — the approval lands NOTHING and the
+     * refusal is NAMED, so the manager is told why the endorsed figure did
+     * not move instead of leaving a silent no-op behind the credential.
+     */
+    @Test
+    void validateEndorsementNamesTheRefusedCumulationOnAnAlreadyReducedLine() {
+        EndorsementResource resource = newResource();
+        TicketState.TicketItem item = addItem(resource, "L1");
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = PriceModType.REMISE;
+        resource.state.endorsement.pendingTargetUid = "L1";
+        resource.state.endorsement.pendingValue = new BigDecimal("0.50");
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
+        when(resource.ticketService.isAlreadyReduced(item)).thenReturn(true);
+        when(resource.posSettingsService.discountCumulativeOnDiscounted()).thenReturn(false);
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("ARTICLE DÉJÀ REMISÉ", resource.state.ticket.transientError);
+        verify(resource.ticketService, never()).applyRemise(any(), any());
+        verify(resource.ticketService, never()).recalculateTotal(resource.state);
+    }
+
+    /**
+     * LC-03-06-01: an endorsed TICKET_REASSIGN replays the parked form — the
+     * ticket id and the typed card — through the chained reassignment
+     * service; the landing is the reprint detail the form came from.
+     */
+    @Test
+    void validateEndorsementReplaysAnEndorsedReassignment() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "TICKET_REASSIGN";
+        resource.state.endorsement.returnPath = "/reprint/view/1";
+        resource.state.endorsement.pendingForm.put("ticketId", "1");
+        resource.state.endorsement.pendingForm.put("card", "2990000000019");
+        when(resource.endorsementService.authorize("m", "1234", "TICKET_REASSIGN")).thenReturn(true);
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/reprint/view/1", response.getLocation().toString());
+        verify(resource.reassignmentService).perform(1L, "2990000000019");
+    }
+
+    /**
+     * LC-03-06-01, the malformed arm: a parked ticket id nothing readable
+     * resolves to reaches the chained service as null, which names its own
+     * refusal — the endorsement's replay never throws on a broken form.
+     */
+    @Test
+    void validateEndorsementToleratesABrokenReassignmentForm() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "TICKET_REASSIGN";
+        resource.state.endorsement.pendingForm.put("ticketId", "abc");
+        resource.state.endorsement.pendingForm.put("card", "2990000000019");
+        when(resource.endorsementService.authorize("m", "1234", "TICKET_REASSIGN")).thenReturn(true);
+        resource.validateEndorsement("m", "1234");
+        verify(resource.reassignmentService).perform(null, "2990000000019");
     }
 
     /**

@@ -258,6 +258,24 @@ public class Messages {
     /** The language the memorised inputs resolved to. */
     private volatile String memoLanguage = DEFAULT_LANGUAGE;
 
+    /**
+     * Forgets the memorised resolution, so the next label resolves the chain
+     * again from the database.
+     *
+     * <p>THE MEMO WATCHES THREE INPUTS and the operator's administered language
+     * is not one of them: it is referential data the back office owns, written
+     * on the {@code Employee} row, and the register has no way of noticing that
+     * it moved. Whoever rewrites those rows says so here, and the shop's choice
+     * reaches the very next label instead of waiting for a sign-out — without
+     * costing the database read per label that the memo exists to avoid.
+     */
+    public void forgetResolvedLanguage() {
+        LOGGER.info("Entering method forgetResolvedLanguage");
+        memoInputs = null;
+        memoLanguage = DEFAULT_LANGUAGE;
+        LOGGER.info("Exiting method forgetResolvedLanguage");
+    }
+
     /** The register state: carries the language the operator chose. */
     @Inject
     PosState state;

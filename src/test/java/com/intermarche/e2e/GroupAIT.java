@@ -494,13 +494,16 @@ public class GroupAIT {
             // Age the in-memory idle clock past the 300 s window (no sleep).
             posState.auth.lastActivityAt = System.currentTimeMillis() - 400_000L;
             // The next guarded request is caught by the filter: it locks and
-            // diverts to /lock (the closed-lane screen).
+            // diverts to /lock. The idle timeout is a VERROUILLAGE (EXP-12): the
+            // register pauses — the operator is held aside for the resume and the
+            // paused lock screen reads CAISSE VERROUILLÉE, not the free-lane
+            // CAISSE FERMÉE.
             page.navigate(root);
-            page.getByText("CAISSE FERMÉE").waitFor();
+            page.getByText("CAISSE VERROUILLÉE").waitFor();
             Assertions.assertTrue(posState.isLocked(),
                     "an idle timeout past the window must lock the register");
             Assertions.assertNull(posState.auth.operatorId,
-                    "the idle lockout must log the operator out");
+                    "the idle lockout must log the active operator out");
             Assertions.assertEquals(lockedBefore + 1, eventCount(TechnicalEvent.EventType.REGISTER_LOCKED),
                     "the idle lockout must journal exactly one REGISTER_LOCKED");
             // The cash session survives: only the operator was logged out.
@@ -510,6 +513,12 @@ public class GroupAIT {
             // Restore the disabled default so no other scenario idle-locks.
             posSettings.store("auth.idle-lockout-seconds", "0");
         }
+        // Isolation: the idle timeout left the register PAUSED. Lift the pause by
+        // resuming as the held cashier so the register ends logged in — the next
+        // scenario's login recipe expects a FREE lock (badge → PIN → hardware
+        // gate), which /lock only restores from a non-paused state.
+        scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
+        page.getByText("TOTAL À PAYER").waitFor();
         page.close();
     }
 
@@ -809,6 +818,9 @@ public class GroupAIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

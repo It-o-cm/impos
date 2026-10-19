@@ -151,23 +151,23 @@ public final class ProductAttributes {
     }
 
     /**
-     * The message a register shows when an article carries a lot recall but the code
-     * that was scanned or keyed does not say which lot is in the customer's basket
+     * The recalled lot numbers of the article, joined for display, when the
+     * article carries a lot recall but the code that was scanned or keyed
+     * does not say which lot is in the customer's basket
      * ({@code LC-02-03-13}).
      *
-     * <p>It LISTS THE LOTS rather than refusing the sale: the register cannot know
-     * whether this particular item is one of them, and only the cashier, holding the
-     * pack, can read the lot printed on it.
+     * <p>The lot numbers are referential values and never change language;
+     * the wording around them is localised by the caller that shows them.
      *
      * @param product the product, or null
-     * @return the message, or null when the article carries no lot recall
+     * @return the joined lot numbers, or null when the article carries no lot recall
      */
-    public static String recalledLotsMessage(Product product) {
+    public static String recalledLotsJoined(Product product) {
         java.util.List<String> lots = recalledLots(product);
         if (lots.isEmpty()) {
             return null;
         }
-        return "PRODUIT EN RAPPEL - LOTS : " + String.join(", ", lots);
+        return String.join(", ", lots);
     }
 
     /**
@@ -201,6 +201,139 @@ public final class ProductAttributes {
      */
     public static boolean quantityToEnter(Product product) {
         return flag(product, ProductAttributeCatalog.QUANTITY_TO_ENTER);
+    }
+
+    /**
+     * Whether the article is a DEMATERIALISED product whose activation code
+     * must be scanned right after its EAN (BO-03-06-44).
+     *
+     * @param product the product, or null
+     * @return true when a second scan is required on this article
+     */
+    public static boolean activationRequired(Product product) {
+        return flag(product, ProductAttributeCatalog.ACTIVATION_REQUIRED);
+    }
+
+    /**
+     * The article's label in a given language (BO-03-01-20), or null when the
+     * referential carries none for it.
+     *
+     * <p>The pairs are administered as {@code lang=libellé}, separated by
+     * semicolons — {@code nl=Melk;pt=Leite} — on the SAME vehicle every other
+     * per-article decision travels on: the attribute map, which is already
+     * distributed with the product. A language tag nobody administered, a pair
+     * with no language, a pair with no wording and an empty wording all answer
+     * null, so the caller falls back to the catalog's own label rather than
+     * showing a blank touch.
+     *
+     * @param product the product, or null
+     * @param language the language tag (fr, nl, pt), or null
+     * @return the translated label, or null when none is administered
+     */
+    public static String translatedLabel(Product product, String language) {
+        if (language == null || language.isBlank()) {
+            return null;
+        }
+        String raw = raw(product, ProductAttributeCatalog.TRANSLATED_LABELS);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String wanted = language.trim().toLowerCase();
+        for (String entry : raw.split(";")) {
+            int equals = entry.indexOf('=');
+            if (equals <= 0 || equals == entry.length() - 1) {
+                continue;
+            }
+            String tag = entry.substring(0, equals).trim().toLowerCase();
+            String label = entry.substring(equals + 1).trim();
+            if (tag.equals(wanted) && !label.isEmpty()) {
+                return label;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The article's label in the given language, falling back to the catalog's
+     * own (BO-03-01-20).
+     *
+     * <p>ONE accessor for every entry path, so a till set to Dutch shows the
+     * Dutch wording whether the article arrived by EAN, by PLU, by scale label
+     * or by GS1 payload. The fallback is {@link Product#saleLabel()}, which is
+     * what every path printed before translations existed.
+     *
+     * @param product the product, or null
+     * @param language the language tag the till is set to, or null
+     * @return the label to show, or null when there is no product
+     */
+    public static String saleLabel(Product product, String language) {
+        if (product == null) {
+            return null;
+        }
+        String translated = translatedLabel(product, language);
+        return translated == null ? product.saleLabel() : translated;
+    }
+
+    /**
+     * Whether the article is sold on the register described by its terminal and
+     * its island (BO-03-01-18).
+     *
+     * <p>A store may take an article out of ONE island or ONE register without
+     * taking it out of the shop: the fruit stand's scale labels have no
+     * business on the self-service lane, and a bulky article no checkout can
+     * bag is not withdrawn from the aisle. The two exclusion lists are
+     * independent and cumulative, and both empty — the default — sell
+     * everywhere.
+     *
+     * @param product the product, or null
+     * @param terminalId the register's identifier, or null when unknown
+     * @param islandCode the code of the island it stands on, or null
+     * @return true when the article may be rung there
+     */
+    public static boolean soldOn(Product product, String terminalId, String islandCode) {
+        return !excluded(raw(product, ProductAttributeCatalog.DISABLED_TERMINALS), terminalId)
+                && !excluded(raw(product, ProductAttributeCatalog.DISABLED_ISLANDS), islandCode);
+    }
+
+    /**
+     * Tells whether a semicolon-separated exclusion list names a value.
+     *
+     * <p>An empty list excludes NOTHING, which is the whole safety of the rule:
+     * an article nobody scoped is sold everywhere, as every article was before
+     * the scope existed. A list that names something and a value nobody can
+     * name (an unknown terminal, a register on no island) do not match, so a
+     * register the back office cannot describe keeps selling.
+     *
+     * @param list the administered exclusion list, possibly null or blank
+     * @param value the register's or island's code, possibly null
+     * @return true when the list names the value
+     */
+    private static boolean excluded(String list, String value) {
+        if (list == null || list.isBlank() || value == null || value.isBlank()) {
+            return false;
+        }
+        for (String entry : list.split(";")) {
+            if (entry.trim().equalsIgnoreCase(value.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The provider that owes the activation of a dematerialised article
+     * (BO-03-06-44), or null when the referential names none.
+     *
+     * <p>Kept beside the flag and not derived from it: a store can declare the
+     * second scan without yet knowing which provider will settle it, and the
+     * register must capture the code either way rather than refuse the sale.
+     *
+     * @param product the product, or null
+     * @return the provider name, or null when none is declared
+     */
+    public static String activationProvider(Product product) {
+        String value = raw(product, ProductAttributeCatalog.ACTIVATION_PROVIDER);
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /**

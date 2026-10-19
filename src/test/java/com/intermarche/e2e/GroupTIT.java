@@ -108,6 +108,14 @@ public class GroupTIT {
     PosState posState;
 
     /**
+     * The label resolver: told when this scenario writes, as the back office,
+     * the administered language on an employee row (see
+     * {@link #setEmployeeLanguage(String, String)}).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * Clears every language state a scenario may have set, so each starts from
      * the seed defaults: the chosen language (register state), Jean's
      * administered language (database) and the three language parameters
@@ -281,10 +289,13 @@ public class GroupTIT {
      * T8 — Routes langue et gardes session/verrou (LC-13-06-03).
      * <p>
      * The selection screen is out of the SESSION gate (reachable with the shared
-     * session open, as every other scenario shows), but it is NOT out of the LOCK
-     * gate: on a locked register {@code LockCheckFilter} redirects
-     * {@code /language-select} to {@code /lock}. The lock screen's own language
-     * link is therefore inert while locked — a documented code/catalogue gap.
+     * session open, as every other scenario shows) AND out of the LOCK gate:
+     * {@code /language-select} is one of {@code LockCheckFilter}'s
+     * {@code ALLOWED_PREFIXES}, so it renders on a locked register instead of
+     * being diverted. That is the point of the requirement rather than a hole in
+     * the gate: an operator who cannot read the till's language has to choose
+     * one BEFORE taking the post (LC-13-06-03), and the lock screen's own
+     * language key — which would otherwise lead nowhere — is what they press.
      */
     @Test
     void t8_routes_session_et_verrou() {
@@ -294,15 +305,16 @@ public class GroupTIT {
         inSession.getByText(TITLE_FR).waitFor();
         Assertions.assertEquals("fr", langOf(inSession),
                 "the language screen is reachable during an open session (not session-gated)");
-        // Locked: LockCheckFilter diverts the language screen back to the lock screen.
+        // Locked: the language screen is allowed through the lock gate and the
+        // lock screen's language key leads to it.
         inSession.navigate(base.toString() + "lock");
         inSession.getByText("CAISSE FERMÉE").waitFor();
         inSession.navigate(base.toString() + "language-select");
-        inSession.getByText("CAISSE FERMÉE").waitFor();
-        Assertions.assertTrue(inSession.url().endsWith("/lock"),
-                "a locked register must divert /language-select to /lock (LockCheckFilter)");
-        Assertions.assertEquals(0, inSession.getByText(TITLE_FR).count(),
-                "the language screen must not render while the register is locked");
+        inSession.getByText(TITLE_FR).waitFor();
+        Assertions.assertTrue(inSession.url().endsWith("/language-select"),
+                "a locked register must still render /language-select (LockCheckFilter ALLOWED_PREFIXES)");
+        Assertions.assertEquals("fr", langOf(inSession),
+                "the screen a locked register offers renders in the resolved language");
         inSession.close();
     }
 
@@ -375,6 +387,13 @@ public class GroupTIT {
                 e.language = language;
             }
         });
+        // AND THE REGISTER IS TOLD. Writing the row is the back office's
+        // gesture, not the till's: the resolver memorises what it resolved from
+        // (the chosen language, who is signed in, the system language) rather
+        // than reading the employee row once per label, and that row is not one
+        // of those inputs. Whoever rewrites it says so — here, as the back
+        // office will.
+        i18n.forgetResolvedLanguage();
     }
 
     /**
@@ -487,6 +506,9 @@ public class GroupTIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

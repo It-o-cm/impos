@@ -282,6 +282,26 @@ public class PaymentState implements Serializable {
     }
 
     /**
+     * Registers the automatic recovery of a deposit already collected on an
+     * order (LC-06-03-07), carrying the deposit's per-rate VAT detail and the
+     * order code so both reach the persisted {@code DepositPayment} row and
+     * the printed receipt (LC-06-03-08).
+     *
+     * @param amount the deposit recovered on the ticket
+     * @param depositVatDetail the compact per-rate VAT detail of the deposit,
+     *        or null when the recalled document carried none
+     * @param depositOrderCode the code of the order the deposit was taken on,
+     *        or null
+     */
+    public void addDepositPayment(BigDecimal amount, String depositVatDetail,
+                                  String depositOrderCode) {
+        payments.add(new PaymentEntry("ACOMPTE", amount, depositVatDetail, depositOrderCode));
+        paidAmount = paidAmount.add(amount);
+        goToLastPage();
+        clearTemporaryInputs();
+    }
+
+    /**
      * Registers a card payment carrying the monetique traces the terminal
      * returned (authorization number, degraded-mode indicator), so they reach
      * the persisted {@code CardPayment} (BO-04-01-08/47/49).
@@ -824,6 +844,21 @@ public class PaymentState implements Serializable {
         public boolean creditOverLimit;
 
         /**
+         * The per-rate VAT detail of the deposit this entry recovers, in the
+         * compact {@code DepositVat} form, or null on every other entry
+         * (LC-06-03-05/-08): it rides from the recall of the order to the
+         * persisted {@code DepositPayment} row, so the final receipt restates
+         * the ventilation computed at collection time.
+         */
+        public String depositVatDetail;
+
+        /**
+         * The code of the order whose deposit this entry recovers, or null on
+         * every other entry (LC-06-03-07).
+         */
+        public String depositOrderCode;
+
+        /**
          * Creates a plain payment entry.
          *
          * @param method the payment method key
@@ -879,6 +914,36 @@ public class PaymentState implements Serializable {
             this.tenderedAmount = null;
             this.degradedMode = degradedMode;
             this.authorizationNumber = authorizationNumber;
+        }
+
+        /**
+         * Creates a deposit-recovery entry carrying the deposit's per-rate
+         * VAT detail and the order it comes from (LC-06-03-07).
+         *
+         * @param method the payment method key (ACOMPTE)
+         * @param amount the deposit recovered on the ticket
+         * @param depositVatDetail the compact per-rate VAT detail of the
+         *        deposit, or null when the recalled document carried none
+         * @param depositOrderCode the code of the order the deposit was
+         *        taken on, or null
+         */
+        public PaymentEntry(String method, BigDecimal amount, String depositVatDetail,
+                            String depositOrderCode) {
+            this.method = method;
+            this.amount = amount;
+            this.tenderedAmount = null;
+            this.depositVatDetail = depositVatDetail;
+            this.depositOrderCode = depositOrderCode;
+        }
+
+        /**
+         * Indicates whether this entry recovers a deposit already collected
+         * on an order (LC-06-03-07).
+         *
+         * @return true when the entry is a deposit recovery
+         */
+        public boolean isDepositRecovery() {
+            return "ACOMPTE".equals(method);
         }
 
         /**

@@ -35,6 +35,17 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
      *
      * @param ctx the token walking the chain
      */
+    /**
+     * The administered supervisor prefix, trimmed and never null
+     * (BO-10-02-32).
+     *
+     * @return the prefix, blank when the shop administers none
+     */
+    private String safePrefix() {
+        String prefix = posSettingsService.supervisorBadgePrefix();
+        return prefix == null ? "" : prefix.trim();
+    }
+
     @Override
     public void handle(ScanContext ctx) {
         if (ctx.handled) return;
@@ -42,12 +53,24 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
         // BO-10-02-29/30: when badge scanning is disabled, a badge is not
         // consumed here — it walks on rather than taking the post or endorsing,
         // so the operator keys an identifier by hand instead.
-        if (posSettingsService.badgeScanEnabled() && ctx.code.matches(badgePattern)) {
+        // BO-10-02-32: the supervisor barcode carries a PREFIX the keyboard
+        // does not. While one is administered, an identification that endorses
+        // or supervises is accepted only from a prefixed code, and the bare
+        // code — the one anybody could key — no longer endorses anything. The
+        // prefix is stripped before the badge is read, so the identifier stored
+        // stays the operator's own. Blank prefix: nothing changes.
+        String prefix = safePrefix();
+        boolean prefixed = !prefix.isEmpty() && ctx.code.startsWith(prefix)
+                && ctx.code.length() > prefix.length();
+        String badge = prefixed ? ctx.code.substring(prefix.length()) : ctx.code;
+        if (posSettingsService.badgeScanEnabled() && badge.matches(badgePattern)) {
             PosState state = ctx.state;
+            boolean mayIdentifySupervisor = prefix.isEmpty() || prefixed;
+            boolean mayTakeThePost = prefix.isEmpty() || !prefixed;
 
             // 1. Priorité : Endossement (Manager)
-            if (state.endorsement.active) {
-                state.endorsement.setScannedBadge(ctx.code);
+            if (state.endorsement.active && mayIdentifySupervisor) {
+                state.endorsement.setScannedBadge(badge);
                 state.touch();
                 ctx.handled = true;
             }
@@ -62,14 +85,14 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
             // n'est pas affichee a ce moment-la. L'armement est porte par le
             // volet lui-meme et expire des qu'il quitte l'ecran, donc un badge
             // etranger reste ignore partout ailleurs.
-            else if (state.auth.supervisorBadgeArmed()) {
-                state.auth.setSupervisorBadge(ctx.code);
+            else if (state.auth.supervisorBadgeArmed() && mayIdentifySupervisor) {
+                state.auth.setSupervisorBadge(badge);
                 state.touch();
                 ctx.handled = true;
             }
             // 3. Sinon : Écran de verrouillage (Login Caissier)
-            else if (state.isLocked()) {
-                state.auth.setScannedBadge(ctx.code);
+            else if (state.isLocked() && mayTakeThePost) {
+                state.auth.setScannedBadge(badge);
                 state.touch();
                 ctx.handled = true;
             }
@@ -78,7 +101,7 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
             // de passe n'est demandé ; la fermeture elle-même reste soumise à
             // ses propres contrôles (tickets en attente), que la page de
             // fermeture applique.
-            else if (ctx.code.equals(state.auth.operatorBadgeId)) {
+            else if (mayTakeThePost && badge.equals(state.auth.operatorBadgeId)) {
                 state.auth.closeRequestedByBadge = true;
                 state.touch();
                 ctx.handled = true;

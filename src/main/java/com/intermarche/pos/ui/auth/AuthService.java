@@ -198,6 +198,7 @@ public class AuthService {
             Employee employee = Employee.findActiveLogin(loginInfo);
             if (employee != null) {
                 state.auth.login(employee.id, employee.getFullName(), employee.badgeId);
+                applyPasswordExpiry(state, employee);
                 applyDedicatedReturnRegister(state);
                 technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
                         null, employee.badgeId);
@@ -211,6 +212,7 @@ public class AuthService {
         if (status.isSuccess()) {
             state.auth.login(status.employee.id, status.employee.getFullName(),
                     status.employee.badgeId);
+            applyPasswordExpiry(state, status.employee);
             applyDedicatedReturnRegister(state);
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
                     null, status.employee.badgeId);
@@ -262,6 +264,7 @@ public class AuthService {
         if (status.isSuccess()) {
             state.auth.login(status.employee.id, status.employee.getFullName(),
                     status.employee.badgeId);
+            applyPasswordExpiry(state, status.employee);
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
                     null, status.employee.badgeId);
             LOGGER.info("Exiting method resume");
@@ -286,6 +289,31 @@ public class AuthService {
         }
         state.auth.pause();
         LOGGER.info("Exiting method pause");
+    }
+
+    /**
+     * Demands a new PIN when the operator's secret has passed the administered
+     * delay (BO-01-02-12).
+     *
+     * <p>Called at every way IN — badge, keyed credentials, reprise — and not
+     * at the forced reprise, which already demands a change for its own
+     * reason. The demand is the SAME one EXP-14 raises, so the cashier meets
+     * the screen they already know.
+     *
+     * <p>A register assembled without a settings service keeps the post open:
+     * a parameter that cannot be read must not stand between a cashier and
+     * their till.
+     *
+     * @param state the register state, already logged in
+     * @param employee the operator who just took the post
+     */
+    private void applyPasswordExpiry(PosState state, Employee employee) {
+        if (posSettingsService == null || employee == null) {
+            return;
+        }
+        if (employee.secretExpired(posSettingsService.passwordExpiryDays())) {
+            state.auth.passwordChangeRequired = true;
+        }
     }
 
     /**
@@ -377,6 +405,13 @@ public class AuthService {
         }
         state.auth.logout();
         state.clearTicket();
+        // A PENDING AVAL DIES WITH THE POST. On the lock screen the endorsement
+        // mailbox outranks the login one (AuthScanHandler, priority 1 before 3),
+        // so an endorsement left active by the operator who just left would
+        // swallow the badge of the one who arrives — and the register would
+        // refuse every badge until it is restarted. Nobody is there to answer
+        // the question any more; the gesture it guarded went with the ticket.
+        state.endorsement.clear();
         LOGGER.info("Exiting method logout");
     }
 
@@ -418,6 +453,9 @@ public class AuthService {
             return i18n.get("op.nouveauxCodesNeCorrespondent");
         }
         employee.password = Employee.hashPassword(newPin);
+        // BO-01-02-12: the delay counts from the LAST change, so the change is
+        // what restarts it.
+        employee.passwordChangedAt = java.time.LocalDateTime.now();
         employee.persist();
         // A forced reprise (EXP-14) demanded this change; once done, the demand
         // is satisfied and the register is a plain logged-in post again.

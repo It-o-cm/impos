@@ -71,6 +71,13 @@ public class TechnicalEvent extends PanacheEntity {
          * from a defective-article one.
          */
         RETURN_TYPE_SELECTED,
+        /**
+         * A closed ticket was REASSIGNED to a fidelity customer
+         * (LC-03-06-01..06): the card, the till, the operator, the ticket
+         * amount and the acquired advantages travel in the detail — the
+         * reporting movement the questionnaire asks the system to record.
+         */
+        TICKET_REASSIGNED,
         /** The digital receipt was sent to a customer email. */
         DIGITAL_TICKET_SENT,
         /** The cashier called a supervisor (reason in the detail). */
@@ -79,6 +86,17 @@ public class TechnicalEvent extends PanacheEntity {
         TRAINING_STARTED,
         /** The register left training mode. */
         TRAINING_ENDED,
+        /**
+         * An article's price was CHECKED at the register (BO-04-01-38): a
+         * cashier or a customer asked the article-info screen what an article
+         * costs, without selling anything.
+         *
+         * <p>Journalised because it is the one gesture that leaves no ticket
+         * and that a shop still wants to find afterwards — a price disputed at
+         * the till is answered by what the register displayed, and that is
+         * nowhere else.
+         */
+        PRICE_CHECKED,
         /**
          * The register entered lock mode (automatic idle pause): the operator
          * that was working it stepped away and the idle timeout paused the

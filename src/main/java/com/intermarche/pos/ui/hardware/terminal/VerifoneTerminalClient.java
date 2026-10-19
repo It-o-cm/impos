@@ -71,15 +71,41 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     private final com.intermarche.pos.ui.Messages i18n;
 
     /**
-     * Creates the client over the given transport.
+     * The administered monetique parameters (BO-03-09-31), or null when the
+     * client was built without them.
+     *
+     * <p>HANDED OVER AND NOT INJECTED, for the reason {@link #i18n} is: this
+     * class is built by {@link TerminalClientProducer} and not by the
+     * container. Nullable, so a client built by a test or by an older caller
+     * keeps behaving exactly as it did.
+     */
+    private final com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /**
+     * Creates the client over the given transport, without the administered
+     * monetique parameters.
      *
      * @param transport the TCP transport to the local monetique client
      * @param i18n the resolver of the operator-facing messages
      */
     public VerifoneTerminalClient(VerifoneTransport transport,
             com.intermarche.pos.ui.Messages i18n) {
+        this(transport, i18n, null);
+    }
+
+    /**
+     * Creates the client over the given transport.
+     *
+     * @param transport the TCP transport to the local monetique client
+     * @param i18n the resolver of the operator-facing messages
+     * @param posSettingsService the administered monetique parameters, or null
+     */
+    public VerifoneTerminalClient(VerifoneTransport transport,
+            com.intermarche.pos.ui.Messages i18n,
+            com.intermarche.pos.service.PosSettingsService posSettingsService) {
         this.transport = transport;
         this.i18n = i18n;
+        this.posSettingsService = posSettingsService;
     }
 
     /**
@@ -188,17 +214,75 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     /**
      * Builds the request frame of an operation.
      *
+     * <p>Package-visible so a test can read the frame on ITS OWN thread: the
+     * administered reads below touch a static Panache finder, and a Mockito
+     * static mock does not cross into the exchange thread.
+     *
      * @param operation "debit" or "credit"
      * @param amount the transaction amount
      * @return the encoded request frame
      */
-    private String buildRequest(String operation, BigDecimal amount) {
+    String buildRequest(String operation, BigDecimal amount) {
         // TODO(spec Verifone): real request layout (message code, POS
         // number, amount format, currency, operation discriminator).
         Map<String, String> tags = new LinkedHashMap<>();
         tags.put("OPERATION-PLACEHOLDER", operation);
         tags.put("AMOUNT-PLACEHOLDER", amount.toPlainString());
+        appendAdministeredTags(tags);
         return VerifoneFrameCodec.encode(tags);
+    }
+
+    /**
+     * Adds the administered pairs the store states verbatim: the VIC product
+     * codes of the tenders in service (BO-03-09-30) and the Label Point De
+     * Vente when its activation key is on (BO-03-09-31).
+     *
+     * <p>VERBATIM, and that is the point. Neither the tag nor the value of
+     * these pairs is the register's to compose: the acquirer states them, the
+     * back office stores them as stated, and the pairs are read with the very
+     * codec the wire uses — the {@code {TAG}value} syntax the requirement
+     * itself writes these codes in. Nothing here invents a tag.
+     *
+     * <p>What this does NOT do is place them: WHERE in a request layout these
+     * pairs belong is part of the layout above, which is still a TODO. They are
+     * appended, which is the only honest thing to do with a pair whose position
+     * nobody has specified yet.
+     *
+     * @param tags the request's tag map, in order
+     */
+    private void appendAdministeredTags(Map<String, String> tags) {
+        for (String code : administeredVicProductCodes()) {
+            tags.putAll(VerifoneFrameCodec.decode(code));
+        }
+        if (posSettingsService == null || !posSettingsService.terminalPdvLabelEnabled()) {
+            return;
+        }
+        String label = posSettingsService.terminalPdvLabel();
+        if (label == null || label.isBlank()) {
+            // The activation is on and nothing is administered: nothing is
+            // added. An empty label is not a label.
+            return;
+        }
+        tags.putAll(VerifoneFrameCodec.decode(label.trim()));
+    }
+
+    /**
+     * Reads the VIC product codes of the tenders in service (BO-03-09-30).
+     *
+     * <p>A database read on the exchange thread, guarded: a referential this
+     * client cannot reach — no persistence context in a unit test, a database
+     * hiccup at the worst moment — must not cost the customer their payment.
+     * The codes are an addition to the request, never a condition of it.
+     *
+     * @return the administered codes, empty when none can be read
+     */
+    private java.util.List<String> administeredVicProductCodes() {
+        try {
+            return com.intermarche.pos.domain.payment.TenderDefinition.activeVicProductCodes();
+        } catch (Exception e) {
+            LOGGER.debugf("VIC product codes unavailable: %s", e.getMessage());
+            return java.util.List.of();
+        }
     }
 
     /**

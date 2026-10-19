@@ -60,6 +60,54 @@ class FidelityServiceTest {
     }
 
     /**
+     * LC-03-04-08: confirming the proposal walks the parked card through the
+     * ONE attachment entry point — exactly as if it had been scanned on an
+     * empty ticket — and the proposal is consumed whatever happens.
+     */
+    @Test
+    void confirmReplacementWalksTheParkedCardThroughValidateCard() {
+        FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
+        PosState state = newState();
+        state.fidelity.pendingReplacementCard = "2990000000019";
+        service.confirmReplacement(state);
+        verify(state.fidelity).assignCard("2990000000019");
+        verify(state).touch();
+        assertNull(state.fidelity.pendingReplacementCard);
+    }
+
+    /**
+     * LC-03-04-08: keeping the attached card drops the parked replacement and
+     * touches the state so the proposal leaves the screen — the first holder
+     * keeps their card, their advantages and their earn.
+     */
+    @Test
+    void keepReplacementDropsTheProposalAndKeepsTheAttachedCard() {
+        FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
+        PosState state = newState();
+        state.fidelity.pendingReplacementCard = "2990000000019";
+        service.keepReplacement(state);
+        verify(state.fidelity, never()).assignCard(any());
+        assertNull(state.fidelity.pendingReplacementCard);
+        verify(state).touch();
+    }
+
+    /**
+     * LC-03-04-08: confirming with NO proposal parked is a no-op — a stale
+     * page or a double tap attaches nothing and wakes nothing.
+     */
+    @Test
+    void confirmReplacementWithoutAProposalIsANoOp() {
+        FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
+        PosState state = newState();
+        service.confirmReplacement(state);
+        verify(state.fidelity, never()).assignCard(any());
+        verify(state, never()).touch();
+    }
+
+    /**
      * A {@code null} card is forwarded verbatim to {@code assignCard}; the service
      * applies no guard, so the touch still fires.
      */

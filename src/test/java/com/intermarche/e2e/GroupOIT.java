@@ -246,9 +246,11 @@ public class GroupOIT {
         assertSaleErrorShown(page, "ÉTIQUETTE DÉJÀ SCANNÉE");
         assertSaleErrorClears(page);
 
-        // --- POIDS INVALIDE — weighed add with a null scale weight ---
-        setWeight("0");
-        get("action/add/" + PLU_POMMES);
+        // --- POIDS INVALIDE — a weighed-EAN sticker whose embedded weight is zero.
+        // (A weighing on the live scale now WAITS for the plate to be loaded and
+        // re-reads, so an empty plate no longer yields this message; the zero-gram
+        // label reads its invalid weight straight off the barcode.) ---
+        scan(weightLabel("04020", "00000"));
         assertSaleErrorShown(page, "POIDS INVALIDE");
         assertSaleErrorClears(page);
 
@@ -313,12 +315,16 @@ public class GroupOIT {
         assertSaleErrorShown(page, "QUANTITÉ INVALIDE (1-999)");
         assertSaleErrorClears(page);
 
-        // --- A weighed line takes a typed DECIMAL weight in kilograms: applied, no message ---
+        // --- QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE — a weighed line's quantity
+        // IS its measured weight (LC-02-13-15): the QUANTITY key may not rewrite
+        // it into a count, so the gesture is refused and the weight is left as the
+        // scale set it. ---
+        java.math.BigDecimal weighedQtyBefore = weighedLine().quantity;
         postForm("action/price-mod/submit", "type=QUANTITY&uid=" + weighedUid + "&rawValue=2");
-        Assertions.assertEquals(0, weighedLine().quantity.compareTo(new java.math.BigDecimal("2.000")),
-                "a typed quantity on a weighed line is applied as a weight in kilograms");
-        Assertions.assertNull(posState.ticket.transientError,
-                "a valid typed weight on a weighed line raises no message");
+        assertSaleErrorShown(page, "QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
+        Assertions.assertEquals(0, weighedLine().quantity.compareTo(weighedQtyBefore),
+                "a refused QUANTITY leaves the weighed line's measured weight unchanged");
+        assertSaleErrorClears(page);
 
         // --- QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE — a price-embedded sticker line ---
         scan(PRICE_LABEL);
@@ -478,7 +484,7 @@ public class GroupOIT {
     @Test
     void oc_return_staging_guards() {
         Page page = freshSaleLogin();
-        Long ticketId = closeCashSaleOn(page, "20", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(page, "2000", EAN_HUILE);
 
         // --- RIEN À REMBOURSER — nothing staged ---
         page.navigate(base.toString() + "return/select/" + ticketId);
@@ -505,6 +511,10 @@ public class GroupOIT {
         Assertions.assertEquals("RETOURS INDISPONIBLES EN FORMATION", posState.refund.errorMessage,
                 "a refund method requested in training must be refused");
         setTraining(page, false);
+        // Isolation: drop the refund-ticket selection so the next scenario's
+        // scans ring as sales again rather than as origin-line lookups (the
+        // return screen drops the selection when it is left).
+        get("return/leave");
         page.close();
     }
 
@@ -682,11 +692,12 @@ public class GroupOIT {
         goPay(page);
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
         // The cash pad opens PRE-FILLED with the exact remainder (LC-07-03-01);
-        // clear it before keying an over-payment so "20" replaces the default
-        // rather than leaving the exact sum in place (no change otherwise).
+        // clear it before keying an over-payment so the tender replaces the
+        // default rather than leaving the exact sum in place (no change
+        // otherwise). The pad is in CENTS mode, so 20,00 € is keyed as "2000".
         page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
-        tapDigits(page.locator("#payNumpadZone"), "20");
+        tapDigits(page.locator("#payNumpadZone"), "2000");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER ESPÈCES").setExact(true)).click();
         // Cash OPENS the drawer: the completion modal's change section is only
@@ -868,7 +879,8 @@ public class GroupOIT {
      * returning the settled ticket's database id (captured before the close).
      *
      * @param page the Playwright page on the empty sale screen
-     * @param cashDigits the cash amount digits to tap (must cover the total)
+     * @param cashDigits the cash amount digits to tap, keyed in CENTS as the pad
+     *                   demands (e.g. "2000" for 20,00 €; must cover the total)
      * @param eans the product EANs to scan (repeats merge)
      * @return the database id of the closed ticket
      */
@@ -1179,7 +1191,11 @@ public class GroupOIT {
      * Enters the opening float on the session screen's touch keypad
      * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
      * writing a hidden field, so the amount is tapped digit by digit after a
-     * CLEAR of the prefilled default, as the cashier would on the borne.
+     * CLEAR of the prefilled default, as the cashier would on the borne. The pad
+     * runs in CENTS mode (the house doctrine for every amount), so it carries no
+     * comma: the cashier keys the cents and the application places the comma, so
+     * "200,00" is tapped as the five digits 2 0 0 0 0 and only the digits are
+     * pressed.
      *
      * @param page the Playwright page driving the register
      * @param amount the float to key in, comma as the decimal separator
@@ -1189,6 +1205,9 @@ public class GroupOIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

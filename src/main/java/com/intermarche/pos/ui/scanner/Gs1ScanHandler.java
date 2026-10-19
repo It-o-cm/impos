@@ -51,6 +51,10 @@ import java.util.List;
 @Priority(1)
 public class Gs1ScanHandler implements ScanContext.ScanHandler {
 
+    /** Whether an article may be rung on THIS register (BO-03-01-18). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.ticket.ArticleScopeService articleScopeService;
+
     /**
      * The localised operator messages: every sentence this class stamps on the
      * register's message band is a bundle key, never a French literal (LC-13-06).
@@ -287,6 +291,11 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
             state.ticket.setError(i18n.format("op.articleGs1Introuvable", message.getArticleCode()));
             return true;
         }
+        // BO-03-01-18: same decision on the GS1 road.
+        if (articleScopeService != null && !articleScopeService.soldHere(product)) {
+            state.ticket.setError(i18n.get("op.articleNonVenduSurCetteCaisse"));
+            return true;
+        }
         if (product.forbiddenToSale) {
             state.ticket.setError(i18n.get("op.produitInterditVente"));
             return true;
@@ -309,7 +318,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         // is raised AFTER the line is registered, because registering clears the
         // message area.
         String recalledLots = (batch == null || batch.isBlank())
-                ? ProductAttributes.recalledLotsMessage(product) : null;
+                ? ProductAttributes.recalledLotsJoined(product) : null;
         // LC-11-03-16: the code carries a quantity AND the cashier armed the quantity
         // key. Two answers to one question, and the register may not pick one — it says
         // so and registers nothing.
@@ -325,7 +334,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         }
         addLine(state, message, product, count, expiry);
         if (recalledLots != null) {
-            state.ticket.setNotice(recalledLots);
+            state.ticket.setNotice(i18n.format("op.produitRappelLots", recalledLots));
         }
         return true;
     }
@@ -437,7 +446,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
             unitPrice = price != null ? price.priceIncludingTax : BigDecimal.ZERO;
             quantity = count == null ? BigDecimal.ONE : count;
         }
-        state.ticket.addItem(product.ean, product.plu, product.saleLabel().toUpperCase(),
+        state.ticket.addItem(product.ean, product.plu, translatedLabel(product),
                 unitPrice, quantity, vatRate);
         if (state.ticket.items.isEmpty()) {
             return;
@@ -473,5 +482,22 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         return variableMeasure != null
                 ? variableMeasure
                 : message.decimal(Gs1ApplicationIdentifier.AMOUNT_PAYABLE);
+    }
+
+    /**
+     * The article's wording in the language the till is set to, upper-cased as
+     * every line label is (BO-03-01-20).
+     *
+     * <p>The administered translation wins; the catalog's own sale label is the
+     * fallback, which is what every line carried before translations existed.
+     *
+     * @param product the article
+     * @return the line label
+     */
+    private String translatedLabel(com.intermarche.pos.domain.catalog.Product product) {
+        String language = i18n == null ? null : i18n.getLang();
+        String label = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                .saleLabel(product, language);
+        return label == null ? "" : label.toUpperCase();
     }
 }

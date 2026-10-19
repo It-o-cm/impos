@@ -55,6 +55,10 @@
     <div class="cart-header">
       <span class="brand">INTERMARCHÉ</span>
       <span class="subtitle" id="payingHint"></span>
+      <!-- BO-10-03-03 : le nom du porteur, quand le magasin l'a demandé et
+           qu'une recherche l'a trouvé. Vide le reste du temps, et la zone
+           n'occupe alors aucune place. -->
+      <span class="subtitle" id="fidelityHolder"></span>
     </div>
     <div class="cart-lines" id="cartLines"></div>
     <div class="cart-footer">
@@ -130,6 +134,7 @@
       lines.scrollTop = lines.scrollHeight;
       document.getElementById('totalZone').textContent = data.total + ' €';
       document.getElementById('payingHint').textContent = data.paying ? 'PAIEMENT EN COURS' : '';
+      document.getElementById('fidelityHolder').textContent = data.fidelityHolder || '';
       /* LC-07-03-03: where the shop rounds, the customer reads both figures —
          what the sale owes and the sum they can actually hand over in coins. */
       document.getElementById('remainingZone').textContent =

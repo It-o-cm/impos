@@ -58,9 +58,9 @@ import java.util.stream.Collectors;
  * parked refund transactionally.
  * <p>
  * <b>The two-layer guard.</b> The refund guards run TWICE on purpose — once at
- * staging (the per-line stepper CAPS the quantity at what is still refundable,
- * so a double refund is impossible to even dial: H2) and again INSIDE the
- * creation transaction (the authoritative re-check). The transaction re-check is
+ * staging (a line already fully returned by a past refund is greyed and
+ * rendered non-selectable, so a double refund is impossible to even dial: H2)
+ * and again INSIDE the creation transaction (the authoritative re-check). The transaction re-check is
  * reachable from the screen for the ticket-level cap because the free amount is
  * NOT capped at staging: keying an amount above the ticket total sails through
  * staging and is rolled back in the transaction with {@code PLAFOND DU TICKET
@@ -177,7 +177,7 @@ public class GroupHIT {
     void h1_retour_nominal_especes() {
         // --- Build the closed cash ticket to refund (6,00 € TTC, 20 % VAT) ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         Long lineId = firstLineId(ticketId);
@@ -217,26 +217,28 @@ public class GroupHIT {
         Assertions.assertEquals(0, theoreticalCash().compareTo(theoBefore.subtract(new BigDecimal("6.00"))),
                 "the cash refund must lower the theoretical drawer by 6,00 €");
         closeDrawer();
+        leaveReturn();
         page.close();
     }
 
     /**
      * H2 — Anti-double remboursement.
      * <p>
-     * A two-unit line fully refunded once cannot be refunded again: the per-line
-     * stepper CAPS the return quantity at the remaining refundable (zero), so a
-     * second refund cannot even be dialled, and requesting a method on a
-     * zero-total staging is refused with {@code RIEN À REMBOURSER}. No second
-     * refund is created. (The authoritative transaction re-check of this same
-     * per-line cap needs a concurrent second staging the single-operator
-     * register cannot host — see the class residue note; the transaction
-     * re-check with rollback is proven for the ticket cap in H3.)
+     * A two-unit line fully refunded once cannot be refunded again: a past refund
+     * that exhausted the line (EXP-37) makes the return detail GREY it and render
+     * it as a non-selectable {@code DÉJÀ RETOURNÉ} span instead of a selectable
+     * anchor, so a second refund can never even be dialled, and requesting a
+     * method on the resulting empty staging is refused with {@code RIEN À
+     * REMBOURSER}. No second refund is created. (The authoritative transaction
+     * re-check of this same per-line cap needs a concurrent second staging the
+     * single-operator register cannot host — see the class residue note; the
+     * transaction re-check with rollback is proven for the ticket cap in H3.)
      */
     @Test
     void h2_anti_double_remboursement() {
         // --- Build a two-unit closed ticket (12,00 € TTC) ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "20", EAN_HUILE, EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "2000", EAN_HUILE, EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         Long lineId = firstLineId(ticketId);
@@ -255,22 +257,30 @@ public class GroupHIT {
         approveEndorsementWithManager(page);
         Assertions.assertEquals(1, refundsFor(ticketId).size(), "the first full refund must be created");
         closeDrawer();
+        leaveReturn();
         page.close();
-        // --- Second attempt: the stepper caps at the exhausted remainder (zero) ---
+        // --- Second attempt: the exhausted line is greyed and non-selectable ---
+        // EXP-37: a line fully returned by a past refund is marked exhausted when
+        // the ticket is re-selected and renders as a DÉJÀ RETOURNÉ span, NOT the
+        // selectable anchor the stepper hangs off — so the double-refund guard now
+        // refuses the selection itself and the quantity can never be re-dialled.
         Page again = freshSale();
         assertTicketFoundBySearch(number);
         openReturnDetail(again, ticketId);
-        selectReturnLine(again, lineId);
-        addReturnQty(again, lineId);
-        Assertions.assertEquals(0, posState.refund.getReturnQty(lineId).compareTo(BigDecimal.ZERO),
-                "the stepper must cap the already-exhausted line at zero (staging double-refund guard)");
-        // --- Requesting a method on a zero staging is refused, no refund created ---
+        again.getByText("DÉJÀ RETOURNÉ").waitFor();
+        Assertions.assertTrue(posState.refund.isFullyReturned(lineId),
+                "the fully-returned line must be marked exhausted on re-selection");
+        Assertions.assertEquals(0,
+                again.locator("a.line-content[href='/return/select-line/" + lineId + "']").count(),
+                "the exhausted line must render no selectable anchor (staging double-refund guard)");
+        // --- Requesting a method on the empty staging is refused, no refund created ---
         again.navigate(base.toString() + "return/pay/cash");
         again.getByText("RIEN À REMBOURSER").waitFor();
         Assertions.assertFalse(posState.endorsement.active,
                 "a zero-total refund request must not open an endorsement");
         Assertions.assertEquals(1, refundsFor(ticketId).size(),
                 "no second refund must be created against the exhausted ticket");
+        leaveReturn();
         again.close();
     }
 
@@ -287,7 +297,7 @@ public class GroupHIT {
     void h3_plafond_ticket_montant_libre() {
         // --- Build a 6,00 € closed ticket ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         // --- Open it, switch to free-amount entry and key 10,00 € (> 6,00 €) ---
@@ -296,7 +306,9 @@ public class GroupHIT {
         openReturnDetail(page, ticketId);
         page.navigate(base.toString() + "return/edit-amount");
         page.locator("#mainInput").waitFor();
-        tapDigits(page.locator("#numpadContainer"), "10");
+        // KEYED IN CENTS: every amount pad of the register is a cents pad, so
+        // 10,00 € is tapped 1-0-0-0 (the pad places the comma and carries none).
+        tapDigits(page.locator("#numpadContainer"), "1000");
         // The method buttons commit the keyed amount by submitting the staging
         // form first (their onclick), so ESPÈCES here only stages the amount.
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
@@ -311,6 +323,7 @@ public class GroupHIT {
         page.getByText("PLAFOND DU TICKET DÉPASSÉ (DÉJÀ REMBOURSÉ : 0.00 €)").waitFor();
         Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
                 "the ticket-cap refusal must roll the creation back — no refund persisted");
+        leaveReturn();
         page.close();
     }
 
@@ -327,7 +340,7 @@ public class GroupHIT {
     void h4_bon_de_remboursement() {
         // --- Build a 6,00 € ticket and refund it as a store voucher ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         Long lineId = firstLineId(ticketId);
@@ -342,6 +355,7 @@ public class GroupHIT {
         List<RefundSnap> refunds = refundsFor(ticketId);
         Assertions.assertEquals(1, refunds.size(), "the voucher refund must be created");
         Assertions.assertEquals("VOUCHER", refunds.get(0).method, "the refund method must be VOUCHER");
+        leaveReturn();
         page.close();
         // --- The printed credit note: a REGISTRY number, not an encoded one ---
         // The refund no longer prints a 50-prefixed voucher carrying its own
@@ -390,7 +404,7 @@ public class GroupHIT {
     void h5_retour_en_formation_bloque() {
         // --- Build a real closed ticket BEFORE entering training ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         Long lineId = firstLineId(ticketId);
@@ -414,6 +428,7 @@ public class GroupHIT {
         // --- Restore: leave training so the register ends clean ---
         toggleTraining(page);
         Assertions.assertFalse(posState.trainingMode, "training must be toggled back off");
+        leaveReturn();
         page.close();
     }
 
@@ -434,7 +449,7 @@ public class GroupHIT {
     void h6_remboursement_en_cagnotte() {
         // --- Case 1: original ticket WITH a fidelity card → loyalty credit ---
         Page sale = freshSale();
-        Long withCard = closeCashSaleWithCardOn(sale, "10", FIDELITY_CARD, EAN_HUILE);
+        Long withCard = closeCashSaleWithCardOn(sale, "1000", FIDELITY_CARD, EAN_HUILE);
         sale.close();
         Assertions.assertEquals(FIDELITY_CARD, fidelityCardOf(withCard),
                 "the built ticket must carry the scanned fidelity card (H6 precondition)");
@@ -452,9 +467,10 @@ public class GroupHIT {
         // the credit message when it is read (a later sale-screen poll would
         // overwrite the customer display).
         approveEndorsementNoNav(page);
-        // The customer display carries the raw-scale amount (4 decimals), unlike
-        // the 2-decimal printed receipt below — assert the display's exact form.
-        Assertions.assertTrue(displayContent().contains("CREDIT FIDELITE 6,0000 E"),
+        // The customer display carries the refund's PERSISTED total, at the cent
+        // like the paper below and like the figure the customer was told — the
+        // credit is money, and money has two decimals.
+        Assertions.assertTrue(displayContent().contains("CREDIT FIDELITE 6,00 E"),
                 "the loyalty refund must show the credit on the customer display, was: " + displayContent());
         List<RefundSnap> refunds = refundsFor(withCard);
         Assertions.assertEquals(1, refunds.size(), "the loyalty refund must be created");
@@ -469,10 +485,11 @@ public class GroupHIT {
         Assertions.assertEquals(fidBefore + 1, fidEventCount(FidEvent.EventType.TICKET_RETURN),
                 "the loyalty refund must post exactly one TICKET_RETURN fidelity event");
         closeDrawer();
+        leaveReturn();
         page.close();
         // --- Case 2: original ticket WITHOUT a fidelity card → transaction refusal ---
         Page sale2 = freshSale();
-        Long noCard = closeCashSaleOn(sale2, "10", EAN_HUILE);
+        Long noCard = closeCashSaleOn(sale2, "1000", EAN_HUILE);
         sale2.close();
         Assertions.assertNull(fidelityCardOf(noCard),
                 "the control ticket must carry NO fidelity card");
@@ -493,6 +510,7 @@ public class GroupHIT {
                 "a loyalty refund on a card-less ticket must be refused in transaction");
         Assertions.assertTrue(refundsFor(noCard).isEmpty(),
                 "the in-transaction refusal must roll back — no refund persisted");
+        leaveReturn();
         page2.close();
     }
 
@@ -508,7 +526,7 @@ public class GroupHIT {
     void h7_retour_interdit_carte_cadeau() {
         // --- Build a closed ticket whose only line is a gift card (25,00 €) ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "30", EAN_GIFT25);
+        Long ticketId = closeCashSaleOn(sale, "3000", EAN_GIFT25);
         sale.close();
         String number = ticketNumber(ticketId);
         Long lineId = firstLineId(ticketId);
@@ -528,6 +546,7 @@ public class GroupHIT {
                 "a staging refusal must not open an endorsement");
         Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
                 "no refund must be created on a gift-card line");
+        leaveReturn();
         page.close();
     }
 
@@ -546,7 +565,7 @@ public class GroupHIT {
     void h8_methode_non_autorisee_et_rien_a_rembourser() {
         // --- Build a plain 6,00 € closed ticket ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         Long lineId = firstLineId(ticketId);
@@ -560,6 +579,7 @@ public class GroupHIT {
                 "a zero-total refund request must not open an endorsement");
         Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
                 "a zero staging must create no refund");
+        leaveReturn();
         a.close();
         // --- Guard 2: administer CARD as refund-forbidden and request it ---
         forbidCardRefund();
@@ -577,6 +597,7 @@ public class GroupHIT {
                     "a forbidden refund method must not open an endorsement");
             Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
                     "a forbidden refund method must create no refund");
+            leaveReturn();
             b.close();
         } finally {
             // Restore the referential: drop the administered CARD tender row.
@@ -615,7 +636,7 @@ public class GroupHIT {
         Page sale = freshSale();
         for (int i = 0; i < 17; i++) scan(EAN_HUILE);
         goPay(sale);
-        payCashComplete(sale, "200");
+        payCashComplete(sale, "20000");
         Long ticketId = posState.payment.ticketDbId;
         Assertions.assertNotNull(ticketId, "the settled sale must carry a persisted draft");
         finishSale(sale);
@@ -627,7 +648,8 @@ public class GroupHIT {
         openReturnDetail(page, ticketId);
         page.navigate(base.toString() + "return/edit-amount");
         page.locator("#mainInput").waitFor();
-        tapDigits(page.locator("#numpadContainer"), "102");
+        // Keyed in cents, like every amount: 102,00 € is tapped 1-0-2-0-0.
+        tapDigits(page.locator("#numpadContainer"), "10200");
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
         page.getByText("Montant Retour").waitFor();
         Assertions.assertEquals(0, posState.refund.getTotalRefundAmount().compareTo(new BigDecimal("102")),
@@ -659,6 +681,7 @@ public class GroupHIT {
                 "an unused note keeps its full 102,00 € balance (consultable — cross F19)");
         Assertions.assertTrue(sv.initialAmount.compareTo(new BigDecimal("99.99")) > 0,
                 "the 102,00 € note proves the historical 99,99 € cap is lifted");
+        leaveReturn();
         page.close();
     }
 
@@ -898,6 +921,21 @@ public class GroupHIT {
     private void addReturnQty(Page page, Long lineId) {
         page.locator("a[href='/return/line/" + lineId + "/add']").click();
         page.getByText("Montant Retour").waitFor();
+    }
+
+    /**
+     * Leaves the return screen on the HTTP surface ({@code GET /return/leave}),
+     * which clears the server-side refund selection (and the return-type label)
+     * and redirects to the sale screen — the isolation cleanup GroupOIT's oc
+     * scenario already uses. A scenario that ends with a refund ticket still
+     * selected (a staging refusal, a training block, a transaction rollback, or
+     * the EXP-37 fully-returned re-selection) would otherwise leak the selection:
+     * while a ticket is selected {@code TicketService.processScan} routes EVERY
+     * scanned code to refund article-entry, so the next scenario's {@code scan}
+     * would be swallowed as an origin-line lookup and no sale draft would persist.
+     */
+    private void leaveReturn() {
+        context.request().get(base.toString() + "return/leave");
     }
 
     /**
@@ -1169,6 +1207,9 @@ public class GroupHIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

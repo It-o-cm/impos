@@ -64,6 +64,11 @@ public class E2eTestProfile implements QuarkusTestProfile {
                 "pos.terminal.id", "C04",
                 "quarkus.http.test-port", testPort(),
                 "quarkus.rest-client.hardware-api.url", base,
-                "pos.valuation.url", base + "/api");
+                "pos.valuation.url", base + "/api",
+                // The fidelity-card scan pattern the groups rely on (same regex the
+                // demo fid profiles pin): a 13-digit 299-prefixed card. Without it
+                // the shared profile leaves the pattern unset, so a card scan is
+                // never recognized as a fidelity card and #fidIcon never lights.
+                "scan.pattern.fidelity", "^299\\d{10}$");
     }
 }

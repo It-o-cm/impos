@@ -9,6 +9,8 @@ import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModState;
 import com.intermarche.pos.ui.PriceModType;
+import com.intermarche.pos.ui.endorsement.ControlLevel;
+import com.intermarche.pos.ui.endorsement.ControlPoint;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketService;
@@ -83,11 +85,19 @@ class HomeServiceTest {
         service.tareService = mock(com.intermarche.pos.ui.balance.TareService.class);
         service.ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.endorsementService = mock(EndorsementService.class);
+        // The control points of BO-10-02 answer as they do with nothing
+        // administered — no control — which is the behaviour every case of this
+        // class was written against. A case exercising a control states its own.
+        when(service.endorsementService.check(any(), any()))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.NONE);
         // The payment writer, for the direct (unendorsed) ticket abandon (EXP-32).
         service.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
         // Back-office parameters at their catalog defaults: the endorsement
         // ceremony applies, so the historical routing assertions hold.
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        // The administered lists (BO-04-02-07): a mock answers an empty list for
+        // every kind, which is what a register with no list distributed sees.
+        service.posListService = mock(com.intermarche.pos.service.PosListService.class);
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(true);
         // LC-05-01-01/-03 and LC-05-02-09/14: the return-creation parameters at
         // their catalog defaults — an article may be taken back inside a sale and
@@ -284,6 +294,61 @@ class HomeServiceTest {
         assertNull(service.state.armedQuantity);
         verify(service.state.ticket, times(3)).setError("QUANTITÉ INVALIDE");
         verify(service.state.priceModState, times(3)).clear();
+    }
+
+    /**
+     * {@code armManualWeight()} keeps the GROSS weight for the NEXT article and
+     * says so, with the French comma a weight is read with
+     * ({@code LC-02-02-03}).
+     */
+    @Test
+    void armManualWeightKeepsTheGrossWeightForTheNextArticle() {
+        service.armManualWeight(new BigDecimal("1.250"));
+        assertEquals(new BigDecimal("1.250"), service.state.pendingManualWeightKg);
+        verify(service.state.ticket).setNotice("POIDS BRUT 1,25 KG — SAISISSEZ L'ARTICLE");
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code armManualWeight()} refuses what is not a weight and arms nothing,
+     * on the three arms that can produce one: no figure at all, zero, and a
+     * negative figure.
+     */
+    @Test
+    void armManualWeightRefusesWhatIsNotAWeight() {
+        service.armManualWeight(null);
+        assertNull(service.state.pendingManualWeightKg);
+        verify(service.state.ticket).setError("POIDS INVALIDE");
+        service.armManualWeight(BigDecimal.ZERO);
+        assertNull(service.state.pendingManualWeightKg);
+        service.armManualWeight(new BigDecimal("-1.5"));
+        assertNull(service.state.pendingManualWeightKg);
+        verify(service.state.ticket, times(3)).setError("POIDS INVALIDE");
+    }
+
+    /**
+     * {@code armManualWeight()} refusing a weight also DISARMS the one already
+     * kept: a mistyped correction must not leave the previous figure waiting
+     * for the next article.
+     */
+    @Test
+    void armManualWeightRefusalDisarmsWhatWasKept() {
+        service.armManualWeight(new BigDecimal("2"));
+        assertEquals(new BigDecimal("2"), service.state.pendingManualWeightKg);
+        service.armManualWeight(BigDecimal.ZERO);
+        assertNull(service.state.pendingManualWeightKg);
+    }
+
+    /**
+     * {@code clearManualWeight()} gives the armed weight up, so leaving the
+     * weighing screen never lays it over the next article.
+     */
+    @Test
+    void clearManualWeightGivesTheArmedWeightUp() {
+        service.state.pendingManualWeightKg = new BigDecimal("1.250");
+        service.clearManualWeight();
+        assertNull(service.state.pendingManualWeightKg);
+        verify(service.state).touch();
     }
 
     /**
@@ -921,22 +986,28 @@ class HomeServiceTest {
     }
 
     /**
-     * EXP-84: the administered service reasons are split on the semicolon and
-     * blank entries dropped.
+     * EXP-84 / BO-04-02-07: the supervisor screen hands over the administered
+     * service-request types as the list service resolves them — referential
+     * first, semicolon setting as the fallback — and adds nothing of its own.
      */
     @Test
-    void supervisorServiceReasonsSplitsAndDropsBlanks() {
-        when(service.posSettingsService.supervisorServiceReasons()).thenReturn("Annulation; ;Prix / étiquette;");
-        java.util.List<String> reasons = service.supervisorServiceReasons();
-        assertEquals(java.util.List.of("Annulation", "Prix / étiquette"), reasons);
+    void supervisorServiceReasonsHandsOverTheAdministeredTypes() {
+        java.util.List<com.intermarche.pos.service.PosListService.ServiceRequestType> types =
+                java.util.List.of(
+                        new com.intermarche.pos.service.PosListService.ServiceRequestType(
+                                "ANNUL", "Annulation", 2),
+                        new com.intermarche.pos.service.PosListService.ServiceRequestType(
+                                "PRIX", "Prix / étiquette", 1));
+        when(service.posListService.serviceRequestTypes()).thenReturn(types);
+        assertEquals(types, service.supervisorServiceReasons());
     }
 
     /**
-     * EXP-84: an empty administered list yields no reasons.
+     * EXP-84: nothing administered yields no key on the supervisor screen.
      */
     @Test
-    void supervisorServiceReasonsEmptyWhenBlank() {
-        when(service.posSettingsService.supervisorServiceReasons()).thenReturn("");
+    void supervisorServiceReasonsEmptyWhenNothingAdministered() {
+        when(service.posListService.serviceRequestTypes()).thenReturn(java.util.List.of());
         assertTrue(service.supervisorServiceReasons().isEmpty());
     }
 
@@ -983,6 +1054,157 @@ class HomeServiceTest {
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
                         org.mockito.ArgumentMatchers.anyString());
         assertNotNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * LC-03-07-06: a NUMERIC survey takes a figure of at most ten digits — a
+     * mistyped value is NAMED and the survey STAYS for the retry; a keyed
+     * figure travels up like any answer.
+     */
+    @Test
+    void aNumericSurveyRefusesAMistypedFigureAndCarriesAKeyedOne() {
+        PosState.BackOfficeSurvey numeric = new PosState.BackOfficeSurvey();
+        numeric.question = "Nombre de articles ?";
+        numeric.responseType = "NUMERIC";
+        service.state.backOfficeSurvey = numeric;
+        service.answerSurvey("12a");
+        verify(service.technicalEventService, org.mockito.Mockito.never())
+                .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
+                        org.mockito.ArgumentMatchers.anyString());
+        assertSame(numeric, service.state.backOfficeSurvey);
+        verify(service.state.ticket).setError("NOMBRE INVALIDE");
+        service.state.backOfficeSurvey = numeric;
+        service.answerSurvey("42");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
+                "SONDAGE — Nombre de articles ? : 42");
+        assertNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * LC-03-07-07: a POSTAL_CODE survey checks the administered MASK —
+     * {@code C} is a digit, everything else literal — and refuses a value
+     * that does not match it, by name, with the survey kept.
+     */
+    @Test
+    void aPostalSurveyChecksTheAdministeredMask() {
+        PosState.BackOfficeSurvey postal = new PosState.BackOfficeSurvey();
+        postal.question = "Code postal ?";
+        postal.responseType = "POSTAL_CODE";
+        postal.postalFormat = "CCCCC";
+        service.state.backOfficeSurvey = postal;
+        service.answerSurvey("339");
+        verify(service.state.ticket).setError("CODE POSTAL INVALIDE");
+        assertSame(postal, service.state.backOfficeSurvey);
+        service.state.backOfficeSurvey = postal;
+        service.answerSurvey("33980");
+        assertNull(service.state.backOfficeSurvey);
+        PosState.BackOfficeSurvey portuguese = new PosState.BackOfficeSurvey();
+        portuguese.question = "Código postal ?";
+        portuguese.responseType = "POSTAL_CODE";
+        portuguese.postalFormat = "CCCC-CCC";
+        service.state.backOfficeSurvey = portuguese;
+        service.answerSurvey("4100330");
+        verify(service.state.ticket, times(2)).setError("CODE POSTAL INVALIDE");
+        service.state.backOfficeSurvey = portuguese;
+        service.answerSurvey("4100-300");
+        assertNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * LC-03-07-07, the unmasked arm: a shop that administers no mask still
+     * gets a bounded figure — four to ten characters, digits and dashes.
+     */
+    @Test
+    void anUnmaskedPostalSurveyBoundsTheFigure() {
+        PosState.BackOfficeSurvey postal = new PosState.BackOfficeSurvey();
+        postal.question = "Code postal ?";
+        postal.responseType = "POSTAL_CODE";
+        service.state.backOfficeSurvey = postal;
+        service.answerSurvey("33");
+        verify(service.state.ticket).setError("CODE POSTAL INVALIDE");
+        service.state.backOfficeSurvey = postal;
+        service.answerSurvey("33980");
+        assertNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * LC-03-07-08: when the shop administers a list of valid postal codes,
+     * membership decides — a well-formed code the shop does not serve is
+     * refused by name, with the survey kept.
+     */
+    @Test
+    void aPostalSurveyChecksTheAdministeredList() {
+        PosState.BackOfficeSurvey postal = new PosState.BackOfficeSurvey();
+        postal.question = "Code postal ?";
+        postal.responseType = "POSTAL_CODE";
+        postal.postalFormat = "CCCCC";
+        postal.postalCodes = new java.util.ArrayList<>(java.util.List.of("33980", "62100"));
+        service.state.backOfficeSurvey = postal;
+        service.answerSurvey("99999");
+        verify(service.state.ticket).setError("CODE POSTAL HORS LISTE");
+        assertSame(postal, service.state.backOfficeSurvey);
+        service.state.backOfficeSurvey = postal;
+        service.answerSurvey("62100");
+        assertNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * LC-03-07-09: an INFORMATIVE survey is validated with nothing to type —
+     * the validation travels up with the marker VU, never an invented answer.
+     */
+    @Test
+    void anInformativeSurveyValidatesWithTheReadMarker() {
+        PosState.BackOfficeSurvey informative = new PosState.BackOfficeSurvey();
+        informative.question = "Pensez a verifier les dates";
+        informative.responseType = "INFORMATIVE";
+        service.state.backOfficeSurvey = informative;
+        service.answerSurvey("VU");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
+                "SONDAGE — Pensez a verifier les dates : VU");
+        assertNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * LC-03-07-10: an optional survey may be PASSED BY — nothing travels up,
+     * the survey goes, and the register REMEMBERS the skip so the next poll
+     * of the same survey does not bring it straight back.
+     */
+    @Test
+    void anOptionalSurveyIsPassedByWithoutAnAnswerAndTheSkipIsRemembered() {
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = "Rayon propre ?";
+        service.state.backOfficeSurvey = survey;
+        service.state.backOfficeMessage = "Rayon propre ?";
+        service.skipSurvey();
+        assertNull(service.state.backOfficeSurvey);
+        assertEquals("", service.state.backOfficeMessage);
+        verify(service.technicalEventService, org.mockito.Mockito.never())
+                .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
+                        org.mockito.ArgumentMatchers.anyString());
+        assertEquals("Rayon propre ?", service.state.skippedSurveyQuestion);
+        service.receiveBackOfficeMessage("Rayon propre ?", survey);
+        assertNull(service.state.backOfficeSurvey);
+        assertEquals("Rayon propre ?", service.state.skippedSurveyQuestion);
+    }
+
+    /**
+     * LC-03-07-10, the forgetting arms: a DIFFERENT survey is shown and the
+     * skip forgotten; a blank message clears the channel and the skip with
+     * it; skipping with no survey shown is a no-op.
+     */
+    @Test
+    void aDifferentSurveyOrASilentChannelForgetsTheSkip() {
+        service.state.skippedSurveyQuestion = "Rayon propre ?";
+        PosState.BackOfficeSurvey other = new PosState.BackOfficeSurvey();
+        other.question = "Cafe ?";
+        service.receiveBackOfficeMessage("Cafe ?", other);
+        assertSame(other, service.state.backOfficeSurvey);
+        assertNull(service.state.skippedSurveyQuestion);
+        service.state.skippedSurveyQuestion = "Rayon propre ?";
+        service.receiveBackOfficeMessage("", null);
+        assertNull(service.state.skippedSurveyQuestion);
+        service.skipSurvey();
+        assertNull(service.state.skippedSurveyQuestion);
     }
 
     /**
@@ -1116,6 +1338,277 @@ class HomeServiceTest {
         verify(service.state).touch();
     }
 
+    /**
+     * LC-01-07-03: a supervisor call the back office took puts the lane's
+     * request IN PROGRESS — the indicator the sale screen shows until the
+     * request is cancelled, refused, acknowledged or validated.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void callSupervisorMarksTheRequestInProgress() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        service.callSupervisor("Sécurité");
+        assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+        assertEquals("Sécurité", service.state.serviceRequestReason);
+    }
+
+    /**
+     * LC-01-07-03: a call the back office did NOT take (refusal, network)
+     * leaves the lane's request state alone — nothing is in progress that
+     * nobody received.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void callSupervisorRefusedLeavesNoRequestInProgress() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(500);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        service.callSupervisor("Sécurité");
+        assertEquals(PosState.ServiceRequestStatus.NONE, service.state.serviceRequest);
+    }
+
+    /**
+     * LC-01-07-05: cancelling with no pending request is a no-op notice —
+     * there is nothing to withdraw.
+     */
+    @Test
+    void cancelServiceRequestWithoutPendingRequestIsANoOp() {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        service.cancelServiceRequest();
+        verify(service.state.ticket).setNotice("AUCUNE DEMANDE EN COURS");
+        verify(service.state).touch();
+    }
+
+    /**
+     * LC-01-07-05: cancelling with no configured back office reports the
+     * missing supervision and withdraws nothing.
+     */
+    @Test
+    void cancelServiceRequestWithoutConfigurationReportsIt() {
+        when(service.syncOutboxService.isEnabled()).thenReturn(false);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.cancelServiceRequest();
+        verify(service.state.ticket).setError("SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE");
+        assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+    }
+
+    /**
+     * LC-01-07-05: a cancellation the node takes lowers the indicator — the
+     * request is gone from the back office and from the lane in one gesture.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void cancelServiceRequestSucceedingClearsTheIndicator() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.state.serviceRequestReason = "Sécurité";
+        service.cancelServiceRequest();
+        assertEquals(PosState.ServiceRequestStatus.NONE, service.state.serviceRequest);
+        assertNull(service.state.serviceRequestReason);
+        verify(service.state.ticket).setNotice("DEMANDE ANNULÉE");
+    }
+
+    /**
+     * LC-01-07-05: a cancellation the node refuses keeps the indicator, so
+     * the operator can try again — the banner stays up there.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void cancelServiceRequestRefusedKeepsTheIndicator() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(503);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.cancelServiceRequest();
+        assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+        verify(service.state.ticket).setError("APPEL SUPERVISEUR REFUSÉ (503)");
+    }
+
+    /**
+     * LC-01-07-05: a node that cannot be reached keeps the indicator too
+     * (generic Exception catch).
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    void cancelServiceRequestUnreachableKeepsTheIndicator() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        when(client.send(any(), any())).thenThrow(new java.io.IOException("down"));
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.cancelServiceRequest();
+        assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+        verify(service.state.ticket).setError("APPEL SUPERVISEUR IMPOSSIBLE");
+    }
+
+    /**
+     * LC-01-07-06: validating a request the back office has acknowledged
+     * clears the indicator — the handling is closed on the lane.
+     */
+    @Test
+    void validateServiceRequestClearsAnAcknowledgedRequest() {
+        service.state.serviceRequest = PosState.ServiceRequestStatus.ACKED;
+        service.state.serviceRequestReason = "Sécurité";
+        service.validateServiceRequest();
+        assertEquals(PosState.ServiceRequestStatus.NONE, service.state.serviceRequest);
+        assertNull(service.state.serviceRequestReason);
+        verify(service.state.ticket).setNotice("DEMANDE TRAITÉE");
+        verify(service.state).touch();
+    }
+
+    /**
+     * LC-01-07-06: validating while the request is still pending — or with
+     * nothing asked at all — is a no-op notice on both arms of the guard.
+     */
+    @Test
+    void validateServiceRequestRefusesWhatIsNotAcknowledged() {
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.validateServiceRequest();
+        verify(service.state.ticket).setNotice("LA DEMANDE N'EST PAS ENCORE ACQUITTÉE");
+        assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        service.validateServiceRequest();
+        verify(service.state.ticket, org.mockito.Mockito.times(2))
+                .setNotice("LA DEMANDE N'EST PAS ENCORE ACQUITTÉE");
+    }
+
+    /**
+     * LC-01-08-04: a received message raises the arrived indicator — the
+     * consult key and the chip stay until the operator acknowledges.
+     */
+    @Test
+    void receivedMessageRaisesTheArrivedIndicator() {
+        service.receiveBackOfficeMessage("Consigne du responsable", null);
+        assertTrue(service.state.boMessageArrived);
+        verify(service.state).touch();
+    }
+
+    /**
+     * LC-01-08-05: the blank answer that takes a notice down lowers the
+     * indicator again — there is nothing left to consult.
+     */
+    @Test
+    void takenDownMessageLowersTheArrivedIndicator() {
+        service.state.boMessageArrived = true;
+        service.receiveBackOfficeMessage("", null);
+        assertFalse(service.state.boMessageArrived);
+    }
+
+    /**
+     * LC-01-08-04: a survey raises the indicator too — it is a message.
+     */
+    @Test
+    void receivedSurveyRaisesTheArrivedIndicator() {
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = "Rayon propre ?";
+        service.receiveBackOfficeMessage(null, survey);
+        assertTrue(service.state.boMessageArrived);
+    }
+
+    /**
+     * LC-01-08-05: acknowledging with nothing to acknowledge is a no-op
+     * notice.
+     */
+    @Test
+    void ackMessageWithNothingToShowIsANoOp() {
+        service.state.backOfficeMessage = "";
+        service.state.backOfficeSurvey = null;
+        service.ackBackOfficeMessage();
+        verify(service.state.ticket).setNotice("AUCUN MESSAGE");
+        verify(service.state).touch();
+    }
+
+    /**
+     * LC-01-08-05: an acknowledgement the node takes clears the banner, the
+     * survey, the indicator — and posts who read the notice.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ackMessageSucceedingClearsEverything() throws Exception {
+        service.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.backOfficeMessage = "Consigne du responsable";
+        service.state.boMessageArrived = true;
+        service.ackBackOfficeMessage();
+        assertEquals("", service.state.backOfficeMessage);
+        assertNull(service.state.backOfficeSurvey);
+        assertFalse(service.state.boMessageArrived);
+        verify(service.state.ticket).setNotice("MESSAGE ACQUITTÉ");
+    }
+
+    /**
+     * LC-01-08-05: an acknowledgement the node refuses keeps the message,
+     * for the same reason as the cancellation — the lane can try again.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ackMessageRefusedKeepsTheMessage() throws Exception {
+        service.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(503);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.backOfficeMessage = "Consigne du responsable";
+        service.state.boMessageArrived = true;
+        service.ackBackOfficeMessage();
+        assertEquals("Consigne du responsable", service.state.backOfficeMessage);
+        assertTrue(service.state.boMessageArrived);
+        verify(service.state.ticket).setError("APPEL SUPERVISEUR REFUSÉ (503)");
+    }
+
     // --- Submit price modification ---
 
     /**
@@ -1230,6 +1723,284 @@ class HomeServiceTest {
         service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
         verify(service.endorsementService).requestPriceModification(service.state, PriceModType.FORCE_PRICE, "A", value);
         verify(service.state.ticket, never()).setError("REMISES DÉSACTIVÉES");
+    }
+
+    /**
+     * {@code applyPresetKey()} lands the administered key on the modal's
+     * target line (LC-03-02-02 and -04): the key is resolved, applied through
+     * {@code applyPreset} on the line the modal holds, the totals are
+     * recomputed and the modal closes.
+     */
+    @Test
+    void applyPresetKeyAppliesTheAdministeredKeyOnTheModalTarget() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.state.priceModState.targetUid = "A";
+        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
+                new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
+                        "-10%", true, new BigDecimal("10"), false);
+        when(service.posSettingsService.discountPreset("-10%")).thenReturn(preset);
+        when(service.ticketService.isAlreadyReduced(it)).thenReturn(false);
+        service.applyPresetKey("-10%");
+        verify(service.ticketService).applyPreset(it, "-10%");
+        verify(service.ticketService).recalculateTotal(service.state);
+        verify(service.state.priceModState).clear();
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code applyPresetKey()} refuses the gesture family when the back
+     * office deactivated it (BO-03-07-01): nothing is resolved, nothing is
+     * applied, and the deactivation word is the one the keyed gestures show.
+     */
+    @Test
+    void applyPresetKeyRefusesWhenDiscountsAreDeactivated() {
+        when(service.posSettingsService.discountEnabled()).thenReturn(false);
+        service.applyPresetKey("-10%");
+        verify(service.state.ticket).setError("REMISES DÉSACTIVÉES");
+        verifyNoInteractions(service.ticketService);
+        verify(service.state.priceModState).clear();
+    }
+
+    /**
+     * {@code applyPresetKey()} NAMES a label nobody administered (LC-03-02-02
+     * and -04): a stale page or a forged post cannot apply a figure the back
+     * office never posed, and the operator is told why nothing moved.
+     */
+    @Test
+    void applyPresetKeyNamesALabelNobodyAdministered() {
+        when(service.posSettingsService.discountPreset("-30%")).thenReturn(null);
+        service.applyPresetKey("-30%");
+        verify(service.state.ticket).setError("TOUCHE DE REMISE INCONNUE");
+        verifyNoInteractions(service.ticketService);
+        verify(service.state.priceModState).clear();
+    }
+
+    /**
+     * {@code applyPresetKey()} NAMES a target line that vanished — a modal
+     * left open on a ticket that has since moved on has nothing to discount.
+     */
+    @Test
+    void applyPresetKeyNamesAVanishedTargetLine() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.state.priceModState.targetUid = "GONE";
+        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
+                new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
+                        "-10%", true, new BigDecimal("10"), false);
+        when(service.posSettingsService.discountPreset("-10%")).thenReturn(preset);
+        service.applyPresetKey("-10%");
+        verify(service.state.ticket).setError("LIGNE INTROUVABLE");
+        verifyNoInteractions(service.ticketService);
+        verify(service.state.priceModState).clear();
+    }
+
+    /**
+     * {@code applyPresetKey()} NAMES an already-reduced line when the key
+     * carries no CUMUL (BO-03-07-11): the key's rule is the key's, and the
+     * refusal says the article instead of applying nothing in silence.
+     */
+    @Test
+    void applyPresetKeyNamesAnAlreadyReducedLineWithoutCumul() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.state.priceModState.targetUid = "A";
+        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
+                new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
+                        "-10%", true, new BigDecimal("10"), false);
+        when(service.posSettingsService.discountPreset("-10%")).thenReturn(preset);
+        when(service.ticketService.isAlreadyReduced(it)).thenReturn(true);
+        service.applyPresetKey("-10%");
+        verify(service.state.ticket).setError("ARTICLE DÉJÀ REMISÉ");
+        verify(service.ticketService, never()).applyPreset(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        verify(service.state.priceModState).clear();
+    }
+
+    /**
+     * {@code discountPresets()} is the modal's window on the administered
+     * keys — it delegates and adds nothing, so the buttons are exactly what
+     * the back office wrote.
+     */
+    @Test
+    void discountPresetsDelegatesToTheCatalog() {
+        java.util.List<com.intermarche.pos.service.PosSettingsService.DiscountPreset> administered =
+                java.util.List.of(new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
+                        "-10%", true, new BigDecimal("10"), false));
+        when(service.posSettingsService.discountPresets()).thenReturn(administered);
+        assertEquals(administered, service.discountPresets());
+    }
+
+    /**
+     * A keyed remise a manager already authorized is NAMED when the line is
+     * already reduced and the store forbids the cumulation (LC-03-02-10):
+     * the gesture dies with its own word rather than as a silent no-op.
+     */
+    @Test
+    void anAuthorizedRemiseOnAnAlreadyReducedLineIsNamedWhereCumulationIsForbidden() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        when(service.endorsementService.gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        when(service.ticketService.isAlreadyReduced(it)).thenReturn(true);
+        when(service.posSettingsService.discountCumulativeOnDiscounted()).thenReturn(false);
+        service.submitPriceMod(PriceModType.REMISE, "A", new BigDecimal("1"));
+        verify(service.state.ticket).setError("ARTICLE DÉJÀ REMISÉ");
+        verify(service.ticketService, never()).applyRemise(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
+     * The other arm of the same rule (LC-03-02-10): where the store ALLOWS the
+     * cumulation, the authorized remise lands on the already-reduced line with
+     * no refusal — the historical behaviour, now stated by the predicate.
+     */
+    @Test
+    void anAuthorizedRemiseOnAnAlreadyReducedLineLandsWhereCumulationIsAllowed() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        when(service.endorsementService.gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        when(service.ticketService.isAlreadyReduced(it)).thenReturn(true);
+        when(service.posSettingsService.discountCumulativeOnDiscounted()).thenReturn(true);
+        service.submitPriceMod(PriceModType.REMISE, "A", new BigDecimal("1"));
+        verify(service.ticketService).applyRemise(it, new BigDecimal("1"));
+        verify(service.state.ticket, never()).setError("ARTICLE DÉJÀ REMISÉ");
+    }
+
+    /**
+     * BO-10-02-16, no ceiling administered: the control is never consulted and
+     * the price forcing follows its normal route. This is the register's
+     * historical silence and the catalogue's default.
+     */
+    @Test
+    void forcePriceIsUncontrolledWhenNoCeilingIsAdministered() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(null);
+        BigDecimal value = new BigDecimal("900");
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
+        verify(service.endorsementService, never()).check(any(), any());
+        verify(service.endorsementService).requestPriceModification(service.state, PriceModType.FORCE_PRICE, "A", value);
+    }
+
+    /**
+     * BO-10-02-16, a ceiling and no figure: a null value reaches no comparison
+     * and the control stays silent — the null arm of the guard.
+     */
+    @Test
+    void forcePriceIsUncontrolledWhenNoFigureWasKeyed() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100"));
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", null);
+        verify(service.endorsementService, never()).check(any(), any());
+    }
+
+    /**
+     * BO-10-02-16, the figure at the ceiling: the comparison is "beyond", so
+     * the ceiling itself passes — the boundary arm.
+     */
+    @Test
+    void forcePriceAtTheCeilingIsNotControlled() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100.00"));
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", new BigDecimal("100.00"));
+        verify(service.endorsementService, never()).check(any(), any());
+    }
+
+    /**
+     * BO-10-02-16, beyond the ceiling with no control administered (NONE): the
+     * point is reached and lets the gesture through, saying nothing.
+     */
+    @Test
+    void forcePriceBeyondTheCeilingPassesAtLevelNone() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100"));
+        when(service.endorsementService.check(service.state, ControlPoint.ITEM_AMOUNT))
+                .thenReturn(ControlLevel.NONE);
+        BigDecimal value = new BigDecimal("150");
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
+        verify(service.state.ticket, never()).setWarning(any());
+        verify(service.state.ticket, never()).setError(any());
+        verify(service.endorsementService).requestPriceModification(service.state, PriceModType.FORCE_PRICE, "A", value);
+    }
+
+    /**
+     * BO-10-02-16, WARN: the operator is told and the gesture goes on — the
+     * non-blocking alert the questionnaire asks for.
+     */
+    @Test
+    void forcePriceBeyondTheCeilingWarnsAndGoesOn() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100"));
+        when(service.endorsementService.check(service.state, ControlPoint.ITEM_AMOUNT))
+                .thenReturn(ControlLevel.WARN);
+        when(service.endorsementService.controlMessage(ControlPoint.ITEM_AMOUNT, ControlLevel.WARN))
+                .thenReturn("MONTANT D'UN ARTICLE — GESTE SIGNALÉ");
+        BigDecimal value = new BigDecimal("150");
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
+        verify(service.state.ticket).setWarning("MONTANT D'UN ARTICLE — GESTE SIGNALÉ");
+        verify(service.endorsementService).requestPriceModification(service.state, PriceModType.FORCE_PRICE, "A", value);
+    }
+
+    /**
+     * BO-10-02-16, BLOCK: the gesture is refused, nothing is applied and no
+     * endorsement is offered — no credential at the register lifts it.
+     */
+    @Test
+    void forcePriceBeyondTheCeilingIsRefusedAtLevelBlock() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100"));
+        when(service.endorsementService.check(service.state, ControlPoint.ITEM_AMOUNT))
+                .thenReturn(ControlLevel.BLOCK);
+        when(service.endorsementService.controlMessage(ControlPoint.ITEM_AMOUNT, ControlLevel.BLOCK))
+                .thenReturn("MONTANT D'UN ARTICLE — GESTE INTERDIT PAR LE PARAMÉTRAGE");
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", new BigDecimal("150"));
+        verify(service.state.ticket).setError("MONTANT D'UN ARTICLE — GESTE INTERDIT PAR LE PARAMÉTRAGE");
+        verify(service.endorsementService, never()).requestPriceModification(any(), any(), any(), any());
+        verify(service.endorsementService, never()).gestureAuthorized(any(), anyString());
+        verify(service.state.priceModState).clear();
+        verify(service.state).touch();
+    }
+
+    /**
+     * BO-10-02-16, ENDORSE: the gesture is parked for a manager by the CONTROL
+     * itself, without the register ever asking whether the price gesture was
+     * otherwise free — which is what distinguishes this route from the normal
+     * one.
+     */
+    @Test
+    void forcePriceBeyondTheCeilingIsParkedAtLevelEndorse() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100"));
+        when(service.endorsementService.check(service.state, ControlPoint.ITEM_AMOUNT))
+                .thenReturn(ControlLevel.ENDORSE);
+        BigDecimal value = new BigDecimal("150");
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
+        verify(service.endorsementService).requestPriceModification(service.state, PriceModType.FORCE_PRICE, "A", value);
+        verify(service.endorsementService, never()).gestureAuthorized(any(), anyString());
+        verify(service.state.ticket, never()).setError(any());
+    }
+
+    /**
+     * BO-10-02-16, A RETURN IS PLAFONNED LIKE A SALE: a negative figure beyond
+     * the ceiling in absolute value reaches the control, which is what
+     * "aussi bien aux ventes qu'aux retours" means.
+     */
+    @Test
+    void aNegativeForcedPriceIsComparedInAbsoluteValue() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("100"));
+        when(service.endorsementService.check(service.state, ControlPoint.ITEM_AMOUNT))
+                .thenReturn(ControlLevel.BLOCK);
+        when(service.endorsementService.controlMessage(ControlPoint.ITEM_AMOUNT, ControlLevel.BLOCK))
+                .thenReturn("REFUS");
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", new BigDecimal("-150"));
+        verify(service.state.ticket).setError("REFUS");
+    }
+
+    /**
+     * BO-10-02-16, the control watches the FORCED PRICE only: a remise beyond
+     * the same ceiling is not its business, and the ceiling is never read.
+     */
+    @Test
+    void theItemAmountControlLeavesOtherPriceGesturesAlone() {
+        when(service.posSettingsService.controlItemAmountMax()).thenReturn(new BigDecimal("1"));
+        service.submitPriceMod(PriceModType.REMISE, "A", new BigDecimal("150"));
+        verify(service.endorsementService, never()).check(any(), any());
+        verify(service.endorsementService).requestPriceModification(
+                service.state, PriceModType.REMISE, "A", new BigDecimal("150"));
     }
 
     /**
@@ -2080,6 +2851,81 @@ class HomeServiceTest {
     }
 
     /**
+     * BO-03-13-06: where the store forbids the return without its origin ticket,
+     * an administered return TYPE carrying that permission lifts the refusal —
+     * and the gesture still goes through the supervisor endorsement.
+     */
+    @Test
+    void aReturnTypeMayCarryTheNoOriginPermission() {
+        service.state.returnMode = false;
+        service.state.returnTypeLabel = "Ticket introuvable";
+        when(service.posSettingsService.returnWithoutOriginAllowed()).thenReturn(false);
+        when(service.posListService.returnType("Ticket introuvable")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType(
+                        "Ticket introuvable", false, false, true, false));
+        when(service.endorsementService.gestureAuthorized(service.state, "return"))
+                .thenReturn(true);
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket, never()).setError("RETOUR SANS TICKET D'ORIGINE INTERDIT");
+    }
+
+    /**
+     * The other leg: a type that does NOT carry the permission leaves the
+     * store-wide refusal in place.
+     */
+    @Test
+    void aReturnTypeWithoutThePermissionIsStillRefused() {
+        service.state.returnMode = false;
+        service.state.returnTypeLabel = "Contenant";
+        when(service.posSettingsService.returnWithoutOriginAllowed()).thenReturn(false);
+        when(service.posListService.returnType("Contenant")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false));
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setError("RETOUR SANS TICKET D'ORIGINE INTERDIT");
+    }
+
+    /**
+     * BO-03-13-08: a type declared "articles spécifiques" is dispensed from the
+     * endorsement — the mode opens without a manager being called, where an
+     * ordinary type would have asked for one.
+     */
+    @Test
+    void anExemptReturnTypeNeedsNoEndorsement() {
+        service.state.returnMode = false;
+        service.state.returnTypeLabel = "Echange";
+        when(service.posListService.returnType("Echange")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType(
+                        "Echange", false, true, false, false));
+        when(service.endorsementService.gestureAuthorized(service.state, "return"))
+                .thenReturn(false);
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.endorsementService, never())
+                .requestAuthorization(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * And a type that is NOT exempt still asks: the exemption is the type's, not
+     * the gesture's.
+     */
+    @Test
+    void anOrdinaryReturnTypeStillAsksForTheEndorsement() {
+        service.state.returnMode = false;
+        service.state.returnTypeLabel = "Contenant";
+        when(service.posListService.returnType("Contenant")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false));
+        when(service.endorsementService.gestureAuthorized(service.state, "return"))
+                .thenReturn(false);
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.endorsementService).requestAuthorization(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
      * With returns inside a sale forbidden, entering the mode over a ticket that
      * already carries articles is refused (LC-05-01-01): both legs of the
      * compound guard true.
@@ -2146,7 +2992,7 @@ class HomeServiceTest {
      */
     @Test
     void startReturnTypeRefusesAnUnknownLabel() {
-        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of());
+        when(service.posListService.returnTypes()).thenReturn(java.util.List.of());
         assertFalse(service.startReturnType("Contenant"));
         assertNull(service.state.returnTypeLabel);
         assertFalse(service.state.returnMode);
@@ -2158,7 +3004,7 @@ class HomeServiceTest {
      */
     @Test
     void startReturnTypeRefusesANullLabel() {
-        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+        when(service.posListService.returnTypes()).thenReturn(java.util.List.of(
                 new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false)));
         assertFalse(service.startReturnType(null));
         assertNull(service.state.returnTypeLabel);
@@ -2171,7 +3017,7 @@ class HomeServiceTest {
      */
     @Test
     void startReturnTypeEntersReturnModeForAnInSaleType() {
-        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+        when(service.posListService.returnTypes()).thenReturn(java.util.List.of(
                 new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false)));
         when(service.endorsementService.gestureAuthorized(service.state, "return")).thenReturn(true);
         assertFalse(service.startReturnType("contenant"));
@@ -2188,7 +3034,7 @@ class HomeServiceTest {
     @Test
     void startReturnTypeKeepsTheModeOnWhenItIsAlreadyOn() {
         service.state.returnMode = true;
-        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+        when(service.posListService.returnTypes()).thenReturn(java.util.List.of(
                 new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false)));
         assertFalse(service.startReturnType("Contenant"));
         assertTrue(service.state.returnMode);
@@ -2201,7 +3047,7 @@ class HomeServiceTest {
      */
     @Test
     void startReturnTypeRoutesADedicatedTicketTypeToTheReturnScreen() {
-        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+        when(service.posListService.returnTypes()).thenReturn(java.util.List.of(
                 new com.intermarche.pos.service.PosSettingsService.ReturnType("Defectueux", true)));
         assertTrue(service.startReturnType("Defectueux"));
         assertEquals("Defectueux", service.state.returnTypeLabel);
@@ -2368,6 +3214,116 @@ class HomeServiceTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
         service.cancelLineByUid("B");
         verify(service.ticketService).cancelItemById(service.state, "B");
+    }
+
+    /**
+     * BO-06-06-04: a shop that administers justifications for the gesture is
+     * asked for one BEFORE anything else — nothing is cancelled yet, and the
+     * line is remembered.
+     */
+    @Test
+    void cancelLineByUidAsksForAReasonWhenTheShopAdministersThem() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        when(service.posListService.justificationsOf(
+                com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE))
+                .thenReturn(java.util.List.of(
+                        new com.intermarche.pos.service.PosListService.ListChoice(
+                                "ERREUR", "Erreur de saisie")));
+        service.cancelLineByUid("B");
+        assertEquals("B", service.state.ticket.pendingCancelUid);
+        verify(service.ticketService, never()).cancelItemById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * BO-06-06-04: no list administered, no question — the gesture is the one
+     * of before and the register remembers nothing.
+     */
+    @Test
+    void cancelLineByUidAsksNothingWhenNoReasonIsAdministered() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        when(service.endorsementService.gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        service.cancelLineByUid("B");
+        assertNull(service.state.ticket.pendingCancelUid);
+        verify(service.ticketService).cancelItemById(service.state, "B");
+    }
+
+    /**
+     * BO-06-06-04: the code the operator tapped is recorded and the
+     * cancellation resumes, guards included.
+     */
+    @Test
+    void cancelLineWithReasonRecordsTheCodeAndCancels() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.ticket.pendingCancelUid = "B";
+        when(service.posListService.justificationOf(
+                com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE, "ERREUR"))
+                .thenReturn(new com.intermarche.pos.service.PosListService.ListChoice(
+                        "ERREUR", "Erreur de saisie"));
+        when(service.endorsementService.gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        service.cancelLineWithReason("ERREUR");
+        assertEquals("ERREUR", service.state.ticket.pendingCancelReasonCode);
+        assertEquals("Erreur de saisie", service.state.ticket.pendingCancelReasonLabel);
+        assertNull(service.state.ticket.pendingCancelUid);
+        verify(service.ticketService).cancelItemById(service.state, "B");
+    }
+
+    /**
+     * BO-06-06-04: a code the administered list does not carry is refused
+     * rather than recorded as itself, and the question stays on screen.
+     */
+    @Test
+    void cancelLineWithReasonRefusesAnUnknownCode() {
+        service.state.ticket.pendingCancelUid = "B";
+        service.cancelLineWithReason("INCONNU");
+        verify(service.state.ticket).setError("MOTIF D'ANNULATION INCONNU");
+        assertEquals("B", service.state.ticket.pendingCancelUid);
+        assertNull(service.state.ticket.pendingCancelReasonCode);
+    }
+
+    /**
+     * BO-06-06-04: nothing pending, nothing done — a reason posted twice does
+     * not cancel a second line.
+     */
+    @Test
+    void cancelLineWithReasonDoesNothingWhenNothingIsPending() {
+        service.cancelLineWithReason("ERREUR");
+        verify(service.ticketService, never()).cancelItemById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        assertNull(service.state.ticket.pendingCancelReasonCode);
+    }
+
+    /**
+     * BO-06-06-04: abandoning the question leaves the line on the ticket and
+     * forgets everything the gesture had started.
+     */
+    @Test
+    void cancelLineReasonAbandonedLeavesTheLineOnTheTicket() {
+        service.state.ticket.pendingCancelUid = "B";
+        service.state.ticket.pendingCancelReasonCode = "ERREUR";
+        service.state.ticket.pendingCancelReasonLabel = "Erreur de saisie";
+        service.cancelLineReasonAbandoned();
+        assertNull(service.state.ticket.pendingCancelUid);
+        assertNull(service.state.ticket.pendingCancelReasonCode);
+        assertNull(service.state.ticket.pendingCancelReasonLabel);
+        verify(service.ticketService, never()).cancelItemById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * BO-06-06-04: the chooser is served exactly what the referential carries
+     * for that gesture.
+     */
+    @Test
+    void cancelReasonsOfferWhatTheReferentialCarries() {
+        com.intermarche.pos.service.PosListService.ListChoice offered =
+                new com.intermarche.pos.service.PosListService.ListChoice("ERREUR", "Erreur de saisie");
+        when(service.posListService.justificationsOf(
+                com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE))
+                .thenReturn(java.util.List.of(offered));
+        assertEquals(java.util.List.of(offered), service.cancelReasons());
     }
 
     /**

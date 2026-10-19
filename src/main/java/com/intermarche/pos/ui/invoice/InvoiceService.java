@@ -67,6 +67,10 @@ public class InvoiceService {
     @Inject
     HardwareService hardwareService;
 
+    /** The distributed images, read for the administered store logo (BO-03-03-15). */
+    @Inject
+    com.intermarche.pos.service.StoreImageService storeImageService;
+
     /** Every database access of this flow, gathered so the flow can be tested. */
     @Inject
     InvoiceRepository repository;
@@ -91,14 +95,53 @@ public class InvoiceService {
      * @return the document's lines
      */
     List<String> renderLines(InvoiceDocument laid) {
+        java.util.Map<String, Object> data = laid.asDocumentData();
         String administered = documentTemplateService == null ? null
                 : documentTemplateService.render(
                         com.intermarche.pos.domain.setting.DocumentTemplate
-                                .DocumentType.INVOICE, laid.asDocumentData());
+                                .DocumentType.INVOICE, data);
         if (administered != null) {
             return List.of(administered.split("\\n", -1));
         }
-        return InvoiceRenderer.render(laid, i18n);
+        // BO-03-05-02 and -04: the built-in document wears the administered head
+        // and foot when the shop wrote them. Where the shop restated the WHOLE
+        // invoice above, they are inside that source and nothing is added here.
+        List<String> out = new java.util.ArrayList<>();
+        List<String> head = banner(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_HEADER, data);
+        if (head != null) {
+            out.addAll(head);
+        }
+        out.addAll(InvoiceRenderer.render(laid, i18n));
+        List<String> foot = banner(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_FOOTER, data);
+        if (foot != null) {
+            out.addAll(foot);
+        }
+        return out;
+    }
+
+    /**
+     * Renders an administered banner as the lines it prints, or null when the
+     * shop administers none (BO-03-05-02 and -04).
+     *
+     * <p>A trailing empty line is dropped: a text block ends on a newline, and
+     * that one would feed a blank line onto every invoice.
+     *
+     * @param type the banner being printed
+     * @param data the values the layout may read
+     * @return the banner's lines, or null when none is administered
+     */
+    private List<String> banner(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type, java.util.Map<String, Object> data) {
+        String rendered = documentTemplateService == null ? null
+                : documentTemplateService.render(type, data);
+        if (rendered == null) {
+            return null;
+        }
+        List<String> lines =
+                new java.util.ArrayList<>(java.util.Arrays.asList(rendered.split("\\n", -1)));
+        while (!lines.isEmpty() && lines.get(lines.size() - 1).isBlank()) {
+            lines.remove(lines.size() - 1);
+        }
+        return lines;
     }
 
     /**
@@ -662,6 +705,39 @@ public class InvoiceService {
     }
 
     /**
+     * The DECIMALS this shop administered for its commercial documents
+     * (BO-10-02-19).
+     *
+     * @return the five counts, two everywhere until a paramétreur says otherwise
+     */
+    /**
+     * The logo the back office administered for this store
+     * ({@code BO-03-03-15}), or an empty string when it administered none —
+     * the document then carrying the logo of its installation.
+     *
+     * <p>Null-tolerant on the service, like the printer's own reader: a
+     * service built by hand in a unit test carries none, and a document must
+     * still lay out.
+     *
+     * @return the administered logo, never null
+     */
+    private String administeredLogo() {
+        return storeImageService == null ? "" : storeImageService.receiptLogo();
+    }
+
+    private InvoiceDocument.Decimals documentDecimals() {
+        LOGGER.info("Entering method documentDecimals");
+        InvoiceDocument.Decimals decimals = new InvoiceDocument.Decimals(
+                posSettingsService.invoiceUnitExcludingTaxDecimals(),
+                posSettingsService.invoiceVatBaseDecimals(),
+                posSettingsService.invoiceVatAmountDecimals(),
+                posSettingsService.invoiceTotalExcludingTaxDecimals(),
+                posSettingsService.invoiceTotalIncludingTaxDecimals());
+        LOGGER.info("Exiting method documentDecimals");
+        return decimals;
+    }
+
+    /**
      * Names the wording the document prints in place of the fiscal identifier
      * ({@code BO-10-04-16}).
      *
@@ -721,7 +797,8 @@ public class InvoiceService {
         }
         Invoice draft = build(ticket, customer, "");
         LOGGER.info("Exiting method preview");
-        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft), i18n);
+        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft), i18n,
+                documentDecimals(), administeredLogo());
     }
 
     /**
@@ -790,7 +867,8 @@ public class InvoiceService {
             return null;
         }
         LOGGER.info("Exiting method issued");
-        return InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n);
+        return InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
+                documentDecimals(), administeredLogo());
     }
 
     /**
@@ -976,7 +1054,8 @@ public class InvoiceService {
             Invoice document = build(ticket, customer,
                     ticketNumberService.nextDocumentNumber(kind), kind);
             InvoiceDocument laid =
-                    InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n);
+                    InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
+                            documentDecimals(), administeredLogo());
             List<String> lines = renderLines(laid);
             if (outputFor(kind) != DocumentOutput.A4 || !networkPrinter.print(laid, lines)) {
                 hardwareService.printReceipt(String.join("\n", lines) + "\n");
@@ -1055,7 +1134,8 @@ public class InvoiceService {
      * @param ticket   the ticket it states
      */
     private void print(Invoice document, Ticket ticket) {
-        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n);
+        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
+                documentDecimals(), administeredLogo());
         List<String> lines = renderLines(laid);
         DocumentOutput target = outputFor(document.documentType);
         if (target.needsInsertion()) {

@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
@@ -44,7 +45,24 @@ class EndorsementServiceTest {
         service.authService = mock(AuthService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        // The control points speak to the operator, so the service resolves
+        // their wording like every screen does: from the French bundle.
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
         return service;
+    }
+
+    /**
+     * Builds a POS state whose operator is nobody and whose ticket is a real
+     * one, so a control point's message lands somewhere a test can read.
+     *
+     * @return the state
+     */
+    private PosState controlState() {
+        PosState state = mock(PosState.class);
+        state.auth = new AuthState();
+        state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        state.supervisorSessionBadge = null;
+        return state;
     }
 
     /**
@@ -576,5 +594,229 @@ class EndorsementServiceTest {
         state.supervisorSessionBadge = "M1";
         service.endSupervisorSession(state);
         assertNull(state.supervisorSessionBadge);
+    }
+    // --------------------------------------------------
+    // Control points (BO-10-02-01 to -10)
+    // --------------------------------------------------
+
+    /**
+     * {@code level} reads the administered value of a point, and falls back on
+     * that point's own default when the back office says nothing it can read —
+     * both arms, on two points whose defaults differ so the fallback is visible.
+     */
+    @Test
+    void levelReadsTheAdministeredValueOrThePointsOwnDefault() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.controlLevel("control.card-payment")).thenReturn("BLOCK");
+        assertEquals(ControlLevel.BLOCK, service.level(ControlPoint.CARD_PAYMENT));
+
+        when(service.posSettingsService.controlLevel("control.card-payment")).thenReturn("n'importe quoi");
+        assertEquals(ControlLevel.NONE, service.level(ControlPoint.CARD_PAYMENT));
+
+        when(service.posSettingsService.controlLevel("control.cancel-line")).thenReturn(null);
+        assertEquals(ControlLevel.ENDORSE, service.level(ControlPoint.CANCEL_LINE));
+    }
+
+    /**
+     * The three levels that are not an aval cross {@code check} untouched: the
+     * resolution it performs concerns ENDORSE and nothing else.
+     */
+    @Test
+    void checkPassesTheOtherThreeLevelsThrough() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        for (ControlLevel level : new ControlLevel[] {
+                ControlLevel.NONE, ControlLevel.WARN, ControlLevel.BLOCK }) {
+            when(service.posSettingsService.controlLevel("control.cancel-payment"))
+                    .thenReturn(level.name());
+            assertEquals(level, service.check(state, ControlPoint.CANCEL_PAYMENT),
+                    "niveau " + level);
+        }
+    }
+
+    /**
+     * An aval asked of a SUPERVISOR is no aval: the first leg of the shortcut,
+     * the logged operator holding the role.
+     */
+    @Test
+    void checkAsksNoAvalOfAConnectedSupervisor() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        state.auth.operatorId = 7L;
+        when(service.posSettingsService.controlLevel("control.cancel-line")).thenReturn("ENDORSE");
+        Employee manager = new Employee();
+        manager.active = true;
+        manager.role = Employee.EmployeeRole.MANAGER;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Employee.findById(7L)).thenReturn(manager);
+            assertEquals(ControlLevel.NONE, service.check(state, ControlPoint.CANCEL_LINE));
+        }
+    }
+
+    /**
+     * Second leg of the same shortcut: a supervisor session open on the ticket,
+     * the operator being nobody in particular.
+     */
+    @Test
+    void checkAsksNoAvalUnderAnOpenSupervisorSession() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        state.supervisorSessionBadge = "9001";
+        when(service.posSettingsService.controlLevel("control.cancel-line")).thenReturn("ENDORSE");
+        assertEquals(ControlLevel.NONE, service.check(state, ControlPoint.CANCEL_LINE));
+    }
+
+    /**
+     * Neither leg: the aval stands, which is the historical behaviour of the
+     * gestures that already carried one.
+     */
+    @Test
+    void checkKeepsTheAvalWhenNoSupervisorIsThere() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        when(service.posSettingsService.controlLevel("control.cancel-line")).thenReturn("ENDORSE");
+        assertEquals(ControlLevel.ENDORSE, service.check(state, ControlPoint.CANCEL_LINE));
+    }
+
+    /**
+     * An aval administered on a point that fires where NO ceremony exists is
+     * applied as a refusal: a shop gets a refusal rather than a button nobody
+     * can press.
+     */
+    @Test
+    void checkRefusesWhereNoAvalCeremonyExists() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        when(service.posSettingsService.controlLevel("control.ticket-total")).thenReturn("ENDORSE");
+        assertEquals(ControlLevel.BLOCK, service.check(state, ControlPoint.TICKET_TOTAL));
+        when(service.posSettingsService.controlLevel("control.parked-at-close")).thenReturn("ENDORSE");
+        assertEquals(ControlLevel.BLOCK, service.check(state, ControlPoint.PARKED_AT_CLOSE));
+    }
+
+    /**
+     * A supervisor standing at the register still clears the aval of a
+     * non-endorsable point — the shortcut is read BEFORE the downgrade, so a
+     * manager is never refused a gesture the shop would have let them endorse.
+     */
+    @Test
+    void theSupervisorShortcutIsReadBeforeTheDowngrade() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        state.supervisorSessionBadge = "9001";
+        when(service.posSettingsService.controlLevel("control.ticket-total")).thenReturn("ENDORSE");
+        assertEquals(ControlLevel.NONE, service.check(state, ControlPoint.TICKET_TOTAL));
+    }
+
+    /**
+     * {@code controlMessage} says one of two sentences — the refusal and
+     * everything else — and names the gesture inside it.
+     */
+    @Test
+    void controlMessageSaysWhichGestureAndWhatHappened() {
+        EndorsementService service = newService();
+        String refused = service.controlMessage(ControlPoint.CARD_PAYMENT, ControlLevel.BLOCK);
+        String warned = service.controlMessage(ControlPoint.CARD_PAYMENT, ControlLevel.WARN);
+        assertTrue(refused.contains("RÈGLEMENT PAR CARTE"), refused);
+        assertTrue(refused.contains("INTERDIT"), refused);
+        assertTrue(warned.contains("RÈGLEMENT PAR CARTE"), warned);
+        assertTrue(warned.contains("SIGNALÉ"), warned);
+        assertFalse(warned.contains("INTERDIT"), warned);
+    }
+
+    /**
+     * The drawer outside a sale: the three outcomes of the shared answer — it
+     * opens in silence, it opens with a notice, it stays shut with a refusal.
+     */
+    @Test
+    void theDrawerOutOfSaleAnswersAndSaysWhy() {
+        EndorsementService silent = newService();
+        PosState quiet = controlState();
+        when(silent.posSettingsService.controlLevel("control.drawer-out-of-sale")).thenReturn("NONE");
+        assertTrue(silent.drawerOutOfSaleAllowed(quiet));
+        assertNull(quiet.ticket.transientError);
+
+        EndorsementService warning = newService();
+        PosState warned = controlState();
+        when(warning.posSettingsService.controlLevel("control.drawer-out-of-sale")).thenReturn("WARN");
+        assertTrue(warning.drawerOutOfSaleAllowed(warned));
+        assertNotNull(warned.ticket.transientError);
+        assertTrue(warned.ticket.transientError.contains("TIROIR"));
+        // Drawn as a caution and not as a refusal: the gesture went through.
+        assertTrue(warned.ticket.transientWarn);
+        assertFalse(warned.ticket.transientOk);
+
+        EndorsementService refusing = newService();
+        PosState refused = controlState();
+        when(refusing.posSettingsService.controlLevel("control.drawer-out-of-sale")).thenReturn("BLOCK");
+        assertFalse(refusing.drawerOutOfSaleAllowed(refused));
+        assertNotNull(refused.ticket.transientError);
+        assertTrue(refused.ticket.transientError.contains("INTERDIT"));
+        assertFalse(refused.ticket.transientWarn);
+    }
+
+    /**
+     * BO-04-02-01: the roles that endorse are administered. A list naming a
+     * role lets it endorse whatever its case; a list naming another one
+     * refuses it; and a null role never endorses.
+     */
+    @Test
+    void theEndorsingRolesAreAdministered() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.endorsementRoles()).thenReturn(" cashier ; manager ");
+        assertTrue(service.endorses(Employee.EmployeeRole.CASHIER));
+        assertTrue(service.endorses(Employee.EmployeeRole.MANAGER));
+        assertFalse(service.endorses(Employee.EmployeeRole.ADMIN));
+        assertFalse(service.endorses(null));
+    }
+
+    /**
+     * BO-04-02-01: nothing administered, a blank list and a list naming
+     * nothing readable all keep the two roles that endorsed before the list
+     * existed — a typo must not lock a shop out of its own endorsements.
+     */
+    @Test
+    void anUnreadableListKeepsTheHistoricalRoles() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.endorsementRoles()).thenReturn(null);
+        assertTrue(service.endorses(Employee.EmployeeRole.MANAGER));
+        assertFalse(service.endorses(Employee.EmployeeRole.CASHIER));
+        when(service.posSettingsService.endorsementRoles()).thenReturn("   ");
+        assertTrue(service.endorses(Employee.EmployeeRole.ADMIN));
+        when(service.posSettingsService.endorsementRoles()).thenReturn(" ; ; ");
+        assertTrue(service.endorses(Employee.EmployeeRole.MANAGER));
+        assertFalse(service.endorses(Employee.EmployeeRole.CASHIER));
+    }
+
+    /**
+     * A service built with no settings at all keeps the historical roles
+     * rather than refusing every endorsement.
+     */
+    @Test
+    void aServiceWithoutSettingsKeepsTheHistoricalRoles() {
+        EndorsementService service = new EndorsementService();
+        assertTrue(service.endorses(Employee.EmployeeRole.MANAGER));
+        assertFalse(service.endorses(Employee.EmployeeRole.CASHIER));
+    }
+
+    /**
+     * BO-04-02-02: an authorisation granted at the back office is given
+     * back trimmed and journalled; a state carrying none answers nothing and
+     * journals nothing.
+     */
+    @Test
+    void aRemoteAuthorisationIsConsumedAndJournalled() {
+        EndorsementService service = newService();
+        PosState state = controlState();
+        state.endorsement = new EndorsementState();
+        state.endorsement.remoteGrant = "  Marie Curie  ";
+        assertEquals("Marie Curie", service.remotelyGranted(state));
+        verify(service.technicalEventService).log(
+                eq(TechnicalEvent.EventType.ENDORSEMENT_GRANTED),
+                contains("Marie Curie"));
+        state.endorsement.remoteGrant = null;
+        assertNull(service.remotelyGranted(state));
+        state.endorsement.remoteGrant = "   ";
+        assertNull(service.remotelyGranted(state));
+        assertNull(service.remotelyGranted(null));
     }
 }

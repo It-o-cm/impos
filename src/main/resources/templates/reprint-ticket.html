@@ -78,7 +78,14 @@
 
     <div class="main-area">
         <div class="list-header">
+            {#if state.reprint.reassignMode}
+            <!-- LC-03-06-02 : LE MODE RÉAFFECTATION ne propose QUE les tickets
+                 non affectés — un ticket qui porte déjà une carte a eu ses
+                 avantages, et la sélection ne doit pas l'offrir. -->
+            {inject:i18n.get('reprintticket.reaffectationSelection')}
+            {#else}
             {inject:i18n.get('reprintticket.selectionnerTicket')}
+            {/if}
         </div>
         <!-- EXP-47 : recherche par numéro, date (jj/mm/aaaa) ou montant (0,00) —
              le moteur de recherche partagé avec le retour. -->
@@ -126,6 +133,14 @@
     <div class="bottom-nav" style="gap:20px;">
         <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
         <a href="/reprint/foreign" class="btn btn-muted">{inject:i18n.get('reprintticket.ticketDAutreCaisse')}</a>
+        {#if state.reprint.reassignMode}
+        <!-- LC-03-06-01 : LA TOUCHE DE RÉAFFECTATION. Le mode reste armé tant
+             qu'on ne le quitte pas : l'opérateur cherche (LC-03-06-02), puis
+             saisit la carte sur le détail du ticket choisi. -->
+        <a href="/reprint/reassign/cancel" class="btn btn-warning" style="color:#000;">{inject:i18n.get('reprintticket.quitterReaffectation')}</a>
+        {#else}
+        <a href="/reprint/reassign" class="btn btn-warning" style="color:#000;">{inject:i18n.get('reprintticket.reaffectation')}</a>
+        {/if}
     </div>
 
     <div class="search-pad" id="searchPad">

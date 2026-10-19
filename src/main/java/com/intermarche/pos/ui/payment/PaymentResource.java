@@ -47,6 +47,10 @@ public class PaymentResource {
 
 
     @Inject Template pay;
+
+    /** The control points of the sale (BO-10-02-02). */
+    @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
+
     @Inject PaymentService paymentService;
     @Inject VoucherService voucherService;
     @Inject
@@ -174,6 +178,47 @@ public class PaymentResource {
     }
 
     /**
+     * Applies the PAYMENT AMOUNT control point to a figure the cashier just
+     * keyed (BO-10-02-17).
+     *
+     * <p>Said HERE, at the screen, and not in each tender's service: the
+     * ceiling watches what a person types, and every panel of this screen types
+     * into the same parser. A tender the register computes for itself — the
+     * remaining due, the cash rounding, the change — never passes through
+     * here, and must not: the shop plafonds what is keyed, not what it owes.
+     *
+     * <p>THE COMPARISON IS ABSOLUTE, for the reason the article's ceiling gives:
+     * the questionnaire asks the ceiling to hold for sales and for returns, and
+     * a refund is the same figure with the other sign.
+     *
+     * <p>The point is not endorsable — see {@code ControlPoint.isEndorsable()}
+     * — so a shop administering an aval gets a refusal here rather than a
+     * ceremony the payment screen has no modal for.
+     *
+     * @param amount the amount keyed, possibly zero when the field was blank
+     * @return true when the settlement may go on
+     */
+    private boolean paymentAmountAllowed(BigDecimal amount) {
+        java.math.BigDecimal ceiling = posSettingsService.controlPaymentAmountMax();
+        if (ceiling == null || amount == null || amount.abs().compareTo(ceiling) <= 0) {
+            return true;
+        }
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT);
+        // BO-03-10-14: silenced by the island, the refusal below never is.
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN) {
+            if (!posSettingsService.islandBlockPaymentPopups()) {
+                state.ticket.setWarning(endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT, level));
+            }
+        } else if (!level.allows()) {
+            state.ticket.setError(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT, level));
+        }
+        return level.allows();
+    }
+
+    /**
      * Registers a card payment.
      *
      * @param amountStr the amount typed by the cashier
@@ -184,7 +229,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCardPayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doCardPayment with amountStr: " + amountStr);
-        paymentService.processCard(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doCardPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processCard(state, amount);
         LOGGER.info("Exiting method doCardPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -200,7 +250,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCashPayment(@FormParam("given") String givenStr) {
         LOGGER.info("Entering method doCashPayment with givenStr: " + givenStr);
-        paymentService.processCash(state, parseAmount(givenStr));
+        BigDecimal amount = parseAmount(givenStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doCashPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processCash(state, amount);
         LOGGER.info("Exiting method doCashPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -235,7 +290,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doTrPayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doTrPayment with amountStr: " + amountStr);
-        paymentService.processTicketResto(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doTrPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processTicketResto(state, amount);
         LOGGER.info("Exiting method doTrPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -251,7 +311,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doFidelityPayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doFidelityPayment with amountStr: " + amountStr);
-        paymentService.processFidelity(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doFidelityPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processFidelity(state, amount);
         LOGGER.info("Exiting method doFidelityPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -267,7 +332,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doChequePayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doChequePayment with amountStr: " + amountStr);
-        paymentService.processCheque(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doChequePayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processCheque(state, amount);
         LOGGER.info("Exiting method doChequePayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -284,7 +354,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doTrdPayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doTrdPayment with amountStr: " + amountStr);
-        paymentService.processTrdCard(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doTrdPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processTrdCard(state, amount);
         LOGGER.info("Exiting method doTrdPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -303,7 +378,12 @@ public class PaymentResource {
     public Response doRestoFlashPayment(@FormParam("token") String token,
                                         @FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doRestoFlashPayment with amountStr: " + amountStr);
-        paymentService.processRestoFlash(state, token, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doRestoFlashPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processRestoFlash(state, token, amount);
         LOGGER.info("Exiting method doRestoFlashPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -322,7 +402,12 @@ public class PaymentResource {
     public Response doGiftCardPayment(@FormParam("cardNumber") String cardNumber,
                                       @FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doGiftCardPayment with amountStr: " + amountStr);
-        paymentService.processSupplierGiftCard(state, cardNumber, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doGiftCardPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processSupplierGiftCard(state, cardNumber, amount);
         LOGGER.info("Exiting method doGiftCardPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -340,7 +425,12 @@ public class PaymentResource {
     public Response doSogecPayment(@FormParam("couponCode") String couponCode,
                                    @FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doSogecPayment with amountStr: " + amountStr);
-        paymentService.processSogec(state, couponCode, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doSogecPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.processSogec(state, couponCode, amount);
         LOGGER.info("Exiting method doSogecPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -441,7 +531,12 @@ public class PaymentResource {
     public Response doBackupPayment(@FormParam("amount") String amountStr,
             @FormParam("login") String login, @FormParam("password") String password) {
         LOGGER.info("Entering method doBackupPayment with amountStr: " + amountStr + ", login: " + login + ", password: ***");
-        backupPaymentService.validateManually(state, parseAmount(amountStr), login, password);
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doBackupPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        backupPaymentService.validateManually(state, amount, login, password);
         LOGGER.info("Exiting method doBackupPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -506,7 +601,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCurrencyPayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doCurrencyPayment with amountStr: " + amountStr);
-        foreignCurrencyService.processCurrency(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doCurrencyPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        foreignCurrencyService.processCurrency(state, amount);
         LOGGER.info("Exiting method doCurrencyPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -608,7 +708,12 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCreditPayment(@FormParam("amount") String amountStr) {
         LOGGER.info("Entering method doCreditPayment with amountStr: " + amountStr);
-        creditClientService.processCredit(state, parseAmount(amountStr));
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doCreditPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+        }
+        creditClientService.processCredit(state, amount);
         LOGGER.info("Exiting method doCreditPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
@@ -774,6 +879,12 @@ public class PaymentResource {
                 ? CouponType.find("code = ?1 and active = true", code).firstResult()
                 : null;
         BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            // The pending voucher is LEFT PENDING: the cashier re-keys a figure
+            // the shop accepts rather than losing the voucher being entered.
+            LOGGER.info("Exiting method validateVoucherAmount");
+            return Response.seeOther(URI.create("/pay")).build();
+        }
         voucherService.applyManualVoucher(state, type, state.payment.pendingVoucherNumber, amount);
         state.payment.clearPendingVoucher();
         state.touch();
@@ -866,6 +977,29 @@ public class PaymentResource {
     @Path("/action/cancel")
     public Response cancelPayment() {
         LOGGER.info("Entering method cancelPayment");
+        // BO-10-02-02: abandoning settlements already taken is a watched
+        // gesture when the shop asks for it — nothing, a warning, a refusal, or
+        // a manager's aval, which parks the gesture and replays it on approval.
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_PAYMENT);
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK) {
+            state.ticket.setError(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_PAYMENT, level));
+            LOGGER.info("Exiting method cancelPayment");
+            return Response.seeOther(URI.create("/pay")).build();
+        }
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.ENDORSE) {
+            endorsementService.requestAuthorization(state, "CANCEL_PAYMENT");
+            LOGGER.info("Exiting method cancelPayment");
+            return Response.seeOther(URI.create("/pay")).build();
+        }
+        // BO-03-10-14: silenced by the island; the endorsement request and the
+        // refusal, handled above, are not.
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN
+                && !posSettingsService.islandBlockPaymentPopups()) {
+            state.ticket.setWarning(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_PAYMENT, level));
+        }
         paymentService.cancelPayments(state);
         LOGGER.info("Exiting method cancelPayment");
         return Response.seeOther(URI.create("/")).build();

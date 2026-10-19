@@ -527,4 +527,41 @@ class FidelityStateTest {
         fid.lastLookup = viewWithMatches(5);
         assertEquals(2, fid.getLookupPageCount());
     }
+
+    /**
+     * BO-10-03-03: the holder's name alone — surname upper-cased, first name as
+     * it came — and empty whenever there is no identity to state: no card, no
+     * lookup, or a lookup that brought back a blank.
+     */
+    @Test
+    void theHolderNameIsStatedOnlyWhenThereIsOne() {
+        FidelityState none = new FidelityState();
+        assertEquals("", none.getHolderName());
+
+        FidelityState carded = new FidelityState();
+        carded.assignCard("6045200000123");
+        assertEquals("", carded.getHolderName());
+
+        FidelityState blank = new FidelityState();
+        blank.assignCard("6045200000123");
+        blank.holderLastName = "   ";
+        assertEquals("", blank.getHolderName());
+
+        FidelityState surnameOnly = new FidelityState();
+        surnameOnly.assignCard("6045200000123");
+        surnameOnly.holderLastName = "Dupont";
+        assertEquals("DUPONT", surnameOnly.getHolderName());
+
+        FidelityState blankFirstName = new FidelityState();
+        blankFirstName.assignCard("6045200000123");
+        blankFirstName.holderLastName = "Dupont";
+        blankFirstName.holderFirstName = "  ";
+        assertEquals("DUPONT", blankFirstName.getHolderName());
+
+        FidelityState full = new FidelityState();
+        full.assignCard("6045200000123");
+        full.holderLastName = "Dupont";
+        full.holderFirstName = "Jean";
+        assertEquals("DUPONT Jean", full.getHolderName());
+    }
 }

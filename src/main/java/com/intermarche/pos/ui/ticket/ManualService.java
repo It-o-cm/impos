@@ -60,6 +60,22 @@ public class ManualService {
     @Inject
     PosSettingsService posSettings;
 
+    /**
+     * The register's own identifier, for the scope of a group (BO-03-01-22).
+     * Null on a bare instance built without CDI, in which case the register
+     * says nothing about itself and only the unscoped groups are drawn.
+     */
+    @Inject
+    com.intermarche.pos.service.TicketNumberService ticketNumberService;
+
+    /**
+     * The operator messages, consulted here for ONE thing: the language the
+     * till is set to, which decides the wording of the group touches
+     * (BO-03-01-19).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     // DTOs internes
     /**
      * One tile of the drill-down: a category to open or a product to add.
@@ -133,9 +149,9 @@ public class ManualService {
      */
     public ManualViewData getManualRootData(int page) {
         LOGGER.info("Entering method getManualRootData with page: " + page);
-        List<ProductFamily> allFamilies = ProductFamily.listAll();
-        Tree tree = readTree();
         Map<String, TouchGroupSetting> settings = TouchGroupSetting.byFamilyCode();
+        List<ProductFamily> allFamilies = drawnHere(ProductFamily.listAll(), settings);
+        Tree tree = readTree();
         Comparator<ProductFamily> order = orderComparator(mode(), settings);
         List<ProductFamily> pinned = new ArrayList<>();
         List<ProductFamily> rest = new ArrayList<>();
@@ -191,9 +207,9 @@ public class ManualService {
         List<ManualItem> items = new ArrayList<>();
         String breadcrumb = "Accueil";
         String parentUrl = "/manual";
-        List<ProductFamily> allFamilies = ProductFamily.listAll();
-        Tree tree = readTree();
         Map<String, TouchGroupSetting> settings = TouchGroupSetting.byFamilyCode();
+        List<ProductFamily> allFamilies = drawnHere(ProductFamily.listAll(), settings);
+        Tree tree = readTree();
         Comparator<ProductFamily> order = orderComparator(mode(), settings);
         List<ProductFamily> pinned = pinnedTopFamilies(allFamilies, tree, order, settings);
         for (ProductFamily f : pinned) {
@@ -207,7 +223,9 @@ public class ManualService {
         breadcrumb = "Accueil > " + family.description;
         List<ProductFamily> children = new ArrayList<>();
         if (family.productFamilies != null) {
-            for (ProductFamily child : family.productFamilies) {
+            // BO-03-01-21/-22/-23: a sub-group scoped elsewhere is no more drawn
+            // than a top one — the scope is on the group, not on its rank.
+            for (ProductFamily child : drawnHere(family.productFamilies, settings)) {
                 if (tree.qualifying().contains(child.id)) {
                     children.add(child);
                 }
@@ -266,6 +284,52 @@ public class ManualService {
      *                   descendants, to at least one EAN-only product
      */
     private record Tree(Set<Long> childIds, Set<Long> qualifying) {
+    }
+
+    /**
+     * Keeps only the groups THIS register draws (BO-03-01-21, -22 and -23).
+     *
+     * <p>A group nothing scoped is drawn, which is how the grid behaved before
+     * the scope existed; a group scoped elsewhere is not drawn at all, here or
+     * under a parent.
+     *
+     * @param families the groups to consider
+     * @param settings the touch configuration by group code
+     * @return the groups this register draws, in the order given
+     */
+    private List<ProductFamily> drawnHere(Collection<ProductFamily> families,
+                                          Map<String, TouchGroupSetting> settings) {
+        String[] scope = registerScope();
+        List<ProductFamily> kept = new ArrayList<>();
+        for (ProductFamily family : families) {
+            if (TouchGroupSetting.orDefaults(settings, family.code)
+                    .isDrawnOn(scope[0], scope[1], scope[2])) {
+                kept.add(family);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * This register's identity as the scope of a group reads it: its terminal,
+     * its island and its kind.
+     *
+     * <p>The island and the kind are READ FROM THE DISTRIBUTED checkout point,
+     * which is the back office's own description of this register — the till
+     * does not decide what island it is in.
+     *
+     * @return the terminal, the island code and the kind name, any of them null
+     *         when the register cannot say
+     */
+    private String[] registerScope() {
+        String terminalId = ticketNumberService == null
+                ? null : ticketNumberService.getTerminalId();
+        com.intermarche.pos.domain.store.CheckoutPoint point =
+                com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(terminalId);
+        return new String[] {
+                terminalId,
+                point == null ? null : point.islandCode,
+                point == null || point.tpvType == null ? null : point.tpvType.name()};
     }
 
     /**
@@ -331,8 +395,28 @@ public class ManualService {
     private ManualItem categoryItem(ProductFamily family,
                                     Map<String, TouchGroupSetting> settings) {
         TouchGroupSetting setting = TouchGroupSetting.orDefaults(settings, family.code);
-        return new ManualItem(family.description, true, "/manual/cat/" + family.code, null,
+        return new ManualItem(groupLabel(family, setting), true,
+                "/manual/cat/" + family.code, null,
                 sizeClass(setting.buttonSize), setting.pinned);
+    }
+
+    /**
+     * The wording a group touch carries in the language the till is set to
+     * (BO-03-01-19).
+     *
+     * <p>The administered translation wins; the nomenclature's own description
+     * is the fallback, which is what every touch carried before translations
+     * existed. A service built outside CDI has no language and therefore no
+     * translation, and falls back the same way.
+     *
+     * @param family the group
+     * @param setting its touch configuration
+     * @return the wording to draw
+     */
+    private String groupLabel(ProductFamily family, TouchGroupSetting setting) {
+        String translated = setting == null || i18n == null
+                ? null : setting.translatedLabel(i18n.getLang());
+        return translated == null ? family.description : translated;
     }
 
     /**

@@ -973,4 +973,84 @@ class WeightedEanScanHandlerTest {
                 eq(new BigDecimal("2.99")), eq(new BigDecimal("0.500")), eq(DEFAULT_VAT));
         verify(ticket, never()).setError(any());
     }
+
+    /**
+     * A range administered for something OTHER than an article line is not this
+     * handler's business (BO-03-06-56/-60/-61): the code falls through untouched
+     * to the handler that owns that meaning, which is what keeps the chain's
+     * disjointness true. The three non-article destinations are all exercised.
+     */
+    @Test
+    void aRangeAdministeredForAnotherPurposeFallsThrough() {
+        for (ArticleBarcodeRange.Purpose purpose : new ArticleBarcodeRange.Purpose[] {
+                ArticleBarcodeRange.Purpose.REFUND,
+                ArticleBarcodeRange.Purpose.TARE,
+                ArticleBarcodeRange.Purpose.BALANCE_TICKET }) {
+            TicketState ticket = mock(TicketState.class);
+            PosState state = newState(ticket);
+            ArticleBarcodeRange range =
+                    administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+            range.articlePosition = 2;
+            range.articleLength = 5;
+            range.valuePosition = 7;
+            range.valueLength = 5;
+            range.purpose = purpose;
+            ScanContext ctx = new ScanContext(PRICE_CODE, state);
+            try (MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+                newHandler().handle(ctx);
+            }
+            assertFalse(ctx.handled);
+            verify(ticket, never()).setError(any());
+            verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+        }
+    }
+
+    /**
+     * An announced container tare is deducted from the weighed line and consumed
+     * (BO-03-06-60): 500 grams of olives in a 250-gram bowl is 250 grams of
+     * olives.
+     */
+    @Test
+    void anAnnouncedTareIsDeductedFromTheWeighedLine() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        org.mockito.Mockito.when(ticket.consumePendingTare())
+                .thenReturn(new BigDecimal("0.250"));
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(new BigDecimal("9.99")), eq(new BigDecimal("0.250")),
+                eq(new BigDecimal("0.055")));
+    }
+
+    /**
+     * A tare at least as heavy as the weighing is refused: a line weighing
+     * nothing is not a sale, and charging the customer for the bowl is not one
+     * either (BO-03-06-60).
+     */
+    @Test
+    void aTareHeavierThanTheWeighingIsRefused() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        org.mockito.Mockito.when(ticket.consumePendingTare())
+                .thenReturn(new BigDecimal("0.500"));
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("POIDS INVALIDE");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
 }

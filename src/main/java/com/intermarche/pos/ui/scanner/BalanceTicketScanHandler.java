@@ -50,14 +50,49 @@ public class BalanceTicketScanHandler implements ScanContext.ScanHandler {
     public void handle(ScanContext ctx) {
         if (ctx.handled) return;
         String code = ctx.code;
-        if (code == null || !code.matches("2\\d{12}")) return;
-        if (!balanceTicketPrefixes.contains(code.substring(0, 2))) return;
-        if (!hasValidChecksum(code)) return; // let the generic EAN handler try
+        if (code == null || code.isBlank()) return;
+        // BO-03-06-56: the ADMINISTERED range is consulted first. A store whose
+        // scales print a reference somewhere else in a code of another length
+        // states that range in the back office; until it does, the historical
+        // 2x EAN13 layout below is what answers, unchanged.
+        String reference = administeredReference(code);
+        if (reference == null) {
+            if (!code.matches("2\\d{12}")) return;
+            if (!balanceTicketPrefixes.contains(code.substring(0, 2))) return;
+            if (!hasValidChecksum(code)) return; // let the generic EAN handler try
+            reference = code.substring(2, 12);
+        }
 
-        balanceTicketService.integrate(ctx.state, code.substring(2, 12));
+        balanceTicketService.integrate(ctx.state, reference);
         // Consumed either way: a refused pick-up already told the cashier why, and
         // letting the code walk on would end as "ARTICLE INCONNU" over that message.
         ctx.handled = true;
+    }
+
+    /**
+     * Reads the counter-ticket reference an administered range carries, if one
+     * recognizes the code (BO-03-06-56).
+     *
+     * <p>The reference is taken RAW, leading zeros kept: the shop matches it
+     * character for character against what the scale pushed, and a reference
+     * whose zeros were stripped names nothing.
+     *
+     * @param code the scanned code, non-blank
+     * @return the reference, or null when no BALANCE_TICKET range claims the code
+     */
+    private String administeredReference(String code) {
+        com.intermarche.pos.domain.barcode.ArticleBarcodeRange range =
+                com.intermarche.pos.domain.barcode.ArticleBarcodeRange.findMatching(code);
+        if (range == null
+                || range.purpose != com.intermarche.pos.domain.barcode
+                        .ArticleBarcodeRange.Purpose.BALANCE_TICKET) {
+            return null;
+        }
+        if (range.checkDigit && code.length() == 13 && !hasValidChecksum(code)) {
+            return null;
+        }
+        String reference = range.articleSegment(code);
+        return reference == null || reference.isBlank() ? null : reference;
     }
 
     /**

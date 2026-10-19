@@ -961,6 +961,9 @@ public class DemoIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

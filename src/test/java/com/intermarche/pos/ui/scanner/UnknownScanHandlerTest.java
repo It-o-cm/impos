@@ -38,6 +38,8 @@ class UnknownScanHandlerTest {
     private UnknownScanHandler newHandler() {
         UnknownScanHandler handler = new UnknownScanHandler();
         handler.i18n = TestMessages.french();
+        handler.ticketPrinterService =
+                mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         return handler;
     }
 
@@ -97,7 +99,41 @@ class UnknownScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket, false);
         ScanContext ctx = new ScanContext(CODE, state);
-        newHandler().handle(ctx);
+        UnknownScanHandler handler = newHandler();
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(ticket).setError("CODE INCONNU: " + CODE);
+        // BO-03-10-05: the paper is ASKED FOR on every unknown code; whether
+        // one comes out is the island's decision and the printer's answer, not
+        // this handler's business.
+        verify(handler.ticketPrinterService).printUnknownArticleTicket(CODE);
+    }
+
+    /**
+     * BO-03-10-05: a locked register asks for no paper either — the slip
+     * follows the message, and the lock screen shows neither.
+     */
+    @Test
+    void aLockedRegisterAsksForNoSlip() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket, true);
+        UnknownScanHandler handler = newHandler();
+        handler.handle(new ScanContext(CODE, state));
+        verify(handler.ticketPrinterService, never()).printUnknownArticleTicket(any());
+    }
+
+    /**
+     * A handler built without CDI carries no printer, and the message still
+     * reaches the screen: the slip is an addition, never a condition.
+     */
+    @Test
+    void aHandlerWithoutAPrinterStillStampsTheMessage() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket, false);
+        UnknownScanHandler handler = new UnknownScanHandler();
+        handler.i18n = TestMessages.french();
+        ScanContext ctx = new ScanContext(CODE, state);
+        handler.handle(ctx);
         assertTrue(ctx.handled);
         verify(ticket).setError("CODE INCONNU: " + CODE);
     }

@@ -325,4 +325,58 @@ class AuthScanHandlerTest {
         assertFalse(ctx.handled);
         verify(auth, never()).setSupervisorBadge(NON_BADGE_CODE);
     }
+
+    /**
+     * BO-10-02-32: while a prefix is administered, only a PREFIXED code
+     * endorses — the bare code, the one anybody could key, no longer does — and
+     * the identifier stored is the operator's own, prefix stripped.
+     */
+    @Test
+    void aPrefixedCodeEndorsesAndTheBareOneNoLongerDoes() {
+        AuthScanHandler handler = newHandler();
+        when(handler.posSettingsService.supervisorBadgePrefix()).thenReturn("SUP");
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = true;
+        AuthState auth = mock(AuthState.class);
+        PosState state = newState(endorsement, auth);
+        ScanContext prefixed = new ScanContext("SUP" + BADGE_CODE, state);
+        handler.handle(prefixed);
+        assertTrue(prefixed.handled);
+        verify(endorsement).setScannedBadge(BADGE_CODE);
+
+        EndorsementState other = mock(EndorsementState.class);
+        other.active = true;
+        PosState bareState = newState(other, mock(AuthState.class));
+        ScanContext bare = new ScanContext(BADGE_CODE, bareState);
+        handler.handle(bare);
+        assertFalse(bare.handled);
+        verify(other, never()).setScannedBadge(anyString());
+    }
+
+    /**
+     * BO-10-02-32: taking the post is the other way round — the badge takes it,
+     * the supervisor barcode does not, so a prefixed code scanned at the lock
+     * screen is ignored rather than logging somebody in.
+     */
+    @Test
+    void thePostIsTakenByTheBareBadgeOnly() {
+        AuthScanHandler handler = newHandler();
+        when(handler.posSettingsService.supervisorBadgePrefix()).thenReturn(" SUP ");
+        EndorsementState endorsement = mock(EndorsementState.class);
+        AuthState auth = mock(AuthState.class);
+        PosState state = newState(endorsement, auth);
+        when(state.isLocked()).thenReturn(true);
+        ScanContext bare = new ScanContext(BADGE_CODE, state);
+        handler.handle(bare);
+        assertTrue(bare.handled);
+        verify(auth).setScannedBadge(BADGE_CODE);
+
+        AuthState otherAuth = mock(AuthState.class);
+        PosState prefixedState = newState(mock(EndorsementState.class), otherAuth);
+        when(prefixedState.isLocked()).thenReturn(true);
+        ScanContext prefixed = new ScanContext("SUP" + BADGE_CODE, prefixedState);
+        handler.handle(prefixed);
+        assertFalse(prefixed.handled);
+        verify(otherAuth, never()).setScannedBadge(anyString());
+    }
 }

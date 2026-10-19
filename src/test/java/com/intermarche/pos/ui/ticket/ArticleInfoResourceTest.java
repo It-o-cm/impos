@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -64,6 +65,10 @@ class ArticleInfoResourceTest {
         resource.articleInfo = mock(Template.class);
         resource.ticketService = mock(TicketService.class);
         resource.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
+        // BO-04-01-38: every lookup is journalised, so the journal is a
+        // collaborator of this screen and not an optional one.
+        resource.technicalEventService =
+                mock(com.intermarche.pos.service.TechnicalEventService.class);
         // A real state: the lock is the register's own gate and a fresh one is locked,
         // which is also the state the take key must not appear in.
         resource.state = new com.intermarche.pos.ui.PosState();
@@ -309,5 +314,29 @@ class ArticleInfoResourceTest {
      */
     private static Object isNullArg() {
         return org.mockito.ArgumentMatchers.isNull();
+    }
+
+    /**
+     * BO-04-01-38: a price CHECK is journalised — found or not, because a code
+     * nobody recognises is exactly what a shop looks for afterwards — and the
+     * empty form is not a check and writes nothing.
+     */
+    @Test
+    void thePriceCheckIsJournalised() {
+        ArticleInfoResource resource = newResource();
+        resource.infoPage(null);
+        resource.infoPage("   ");
+        verify(resource.technicalEventService, never())
+                .log(any(), any(), any());
+
+        ArticleInfoResource unknown = newResource();
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("999")).thenReturn(null);
+            products.when(() -> Product.findActiveByPlu("999")).thenReturn(null);
+            unknown.infoPage("999");
+        }
+        verify(unknown.technicalEventService).log(
+                eq(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_CHECKED),
+                eq("999 (inconnu)"), any());
     }
 }

@@ -193,16 +193,16 @@ class ProductAttributesTest {
     }
 
     /**
-     * The message lists the recalled lots so a cashier can check the pack by hand, and
-     * an article that recalls nothing produces no message at all rather than an empty
-     * one the screen would still show.
+     * The joined lots are what a cashier checks by hand on the pack, and an
+     * article that recalls nothing produces nothing at all rather than an
+     * empty join the screen would still show.
      */
     @Test
-    void recalledLotsMessageListsTheLotsOrSaysNothing() {
-        Assertions.assertEquals("PRODUIT EN RAPPEL - LOTS : L123, L456",
-                ProductAttributes.recalledLotsMessage(
+    void recalledLotsJoinedListsTheLotsOrSaysNothing() {
+        Assertions.assertEquals("L123, L456",
+                ProductAttributes.recalledLotsJoined(
                         productWith(ProductAttributeCatalog.RECALL_LOTS, "L123;L456")));
-        Assertions.assertNull(ProductAttributes.recalledLotsMessage(new Product()));
+        Assertions.assertNull(ProductAttributes.recalledLotsJoined(new Product()));
     }
 
     /**
@@ -336,5 +336,99 @@ class ProductAttributesTest {
     void tareClampsANegativeValueToZero() {
         Assertions.assertEquals(0, java.math.BigDecimal.ZERO.compareTo(
                 ProductAttributes.tare(productWith(ProductAttributeCatalog.TARE, "-0.010"))));
+    }
+    /**
+     * {@code activationRequired} is the catalog flag demanding a second scan
+     * (BO-03-06-44): absent it is false, declared true it is true, and a null
+     * product answers false rather than raising.
+     */
+    @Test
+    void activationRequiredReadsTheCatalogFlag() {
+        Assertions.assertFalse(ProductAttributes.activationRequired(new Product()));
+        Assertions.assertFalse(ProductAttributes.activationRequired(null));
+        Assertions.assertTrue(ProductAttributes.activationRequired(
+                productWith(ProductAttributeCatalog.ACTIVATION_REQUIRED, "true")));
+        Assertions.assertFalse(ProductAttributes.activationRequired(
+                productWith(ProductAttributeCatalog.ACTIVATION_REQUIRED, "false")));
+    }
+
+    /**
+     * {@code activationProvider} answers the declared provider trimmed, and
+     * NULL for every way of declaring none — a store may demand the second scan
+     * before it knows who will settle it (BO-03-06-44, each leg of the guard).
+     */
+    @Test
+    void activationProviderIsNullUntilOneIsNamed() {
+        Assertions.assertNull(ProductAttributes.activationProvider(new Product()));
+        Assertions.assertNull(ProductAttributes.activationProvider(null));
+        Assertions.assertNull(ProductAttributes.activationProvider(
+                productWith(ProductAttributeCatalog.ACTIVATION_PROVIDER, "   ")));
+        Assertions.assertEquals("TRANSACTIS", ProductAttributes.activationProvider(
+                productWith(ProductAttributeCatalog.ACTIVATION_PROVIDER, "  TRANSACTIS  ")));
+    }
+
+    /**
+     * {@code soldOn} refuses an article the store took out of THIS register or
+     * THIS island, and sells everywhere otherwise (BO-03-01-18). Each leg of
+     * the two exclusion lists: an empty list excludes nothing, a list naming
+     * something else excludes nothing, a null register or island matches
+     * nothing, and the match ignores the case and the spaces.
+     */
+    @Test
+    void soldOnHonoursTheTwoExclusionLists() {
+        Assertions.assertTrue(ProductAttributes.soldOn(new Product(), "C04", "AVANT"));
+        Assertions.assertTrue(ProductAttributes.soldOn(null, "C04", "AVANT"));
+
+        Product byTerminal = productWith(ProductAttributeCatalog.DISABLED_TERMINALS,
+                " c04 ; C07 ");
+        Assertions.assertFalse(ProductAttributes.soldOn(byTerminal, "C04", "AVANT"));
+        Assertions.assertFalse(ProductAttributes.soldOn(byTerminal, "C07", null));
+        Assertions.assertTrue(ProductAttributes.soldOn(byTerminal, "C05", "AVANT"));
+        Assertions.assertTrue(ProductAttributes.soldOn(byTerminal, null, "AVANT"));
+
+        Product byIsland = productWith(ProductAttributeCatalog.DISABLED_ISLANDS, "LIBRE");
+        Assertions.assertFalse(ProductAttributes.soldOn(byIsland, "C04", "libre"));
+        Assertions.assertTrue(ProductAttributes.soldOn(byIsland, "C04", "AVANT"));
+        Assertions.assertTrue(ProductAttributes.soldOn(byIsland, "C04", null));
+
+        Product blank = productWith(ProductAttributeCatalog.DISABLED_ISLANDS, "   ");
+        Assertions.assertTrue(ProductAttributes.soldOn(blank, "C04", "AVANT"));
+    }
+
+    /**
+     * {@code translatedLabel} answers the wording administered for a language
+     * and null for every other case (BO-03-01-20): a language nobody
+     * administered, a null or blank tag, a pair with no language, a pair with
+     * no wording, and an empty wording. The tag match ignores the case and the
+     * spaces, as a back-office entry always eventually needs.
+     */
+    @Test
+    void translatedLabelAnswersTheAdministeredWording() {
+        Product product = productWith(ProductAttributeCatalog.TRANSLATED_LABELS,
+                " NL = Melk ;pt=Leite;=sans langue;de=;   ");
+        Assertions.assertEquals("Melk", ProductAttributes.translatedLabel(product, "nl"));
+        Assertions.assertEquals("Melk", ProductAttributes.translatedLabel(product, " NL "));
+        Assertions.assertEquals("Leite", ProductAttributes.translatedLabel(product, "pt"));
+        Assertions.assertNull(ProductAttributes.translatedLabel(product, "de"));
+        Assertions.assertNull(ProductAttributes.translatedLabel(product, "es"));
+        Assertions.assertNull(ProductAttributes.translatedLabel(product, null));
+        Assertions.assertNull(ProductAttributes.translatedLabel(product, "   "));
+        Assertions.assertNull(ProductAttributes.translatedLabel(new Product(), "nl"));
+        Assertions.assertNull(ProductAttributes.translatedLabel(null, "nl"));
+    }
+
+    /**
+     * {@code saleLabel} shows the translation when one is administered and the
+     * catalog's own wording otherwise — what every caller showed before
+     * translations existed (BO-03-01-20, both arms).
+     */
+    @Test
+    void saleLabelFallsBackOnTheCatalogWording() {
+        Product product = productWith(ProductAttributeCatalog.TRANSLATED_LABELS, "nl=Melk");
+        product.name = "LAIT DEMI-ECREME";
+        Assertions.assertEquals("Melk", ProductAttributes.saleLabel(product, "nl"));
+        Assertions.assertEquals("LAIT DEMI-ECREME", ProductAttributes.saleLabel(product, "fr"));
+        Assertions.assertEquals("LAIT DEMI-ECREME", ProductAttributes.saleLabel(product, null));
+        Assertions.assertNull(ProductAttributes.saleLabel(null, "nl"));
     }
 }

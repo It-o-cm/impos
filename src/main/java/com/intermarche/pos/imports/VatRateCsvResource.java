@@ -251,6 +251,9 @@ public class VatRateCsvResource extends ImporterCsvResource {
      */
     private int computeIncomingChecksum(Integer number, LineData data) {
         BigDecimal rate = safeParseBigDecimal(data, COL_RATE);
-        return Objects.hash(number, rate, safeGet(data, COL_LABEL));
+        // The CSV speaks only for the three fields it carries: the country and
+        // the legal mention are administered locally, so the line answers
+        // their absent default and an unchanged line is not a change.
+        return Objects.hash(number, rate, safeGet(data, COL_LABEL), null, null);
     }
 }

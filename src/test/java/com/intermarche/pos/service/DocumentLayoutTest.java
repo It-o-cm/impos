@@ -216,4 +216,63 @@ class DocumentLayoutTest {
         assertEquals(List.of("ABCD EFGHI"), new DocumentLayout(10).wrap("ABCD EFGHI"));
         assertEquals(List.of("ABCD EFGHI", "J"), new DocumentLayout(10).wrap("ABCD EFGHI J"));
     }
+
+    /**
+     * BO-03-05-01 and -03: a text shorter than the paper is pushed flush right,
+     * which is the third alignment a banner line may take.
+     */
+    @Test
+    void rightPushesAShortTextToTheEdge() {
+        assertEquals("     ABCDE", new DocumentLayout(10).right("ABCDE"));
+    }
+
+    /**
+     * A text that exactly fills the paper is answered untouched — the boundary
+     * of the padding guard, where the padding is zero and not one space.
+     */
+    @Test
+    void rightLeavesAnExactlyFullLineAlone() {
+        assertEquals("ABCDEFGHIJ", new DocumentLayout(10).right("ABCDEFGHIJ"));
+    }
+
+    /**
+     * A text LONGER than the paper is answered untouched rather than cut:
+     * losing characters off a line the shop wrote is worse than a line the
+     * printer wraps — the negative-padding arm.
+     */
+    @Test
+    void rightNeverCutsAnOversizedLine() {
+        assertEquals("ABCDEFGHIJKL", new DocumentLayout(10).right("ABCDEFGHIJKL"));
+    }
+
+    /**
+     * A null text is a whole line of paper and no characters — the null arm,
+     * which a banner reaches whenever one of its values is absent.
+     */
+    @Test
+    void rightReadsANullTextAsAnEmptyOne() {
+        assertEquals(" ".repeat(10), new DocumentLayout(10).right(null));
+    }
+
+    /**
+     * BO-03-05-08: the QR primitive emits the directive the hardware bridge
+     * encodes, trimmed, and nothing at all for a payload nobody typed.
+     */
+    @Test
+    void theQrPrimitiveEmitsItsDirective() {
+        assertEquals("[[QR https://magasin.fr/avis]]", PAPER.qr("  https://magasin.fr/avis "));
+        assertEquals("", PAPER.qr(null));
+        assertEquals("", PAPER.qr("   "));
+    }
+
+    /**
+     * BO-03-05-08: the bar-code primitive is its twin, for the shops whose
+     * readers are linear.
+     */
+    @Test
+    void theBarcodePrimitiveEmitsItsDirective() {
+        assertEquals("[[BARCODE C04-000123]]", PAPER.barcode(" C04-000123 "));
+        assertEquals("", PAPER.barcode(null));
+        assertEquals("", PAPER.barcode("  "));
+    }
 }

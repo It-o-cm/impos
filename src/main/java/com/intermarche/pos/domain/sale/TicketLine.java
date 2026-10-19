@@ -266,6 +266,45 @@ public class TicketLine extends BaseEntity {
     public java.time.LocalDate gs1ExpiryDate;
 
     /**
+     * The article's SECOND CODE — its internal code — as the referential
+     * carried it the day the line was rung (BO-10-02-20).
+     *
+     * <p>Frozen here and not read back from the article at print time: a
+     * duplicata months later must state the code the customer was handed, not
+     * the code the article carries today. Null for an article that has none.
+     */
+    @Column(name = "second_code", length = 50)
+    public String secondCode;
+
+    /**
+     * The tare applied to this weighing, in kilograms (BO-10-05-04).
+     *
+     * <p>Frozen on the sold line like the family and the second code: a
+     * duplicata must restate the deduction the customer was shown. Null for a
+     * line that was not weighed.
+     */
+    @Column(name = "applied_tare_kg", precision = 10, scale = 3)
+    public java.math.BigDecimal appliedTareKg;
+
+    /**
+     * The activation code of a dematerialised article (BO-03-06-44), or null on
+     * every ordinary line.
+     *
+     * <p>Kept on the SOLD line, like the GS1 identifiers above: a customer who
+     * comes back three weeks later with a gift card that never worked is
+     * answered by the line that carried its code, and by nothing else.
+     */
+    @Column(name = "activation_code", length = 100)
+    public String activationCode;
+
+    /**
+     * The provider that owes the activation of the line (BO-03-06-44), as the
+     * referential named it when the article was rung, or null.
+     */
+    @Column(name = "activation_provider", length = 60)
+    public String activationProvider;
+
+    /**
      * True when the line was cancelled by the cashier during the sale and KEPT
      * as a witness rather than dropped (campaign lot C4, BO-04-01-16). The
      * register historically modelled the cart as a state — a cancelled line
@@ -316,6 +355,26 @@ public class TicketLine extends BaseEntity {
      */
     @Column(name = "cancelled_last", nullable = false)
     public boolean cancelledLast;
+
+    /**
+     * Code of the administered justification the cashier gave for the
+     * cancellation ({@code BO-06-06-04}), or null when the shop administers no
+     * justification for that gesture.
+     *
+     * <p>The CODE and the label are stored side by side, and both are frozen:
+     * a state edited months later must show the wording the cashier was
+     * offered, not the one the referential carries today — the rule the
+     * family label and the second code already follow on this line.
+     */
+    @Column(name = "cancellation_reason_code", length = 20)
+    public String cancellationReasonCode;
+
+    /**
+     * Label of the administered justification the cashier gave for the
+     * cancellation ({@code BO-06-06-04}), or null when none was given.
+     */
+    @Column(name = "cancellation_reason_label", length = 80)
+    public String cancellationReasonLabel;
 
     /**
      * Returns the unit price the customer ACTUALLY PAID on this line, tax

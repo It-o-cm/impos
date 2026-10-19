@@ -116,6 +116,48 @@ public class ArticleBarcodeRange extends PanacheEntity {
     public String matchPattern;
 
     /**
+     * What the register DOES with a code of this range (BO-03-06-56/-60/-61).
+     *
+     * <p>The positional vocabulary above says how to READ a code; it never said
+     * what the code MEANS. Every range meant "an article with its price or its
+     * weight", because that was the only thing the chain could do with one. The
+     * questionnaire asks for three more meanings on the same vocabulary — a
+     * return, a container tare, a counter ticket — and none of them deserves a
+     * second table: the same prefix, the same length, the same two segments.
+     *
+     * <p>Defaults to {@link Purpose#ARTICLE}, so every range administered before
+     * this column existed keeps doing exactly what it did.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purpose", nullable = false, length = 20)
+    public Purpose purpose = Purpose.ARTICLE;
+
+    /**
+     * The name of the promotion a {@link Purpose#PROMOTION} range triggers
+     * (BO-03-06-43); null, and meaningless, on every other range.
+     *
+     * <p>A NAME and nothing more, deliberately. The register does not know what
+     * a promotion is worth and must never decide it: a promotion is a rule the
+     * valuation engine owns. The only honest thing a barcode can do is name the
+     * promotion it stands for; the scan arms that name on the ticket and the
+     * engine resolves it, exactly as it resolves a card-borne one.
+     */
+    @Column(name = "promotion_code", length = 60)
+    public String promotionCode;
+
+    /**
+     * The URL of the THIRD-PARTY service asked about a code of this range
+     * (BO-03-06-41); null on every range the register interprets by itself.
+     *
+     * <p>Some codes are not this referential's to read: a partner's voucher, a
+     * ticketing stub, a coupon printed by a system nobody here models. The URL
+     * names the service that does know, and may carry {@code {code}} where the
+     * scanned code belongs; without the placeholder the code is appended.
+     */
+    @Column(name = "lookup_url", length = 255)
+    public String lookupUrl;
+
+    /**
      * Returns the 0-based position just after the article segment.
      *
      * @return the end position of the article segment
@@ -164,12 +206,26 @@ public class ArticleBarcodeRange extends PanacheEntity {
      * @return the article code, or null when the segment cannot be read
      */
     public String articleCode(String scanned) {
-        String raw = segment(scanned, articlePosition, articleLength);
+        String raw = articleSegment(scanned);
         if (raw == null) {
             return null;
         }
         String stripped = raw.replaceFirst("^0+", "");
         return stripped.isEmpty() ? "0" : stripped;
+    }
+
+    /**
+     * Reads the article segment RAW, leading zeros kept.
+     *
+     * <p>A counter-ticket reference is a key and not a number: the shop matches
+     * it character for character, and stripping its zeros would look up a
+     * reference nobody printed (BO-03-06-56).
+     *
+     * @param scanned the scanned code, or null
+     * @return the raw segment, or null when it cannot be read
+     */
+    public String articleSegment(String scanned) {
+        return segment(scanned, articlePosition, articleLength);
     }
 
     /**
@@ -266,5 +322,94 @@ public class ArticleBarcodeRange extends PanacheEntity {
 
         /** The segment carries the weight, with the administered decimals (BO-03-06-04). */
         WEIGHT
+    }
+
+    /**
+     * Names what the register does with a code of the range.
+     */
+    public enum Purpose {
+
+        /** An article line, priced or weighed by the code (BO-03-06-02 to -05). */
+        ARTICLE,
+
+        /**
+         * A RETURN of the article the code names, at the price the code carries
+         * (BO-03-06-61) — rung on the sale in progress, without the original
+         * ticket: the paper the code is printed on IS the authorisation.
+         */
+        REFUND,
+
+        /**
+         * The TARE of a container (BO-03-06-60): the value segment carries the
+         * container's weight, deducted from the next weighed line.
+         */
+        TARE,
+
+        /**
+         * A counter ticket (BO-03-06-56): the article segment carries the
+         * reference of the bag the scales pushed to the shop, picked up whole.
+         */
+        BALANCE_TICKET,
+
+        /**
+         * A named PROMOTION triggered on the sale in progress (BO-03-06-43):
+         * the range names the promotion, the scan arms it on the ticket, and
+         * the valuation engine is what resolves and applies it. No line is
+         * rung — a promotion is not an article.
+         */
+        PROMOTION,
+
+        /**
+         * A code only a THIRD PARTY can read (BO-03-06-41): the range names the
+         * service, the register asks it, and acts on what comes back.
+         */
+        EXTERNAL_LOOKUP,
+
+        /**
+         * A customer ORDER, quote or sale voucher recalled by its code
+         * (BO-03-06-58): the article segment carries the order's reference,
+         * which the scan arms on the ticket.
+         */
+        CUSTOMER_ORDER
+    }
+
+    /**
+     * Indicates whether the range is an ordinary article range.
+     *
+     * @return true when a code of the range rings an article line
+     */
+    public boolean isArticlePurpose() {
+        return purpose == null || purpose == Purpose.ARTICLE;
+    }
+
+    /**
+     * Indicates whether the range triggers a named promotion (BO-03-06-43).
+     *
+     * <p>A promotion range that names no promotion triggers nothing: the
+     * administered row is incomplete, and arming an empty name on the ticket
+     * would send the engine a promotion nobody can resolve.
+     *
+     * @return true when the range is a promotion range carrying a name
+     */
+    public boolean triggersPromotion() {
+        return purpose == Purpose.PROMOTION
+                && promotionCode != null
+                && !promotionCode.isBlank();
+    }
+
+    /**
+     * Indicates whether the range names a third-party service to ask
+     * (BO-03-06-41).
+     *
+     * <p>An EXTERNAL_LOOKUP range naming no URL asks nobody: the administered
+     * row is incomplete, and the register says so rather than swallowing the
+     * code in silence.
+     *
+     * @return true when the range is an external-lookup range carrying a URL
+     */
+    public boolean hasExternalLookup() {
+        return purpose == Purpose.EXTERNAL_LOOKUP
+                && lookupUrl != null
+                && !lookupUrl.isBlank();
     }
 }

@@ -78,6 +78,14 @@
                     {#if showEan && item.ean}
                     <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
                     {/if}
+                    {#if item.tareFormatted}
+                    <!-- LC-14-02-03 : la tare logicielle REELLEMENT appliquee, sous la
+                         ligne. C'est la seule reponse que la caisse puisse donner a un
+                         client qui conteste un poids net, et elle vaut pour les deux
+                         chemins — la tare envoyee a la balance comme celle deduite d'un
+                         poids saisi a la main. -->
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{inject:i18n.get('ticket.tare')} {item.tareFormatted} kg</div>
+                    {/if}
                     {#if item.detailLine}
                     <!-- P3-5 / LC-02-05-04 : la décomposition qté × PU sous le libellé,
                          une seule ligne pour les quatre cas (pièces, unité de mesure,

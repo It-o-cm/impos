@@ -45,6 +45,8 @@ public class RefundResource {
     PosState state;
     @Inject RefundService refundService;
     @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
+    /** The administered lists: return types (BO-04-02-07). */
+    @Inject com.intermarche.pos.service.PosListService posListService;
     /** Checks and journals the supervisor endorsement of a paid-ticket cancellation (EXP-49). */
     @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
     @Inject @Location("return-search") Template returnSearchPage;
@@ -397,7 +399,7 @@ public class RefundResource {
      */
     private TemplateInstance detail() {
         return returnDetailPage.data("state", state)
-                .data("reasons", posSettingsService.returnReasons());
+                .data("reasons", posListService.returnReasons());
     }
 
     /**
@@ -409,7 +411,7 @@ public class RefundResource {
      */
     private TemplateInstance search() {
         return returnSearchPage.data("state", state)
-                .data("returnTypes", posSettingsService.returnTypes());
+                .data("returnTypes", posListService.returnTypes());
     }
 
     /**

@@ -37,6 +37,9 @@ public final class PaymentTypes {
         BY_KEY.put("RESTOFLASH", RestoFlashPayment.class);
         BY_KEY.put("GIFTCARD", SupplierGiftCardPayment.class);
         BY_KEY.put("SOGEC", SogecPayment.class);
+        // LC-06-03-07: appended at the END, like every prior addition — the
+        // deposit recovery of an order recalled at the till.
+        BY_KEY.put("ACOMPTE", DepositPayment.class);
     }
 
     /**

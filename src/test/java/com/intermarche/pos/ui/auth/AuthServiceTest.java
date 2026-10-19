@@ -79,6 +79,9 @@ class AuthServiceTest {
     private PosState newState() {
         PosState state = mock(PosState.class);
         state.auth = mock(AuthState.class);
+        // A mock never runs PosState's field initialiser, and the logout
+        // clears the endorsement mailbox: give it like the real state does.
+        state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
         return state;
     }
 

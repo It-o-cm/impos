@@ -252,7 +252,7 @@ class VatRateCsvResourceTest {
     void processLineLogicSkipsAnUnchangedRegime() {
         VatRate existing = regime(1, "0.2000", "Taux normal");
         existing.id = 11L;
-        existing.checksum = Objects.hash(1, new BigDecimal("0.2000"), "Taux normal");
+        existing.checksum = existing.getChecksum();
         Map<String, VatRate> rates = new HashMap<>();
         rates.put("1", existing);
         Map<String, Object> context = new HashMap<>();
@@ -350,7 +350,7 @@ class VatRateCsvResourceTest {
         Method method = privateMethod("computeIncomingChecksum",
                 Integer.class, ImporterCsvResource.LineData.class);
         int incoming = (int) method.invoke(resource, 5, line("5", "0.0000", null));
-        assertEquals(Objects.hash(5, new BigDecimal("0.0000"), null), incoming);
+        assertEquals(regime(5, "0.0000", null).getChecksum(), incoming);
     }
 
     /**

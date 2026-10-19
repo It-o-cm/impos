@@ -61,6 +61,14 @@ public class EndorsementResource {
 
     @Inject PosState state;
 
+    /** The back-office parameters, for the administered cumulation rule. */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The reassignment of a closed ticket to a client (LC-03-06-01 to -06). */
+    @Inject
+    com.intermarche.pos.ui.reprintticket.TicketReassignmentService reassignmentService;
+
     /**
      * Returns the endorsement modal state for the UI polling.
      *
@@ -105,12 +113,19 @@ public class EndorsementResource {
             return redirectHome();
         }
 
-        if (endorsementService.authorize(login, password, actionToExecute)) {
+        // BO-04-02-02: an authorisation granted at the BACK OFFICE lets the
+        // pending gesture through without a code being typed here. The
+        // cashier still pressed the key; what the back office supplied is
+        // the endorsement, not the gesture.
+        String remote = endorsementService.remotelyGranted(state);
+        if (remote != null || endorsementService.authorize(login, password, actionToExecute)) {
             // EXP-33: in PER_TICKET scope the endorsement stays open on the sale so
             // the following guarded gestures do not re-ask, until FIN SUPERVISEUR.
-            endorsementService.openSupervisorSessionIfPerTicket(state, login);
+            endorsementService.openSupervisorSessionIfPerTicket(state,
+                    remote != null ? remote : login);
             String landing = state.endorsement.returnPath;
-            Response own = executeApprovedAction(actionToExecute, login);
+            Response own = executeApprovedAction(actionToExecute,
+                    remote != null ? remote : login);
             endorsementService.clearRequest(state);
             state.touch();
             LOGGER.info("Exiting method validateEndorsement");
@@ -144,6 +159,11 @@ public class EndorsementResource {
                     paymentService.cancelPayments(state);
                 }
                 ticketService.cancelTicket(state);
+            } else if (actionToExecute.equals("CANCEL_PAYMENT")) {
+                // BO-10-02-02: the manager endorsed the abandon of the
+                // settlements already taken; the gesture resumes exactly where
+                // the payment screen left it.
+                paymentService.cancelPayments(state);
             } else if (actionToExecute.startsWith("CANCEL_LINE_")) {
                 String uid = actionToExecute.substring("CANCEL_LINE_".length());
                 ticketService.cancelItemById(state, uid);
@@ -166,12 +186,22 @@ public class EndorsementResource {
                             .orElse(null);
 
                     if (item != null) {
-                        // Type dispatch
-                        if (type == PriceModType.REMISE) ticketService.applyRemise(item, val);
-                        else if (type == PriceModType.DISCOUNT) ticketService.applyDiscount(item, val);
-                        else if (type == PriceModType.FORCE_PRICE) ticketService.forcePrice(item, val);
-
-                        ticketService.recalculateTotal(state);
+                        // LC-03-02-10: an endorsed remise or discount on an
+                        // already-reduced line is refused where the store
+                        // forbids the cumulation — and the refusal is NAMED, so
+                        // a manager who just approved the gesture is told why
+                        // nothing moved rather than left before a silent no-op.
+                        if ((type == PriceModType.REMISE || type == PriceModType.DISCOUNT)
+                                && ticketService.isAlreadyReduced(item)
+                                && !posSettingsService.discountCumulativeOnDiscounted()) {
+                            state.ticket.setError(i18n.get("op.articleDejaRemise"));
+                        } else {
+                            // Type dispatch
+                            if (type == PriceModType.REMISE) ticketService.applyRemise(item, val);
+                            else if (type == PriceModType.DISCOUNT) ticketService.applyDiscount(item, val);
+                            else if (type == PriceModType.FORCE_PRICE) ticketService.forcePrice(item, val);
+                            ticketService.recalculateTotal(state);
+                        }
                     }
                 }
             }
@@ -199,6 +229,15 @@ public class EndorsementResource {
             else if (actionToExecute.startsWith("PRINT_BADGE_")) {
                 // (Re)prints an operator's badge number (LC-01-06-01).
                 homeService.printOperatorBadge(actionToExecute.substring("PRINT_BADGE_".length()));
+            }
+            else if (actionToExecute.equals("TICKET_REASSIGN")) {
+                // LC-03-06-01: the manager endorsed the reassignment of a
+                // closed ticket to a fidelity customer. The gesture's form —
+                // the ticket and the typed card — was parked by the reprint
+                // screen and is replayed here through the chained service,
+                // which names its own refusals on the reprint state.
+                java.util.Map<String, String> form = state.endorsement.pendingForm;
+                reassignmentService.perform(longOf(form.get("ticketId")), form.get("card"));
             }
             else if (actionToExecute.equals(
                     com.intermarche.pos.ui.cash.CashMovementResource.ENDORSEMENT_ACTION)) {
@@ -263,6 +302,25 @@ public class EndorsementResource {
             return Response.seeOther(URI.create(landing)).build();
         }
         return redirectHome();
+    }
+
+    /**
+     * Reads a ticket id from a parked endorsement form, tolerating an absent
+     * or malformed one — the reassignment names its own refusal when the id
+     * resolves to nothing.
+     *
+     * @param raw the parked value, possibly null
+     * @return the id, or null when nothing readable was parked
+     */
+    private Long longOf(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(raw.trim());
+        } catch (NumberFormatException malformed) {
+            return null;
+        }
     }
 
     /**

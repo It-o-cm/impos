@@ -121,6 +121,47 @@ public class Refund extends BaseEntity {
     public String returnReason;
 
     /**
+     * Badge of the operator who made the refund ({@code BO-06-06-05}), or
+     * null on a refund whose register had nobody signed in.
+     *
+     * <p>Frozen on the document like the author of a cancellation: a state
+     * edited months later must name who refunded, and the session alone does
+     * not — a session outlives the operator who opened it.
+     */
+    @Column(name = "cashier_badge_id", length = 20)
+    public String cashierBadgeId;
+
+    /**
+     * Badge of the supervisor who endorsed the refund
+     * ({@code BO-06-06-05}), or null when the gesture needed no endorsement.
+     */
+    @Column(name = "supervisor_badge_id", length = 20)
+    public String supervisorBadgeId;
+
+    /**
+     * Code of the administered return reason ({@code BO-06-06-05}), beside
+     * the label {@link #returnReason} already carries, or null when the shop
+     * administers no coded list.
+     */
+    @Column(name = "return_reason_code", length = 20)
+    public String returnReasonCode;
+
+    /**
+     * Code of the administered return type the gesture was made under
+     * ({@code BO-06-06-05}, {@code LC-05-04-01}), or null when the shop
+     * administers none.
+     */
+    @Column(name = "return_type_code", length = 20)
+    public String returnTypeCode;
+
+    /**
+     * Label of that return type ({@code BO-06-06-05}), or null — frozen
+     * beside its code so a state restates the wording the cashier was offered.
+     */
+    @Column(name = "return_type_label", length = 60)
+    public String returnTypeLabel;
+
+    /**
      * The account number credited when the refund method is {@code CREDIT}
      * (LC-05-06-05), or null for every other method. It names the in-account
      * customer whose outstanding balance the refund lowered, so the refund

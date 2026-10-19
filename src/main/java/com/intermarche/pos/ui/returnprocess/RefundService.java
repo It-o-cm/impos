@@ -81,6 +81,10 @@ public class RefundService {
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /** The administered lists: return reasons and return types (BO-06-06-05). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosListService posListService;
+
     @Inject
     CashSessionService cashSessionService;
 
@@ -259,20 +263,28 @@ public class RefundService {
     /**
      * Records the return reason chosen by the cashier (LC-05-05-01). The reason
      * is accepted only when it is non-blank AND belongs to the administered
-     * list of {@link com.intermarche.pos.service.PosSettingsService#returnReasons()};
-     * anything else (blank, null or an off-list value) clears the reason. A
-     * single reason applies to the whole return, all returned lines at once
-     * (the group assignment of LC-05-05-02).
+     * list — the {@code RETURN_REASON} referential when one is distributed,
+     * the semicolon-separated {@code return.reasons} otherwise; anything else
+     * (blank, null or an off-list value) clears the reason. A single reason
+     * applies to the whole return, all returned lines at once (the group
+     * assignment of LC-05-05-02).
+     *
+     * <p>Its CODE is recorded beside its label ({@code BO-06-06-05}): the
+     * back-office state groups refunds by code, and a label is rewritten.
      *
      * @param state the current POS state
      * @param reason the reason the cashier tapped, possibly null or off-list
      */
     public void selectReason(PosState state, String reason) {
         LOGGER.info("Entering method selectReason with state: " + state + ", reason: " + reason);
-        if (reason != null && !reason.isBlank() && posSettingsService.returnReasons().contains(reason)) {
-            state.refund.returnReason = reason;
+        com.intermarche.pos.service.PosListService.ListChoice chosen =
+                posListService.returnReason(reason);
+        if (chosen != null) {
+            state.refund.returnReason = chosen.label();
+            state.refund.returnReasonCode = chosen.code();
         } else {
             state.refund.returnReason = null;
+            state.refund.returnReasonCode = null;
         }
         state.touch();
         LOGGER.info("Exiting method selectReason");
@@ -538,8 +550,26 @@ public class RefundService {
                 // message already set on the refund screen by the guard
             }
         } else {
-            endorsementService.requestAuthorization(state,
-                    "REFUND_" + method.name() + "_" + state.refund.selectedTicket.id);
+            // BO-10-02-03: the refund IS watched — the shop says what that
+            // means. NONE is unreachable here, the flag above being the off
+            // switch.
+            com.intermarche.pos.ui.endorsement.ControlLevel level =
+                    endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.REFUND);
+            if (level == com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK) {
+                state.refund.errorMessage = endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.REFUND, level);
+            } else if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN) {
+                state.refund.errorMessage = endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.REFUND, level);
+                try {
+                    performRefund(state, method);
+                } catch (IllegalStateException refused) {
+                    // message already set on the refund screen by the guard
+                }
+            } else {
+                endorsementService.requestAuthorization(state,
+                        "REFUND_" + method.name() + "_" + state.refund.selectedTicket.id);
+            }
         }
         state.touch();
         LOGGER.info("Exiting method requestRefund");
@@ -631,6 +661,15 @@ public class RefundService {
         // administered list) is carried on the refund so it reaches the store
         // reports; it applies to the whole return.
         refund.returnReason = state.refund.returnReason;
+        // BO-06-06-05: the state of refunds names WHO refunded, WHO endorsed
+        // it, under which return type and for which reason. All five are
+        // frozen on the document: a session outlives the operator that opened
+        // it, and an administered label is rewritten.
+        refund.returnReasonCode = state.refund.returnReasonCode;
+        refund.returnTypeLabel = state.returnTypeLabel;
+        refund.returnTypeCode = posListService.returnTypeCode(state.returnTypeLabel);
+        refund.cashierBadgeId = state.auth.operatorBadgeId;
+        refund.supervisorBadgeId = state.auth.supervisorBadgeId;
         // LC-05-06-05: name the credited account on the refund (only for a
         // credit refund) so the refund record is exploitable in the store's
         // account statements.

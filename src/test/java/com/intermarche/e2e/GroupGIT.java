@@ -146,7 +146,7 @@ public class GroupGIT {
     void g1_ticket_dematerialise() {
         // --- A closed ticket: build, settle in cash and close it ---
         Page sale = freshSale();
-        Long closedId = closeCashSaleOn(sale, "6", EAN_HUILE);
+        Long closedId = closeCashSaleOn(sale, "600", EAN_HUILE);
         sale.close();
         TicketSnap closed = snap(closedId);
         Assertions.assertEquals("CLOSED", closed.status, "the finalized sale must be CLOSED");
@@ -250,14 +250,14 @@ public class GroupGIT {
         // version, so the paying phase only surfaces once a tender touches the
         // state — a first partial tender is the faithful gesture that does.)
         goPay(register);
-        payCashPartial(register, "2");
+        payCashPartial(register, "200");
         display.getByText("PAIEMENT EN COURS").waitFor();
         display.getByText("Reste à payer : 4,00 €").waitFor();
 
         // --- Merci: the overpaid balance completes, showing change + link ---
         // The partial cash pulsed the drawer open; the balance POST is guarded.
         closeDrawer();
-        payCashComplete(register, "10");
+        payCashComplete(register, "1000");
         display.getByText("MERCI !").waitFor();
         display.getByText("Rendu : 6,00 €").waitFor();
         Assertions.assertTrue(display.locator("#digitalZone").textContent().contains("/t/"),
@@ -283,10 +283,10 @@ public class GroupGIT {
         // Build the seven closed tickets this scenario needs (one long, six
         // short) on a single logged-in page — no dependency on other scenarios.
         Page sale = freshSale();
-        Long longId = closeCashSaleOn(sale, "90", LONG_TICKET_EANS);
-        Long shortId = closeCashSaleOn(sale, "5", EAN_BAGUETTE);
+        Long longId = closeCashSaleOn(sale, "9000", LONG_TICKET_EANS);
+        Long shortId = closeCashSaleOn(sale, "500", EAN_BAGUETTE);
         for (int i = 0; i < 5; i++) {
-            closeCashSaleOn(sale, "5", EAN_BAGUETTE);
+            closeCashSaleOn(sale, "500", EAN_BAGUETTE);
         }
         sale.close();
 
@@ -437,7 +437,7 @@ public class GroupGIT {
     void g5_bon_pour_echange() {
         // --- Build and reprint a two-line closed ticket ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE, EAN_BAGUETTE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE, EAN_BAGUETTE);
         sale.close();
         Long lineId = firstLineId(ticketId);
         Page page = freshSale();
@@ -812,6 +812,9 @@ public class GroupGIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

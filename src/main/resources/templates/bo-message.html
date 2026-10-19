@@ -1,0 +1,77 @@
+{!
+ ! CONSULTATION DU MESSAGE BACK-OFFICE (HomeResource, LC-01-08-04/-05).
+ ! Le bandeau a déjà montré le message dès son arrivée, sans action
+ ! (LC-01-08-03) ; cette page est celle de l'indicateur : l'opérateur y revient
+ ! tant que le message n'est pas acquitté. Écran caissier seul — la visu
+ ! client est une autre page et ne rend rien de ce canal (LC-01-08-02).
+ ! Un sondage se répond depuis le bandeau (EXP-89) : la page le montre en
+ ! lecture seule. Une consigne se acquitte ici, l'acquittement remonte au
+ ! magasin (LC-01-08-05).
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('supervisor.messageBo')}</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 32px; width: 36rem; display: flex; flex-direction: column; gap: 18px; }
+    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
+    .message-text { font-size: var(--fs-body); line-height: 1.5; background: var(--bg-page); border: 1px solid var(--primary); border-radius: 8px; padding: 20px; text-align: center; min-height: 6rem; display: flex; align-items: center; justify-content: center; }
+    .empty-text { color: var(--text-muted); font-size: var(--fs-section); text-align: center; }
+    .row { display: flex; gap: 10px; }
+    .row .btn { flex: 1; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('supervisor.messageBo')}</span>
+      <span id="clock"></span>
+    </div>
+    <div class="main-area">
+      <div class="panel">
+        <h2>{inject:i18n.get('supervisor.messageBo')}</h2>
+        {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty()}
+        <div class="message-text">{state.backOfficeMessage}</div>
+        {#else}
+        <div class="empty-text">{inject:i18n.get('supervisor.aucunMessage')}</div>
+        {/if}
+        {#if state.backOfficeSurvey??}
+        {! Un sondage se répond depuis le bandeau de la vente (EXP-89) : ici
+           il se lit, la question et ses options, sans bouton de réponse. !}
+        <div class="message-text">{state.backOfficeSurvey.question}</div>
+        {#for opt in state.backOfficeSurvey.options}
+        <div class="empty-text">- {opt}</div>
+        {/for}
+        {/if}
+        {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty() && !state.backOfficeSurvey??}
+        <form method="post" action="/action/bo-message/ack">
+          <div class="row">
+            <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+            <button type="submit" class="btn btn-success">{inject:i18n.get('supervisor.acquitter')}</button>
+          </div>
+        </form>
+        {#else}
+        <div class="row">
+          <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        </div>
+        {/if}
+      </div>
+    </div>
+    <div class="bottom-nav"></div>
+  </div>
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

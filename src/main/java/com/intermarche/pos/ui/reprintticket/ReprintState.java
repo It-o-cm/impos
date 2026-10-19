@@ -62,6 +62,34 @@ public class ReprintState implements Serializable {
      */
     public String foreignError = "";
 
+    /**
+     * True while the reprint screen is browsing for a REASSIGNMENT
+     * (LC-03-06-02): the list and the search then keep only the closed tickets
+     * no client is attached to, and the detail of such a ticket offers the
+     * reassignment gesture.
+     */
+    public boolean reassignMode = false;
+
+    /**
+     * True while the card mask of the reassignment is open on the ticket
+     * detail (LC-03-06-03): the mask owns the page until the operator
+     * validates a card or leaves.
+     */
+    public boolean reassignMaskOpen = false;
+
+    /**
+     * The card number typed in the reassignment mask, blank until the mask is
+     * opened (LC-03-06-03).
+     */
+    public String reassignCard = "";
+
+    /**
+     * The operator-facing outcome of the last reassignment attempt — a
+     * refusal or the announced amount gap of a successful one — empty when
+     * none was attempted (LC-03-06-04).
+     */
+    public String reassignError = "";
+
     // --- Logique Liste ---
 
     /**

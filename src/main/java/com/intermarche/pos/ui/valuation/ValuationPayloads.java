@@ -70,6 +70,14 @@ public final class ValuationPayloads {
          * the engine received before this block existed.
          */
         public List<CardPromotionDto> cardPromotions;
+        /**
+         * The names of the promotions a scanned barcode armed on this ticket
+         * (BO-03-06-43), or NULL when none was armed. Null and not an empty
+         * list, for the reason {@link #cardPromotions} is: a ticket where no
+         * promotion barcode was scanned sends the request the engine received
+         * before this block existed, to the byte.
+         */
+        public List<String> scannedPromotions;
     }
 
     /**
@@ -130,6 +138,22 @@ public final class ValuationPayloads {
          * exactly as deciding what a basket is worth is.
          */
         public String bestBeforeDate;
+
+        /**
+         * The code of the article's FAMILY, sent only where the shop asks for
+         * it (BO-10-03-19).
+         *
+         * <p>Null when the shop does not send the nomenclature, and null for an
+         * article the referential files under no family: an empty code would
+         * make the engine group under a family that does not exist.
+         */
+        public String familyCode;
+
+        /**
+         * The code of the article's SUB-FAMILY — the deepest level the
+         * referential files it under — under the same rule (BO-10-03-19).
+         */
+        public String subFamilyCode;
     }
 
     // --------------------------------------------------

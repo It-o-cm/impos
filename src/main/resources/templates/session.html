@@ -52,6 +52,17 @@
           <div class="error-box">{error}</div>
         {/if}
 
+        {! BO-10-02-11 : le plafond d'assurance du tiroir se dit AUSSI ici. L'ecran
+         ! de vente le porte depuis EXP-17, mais c'est sur cet ecran que le caissier
+         ! vient agir, et il y arrivait sans rien savoir. Meme phrase, meme chiffre,
+         ! meme chemin : le prelevement ouvert en mode billets seulement. !}
+        {#if drawerAlert??}
+          <div class="error-box" style="background:var(--warning);color:#000;">
+            *** {drawerAlert} *** —
+            <a href="/withdrawal?method=CASH&amp;notes=1" style="color:#000;text-decoration:underline;">{inject:i18n.get('main.prelever')}</a>
+          </div>
+        {/if}
+
         {#if current??}
           <h2>{inject:i18n.get('session.sessionCours')}</h2>
           <div class="info-row"><span class="label">{inject:i18n.get('session.numero')}</span><span class="value">{current.sessionNumber}</span></div>

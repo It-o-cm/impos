@@ -184,5 +184,114 @@ class TouchGroupSettingTest {
         TouchGroupSetting renamed = row("AUTRE", false);
         assertNotEquals(base, renamed.getChecksum());
         assertEquals(base, row("RAYON", false).getChecksum());
+        // BO-03-01-21/-22/-23: a group MOVED is a group drawn somewhere else.
+        TouchGroupSetting scopedToAnIsland = row("RAYON", false);
+        scopedToAnIsland.islandCodes = "AVANT";
+        assertNotEquals(base, scopedToAnIsland.getChecksum());
+        TouchGroupSetting scopedToARegister = row("RAYON", false);
+        scopedToARegister.terminalIds = "C04";
+        assertNotEquals(base, scopedToARegister.getChecksum());
+        TouchGroupSetting scopedToAKind = row("RAYON", false);
+        scopedToAKind.tpvTypes = "CASH_REGISTER";
+        assertNotEquals(base, scopedToAKind.getChecksum());
+    }
+
+    /**
+     * A group NOTHING scoped is drawn on every register (BO-03-01-21/-22/-23):
+     * the null arm and the blank arm of each of the three scopes, which is what
+     * keeps an unadministered grid behaving as it always did.
+     */
+    @Test
+    void anUnscopedGroupIsDrawnEverywhere() {
+        TouchGroupSetting setting = row("RAYON", false);
+        assertTrue(setting.isDrawnOn("C04", "AVANT", "CASH_REGISTER"));
+        assertTrue(setting.isDrawnOn(null, null, null));
+        setting.islandCodes = "   ";
+        setting.terminalIds = "";
+        setting.tpvTypes = "  ";
+        assertTrue(setting.isDrawnOn("C04", "AVANT", "CASH_REGISTER"));
+        assertTrue(setting.isDrawnOn(null, null, null));
+    }
+
+    /**
+     * Each scope on its own: the named value is drawn, another is not, and a
+     * register that cannot say what it is is NOT drawn — a group restricted to
+     * one island must not appear on a register attached to none.
+     */
+    @Test
+    void eachScopeIsHonouredOnItsOwn() {
+        TouchGroupSetting byIsland = row("RAYON", false);
+        byIsland.islandCodes = "AVANT;ARRIERE";
+        assertTrue(byIsland.isDrawnOn("C04", "ARRIERE", "CASH_REGISTER"));
+        assertFalse(byIsland.isDrawnOn("C04", "DRIVE", "CASH_REGISTER"));
+        assertFalse(byIsland.isDrawnOn("C04", null, "CASH_REGISTER"));
+
+        TouchGroupSetting byRegister = row("RAYON", false);
+        byRegister.terminalIds = "C04;C05";
+        assertTrue(byRegister.isDrawnOn("C05", null, null));
+        assertFalse(byRegister.isDrawnOn("C09", null, null));
+        assertFalse(byRegister.isDrawnOn(null, null, null));
+
+        TouchGroupSetting byKind = row("RAYON", false);
+        byKind.tpvTypes = "SELF_CHECKOUT_DN";
+        assertTrue(byKind.isDrawnOn(null, null, "SELF_CHECKOUT_DN"));
+        assertFalse(byKind.isDrawnOn(null, null, "CASH_REGISTER"));
+        assertFalse(byKind.isDrawnOn(null, null, "  "));
+    }
+
+    /**
+     * The three scopes CUMULATE: a group scoped to an island and to a kind is
+     * drawn only where both hold — and the administered values are matched
+     * trimmed, because a paramétreur separates with "; " as often as with ";".
+     */
+    @Test
+    void theThreeScopesCumulateAndAreMatchedTrimmed() {
+        TouchGroupSetting setting = row("RAYON", false);
+        setting.islandCodes = "AVANT ; ARRIERE";
+        setting.tpvTypes = " SELF_CHECKOUT_DN ";
+        assertTrue(setting.isDrawnOn("C04", "ARRIERE", "SELF_CHECKOUT_DN"));
+        // The island holds, the kind does not.
+        assertFalse(setting.isDrawnOn("C04", "ARRIERE", "CASH_REGISTER"));
+        // The kind holds, the island does not.
+        assertFalse(setting.isDrawnOn("C04", "DRIVE", "SELF_CHECKOUT_DN"));
+    }
+
+    /**
+     * {@code translatedLabel} answers the wording administered for a language
+     * and null for every other case (BO-03-01-19): a language nobody
+     * administered, a null or blank tag, a configuration carrying no wording at
+     * all, a pair with no language, a pair with no wording, and an empty
+     * wording. The tag match ignores the case and the spaces.
+     */
+    @Test
+    void translatedLabelAnswersTheAdministeredWording() {
+        TouchGroupSetting setting = new TouchGroupSetting();
+        setting.labels = " NL = Zuivel ;pt=Lacteos;=sans langue;de=;   ";
+        assertEquals("Zuivel", setting.translatedLabel("nl"));
+        assertEquals("Zuivel", setting.translatedLabel(" NL "));
+        assertEquals("Lacteos", setting.translatedLabel("pt"));
+        assertNull(setting.translatedLabel("de"));
+        assertNull(setting.translatedLabel("es"));
+        assertNull(setting.translatedLabel(null));
+        assertNull(setting.translatedLabel("   "));
+
+        TouchGroupSetting bare = new TouchGroupSetting();
+        assertNull(bare.translatedLabel("nl"));
+        bare.labels = "   ";
+        assertNull(bare.translatedLabel("nl"));
+    }
+
+    /**
+     * The translated wordings are part of what the row IS: changing one changes
+     * the checksum, or a wording administered upstream would never reach the
+     * registers (BO-03-01-19).
+     */
+    @Test
+    void theChecksumSeesTheTranslatedWordings() {
+        TouchGroupSetting setting = new TouchGroupSetting();
+        setting.familyCode = "LAIT";
+        int before = setting.getChecksum();
+        setting.labels = "nl=Zuivel";
+        assertNotEquals(before, setting.getChecksum());
     }
 }

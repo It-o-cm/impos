@@ -237,6 +237,44 @@ class TicketParkingServiceTest {
     }
 
     /**
+     * BO-06-06-01: the parking is DATED on the ticket, and the recall is not
+     * — a cart still waiting carries no recall date, which is what tells it
+     * from one that came back.
+     */
+    @Test
+    void parkCurrentDatesTheParking() {
+        TicketParkingService service = newService();
+        addOneItem(service);
+        when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
+        Ticket draft = draft(Ticket.TicketStatus.OPEN, "C04-000001", TERMINAL);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
+            assertNull(service.parkCurrent());
+            assertNotNull(draft.parkedAt);
+            assertNull(draft.resumedAt);
+            assertNull(draft.resumedTerminalId);
+        }
+    }
+
+    /**
+     * BO-06-06-01: a local resume dates the recall and names the lane that
+     * made it — the trace the state of pending tickets reads.
+     */
+    @Test
+    void resumeDatesTheRecall() {
+        TicketParkingService service = newService();
+        Ticket draft = draft(Ticket.TicketStatus.PARKED, "C04-000001", TERMINAL);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
+            assertNull(service.resume(7L));
+            assertNotNull(draft.resumedAt);
+            assertEquals(TERMINAL, draft.resumedTerminalId);
+        }
+    }
+
+    /**
      * Verifies that {@code listParked} returns the terminal-scoped, oldest-first
      * parked listing produced by the finder.
      */
@@ -332,6 +370,43 @@ class TicketParkingServiceTest {
             verify(service.ticketRecoveryService).restoreDraft(draft);
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_RESUMED, "C04-000001");
+        }
+    }
+
+    /**
+     * BO-03-03-07: a local resume prints its own document, which states the
+     * resumed number as BOTH numbers — the ticket keeps the number the parked
+     * paper carried.
+     */
+    @Test
+    void resumePrintsTheResumeDocument() {
+        TicketParkingService service = newService();
+        Ticket draft = draft(Ticket.TicketStatus.PARKED, "C04-000001", TERMINAL);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class)))
+                    .thenReturn(java.util.List.of());
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
+            assertNull(service.resume(7L));
+            verify(service.ticketPrinterService).printResumeTicket(draft, "C04-000001");
+        }
+    }
+
+    /**
+     * BO-03-03-07 with EXP-46: an inter-till resume states the number the
+     * PARKED paper carried, read before the ticket is re-homed — and that is
+     * the number a dispute two hours later turns on.
+     */
+    @Test
+    void resumeForeignPrintsTheParkedNumberItCameWith() {
+        TicketParkingService service = newService();
+        Ticket foreign = draft(Ticket.TicketStatus.PARKED, "C09-000009", "C09");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> none = query(null);
+            when(service.interTillResumeClient.fetchParkedTicket("C09-000009")).thenReturn(foreign);
+            mocked.when(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C09-000009", TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(none);
+            assertNull(service.resumeByNumber("C09-000009"));
+            verify(service.ticketPrinterService).printResumeTicket(foreign, "C09-000009");
         }
     }
 

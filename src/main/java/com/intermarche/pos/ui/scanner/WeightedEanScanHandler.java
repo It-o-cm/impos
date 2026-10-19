@@ -48,6 +48,10 @@ import java.util.List;
 @Priority(1)
 public class WeightedEanScanHandler implements ScanContext.ScanHandler {
 
+    /** Whether an article may be rung on THIS register (BO-03-01-18). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.ticket.ArticleScopeService articleScopeService;
+
     /**
      * The localised operator messages: every sentence this class stamps on the
      * register's message band is a bundle key, never a French literal (LC-13-06).
@@ -63,8 +67,20 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
     @ConfigProperty(name = "pos.scan.embedded-price-prefixes", defaultValue = "02,21,22,24,26,28")
     List<String> pricePrefixes;
 
-    /** Prefixes whose embedded value is the weight in grams (EXP-27): 23, 25, 27, 29. */
-    @ConfigProperty(name = "pos.scan.embedded-weight-prefixes", defaultValue = "23,25,27,29")
+    /**
+     * Prefixes whose embedded value is the weight in grams (EXP-27): 23, 25, 29.
+     *
+     * <p>27 IS NOT ONE OF THEM, and the omission is the point: that prefix
+     * carries a service-counter ticket reference ({@code
+     * pos.scan.balance-ticket-prefixes}, LC-06-01-02), and
+     * {@link BalanceTicketScanHandler} claims it at the same priority as this
+     * handler. Both classes state the two sets stay DISJOINT — with 27 on both
+     * sides, which handler picked up a counter ticket depended on the order the
+     * container happened to hand the chain over, and the shop's own 27 paper
+     * read as an article label whose 5 digits named no product. A shop that
+     * really encodes weight on 27 administers it; nothing else moved.
+     */
+    @ConfigProperty(name = "pos.scan.embedded-weight-prefixes", defaultValue = "23,25,29")
     List<String> weightPrefixes;
 
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
@@ -85,6 +101,12 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         // The administered ranges are consulted FIRST and only once: a store
         // that administers its scale plan is not bound to the 2x EAN13 shape.
         ArticleBarcodeRange range = ArticleBarcodeRange.findMatching(code);
+        // BO-03-06-56/-60/-61: a range administered for something OTHER than an
+        // article line is not this handler's business — it is read by the handler
+        // that owns that meaning, and the chain contract's disjointness holds
+        // because the decision is taken here, on the range itself, and nowhere
+        // else.
+        if (range != null && !range.isArticlePurpose()) return;
         // EXP-26: the fallback applies to any 13-digit code whose 2-digit prefix
         // is administered as price- or weight-embedded — not only 2x codes, so a
         // 02-prefixed price label (excluded by the old 2\d{12} filter) is decoded.
@@ -137,6 +159,13 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             ctx.handled = true;
             return;
         }
+        // BO-03-01-18: the scale label is another road to the same article,
+        // and an article out of this island must not come back in by it.
+        if (articleScopeService != null && !articleScopeService.soldHere(product)) {
+            ctx.state.ticket.setError(i18n.get("op.articleNonVenduSurCetteCaisse"));
+            ctx.handled = true;
+            return;
+        }
         if (product.forbiddenToSale) {
             ctx.state.ticket.setError(i18n.get("op.produitInterditVente"));
             ctx.handled = true;
@@ -170,7 +199,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // — must see this one too. Non-merging is guaranteed by the
             // sticker-code guard above (one physical sticker = one scan), not
             // by stripping the identity.
-            ctx.state.ticket.addItem(product.ean, articleCode, product.saleLabel().toUpperCase(),
+            ctx.state.ticket.addItem(product.ean, articleCode, translatedLabel(product),
                     embeddedAmount, BigDecimal.ONE, vatRate);
             // The sticker price is the line's own truth: flag it so the
             // valuation request carries the surcharge trio and the engine
@@ -196,13 +225,22 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // sticker is already NET — the scale that printed it applied any
             // tare — so no software tare is re-applied here.
             BigDecimal quantityKg = embeddedWeight.setScale(3, RoundingMode.HALF_UP);
+            // BO-03-06-60: a tare announced by a tare barcode is deducted here
+            // and consumed, so it lightens ONE line. A tare that eats the whole
+            // weight falls into the refusal below: a line weighing nothing is
+            // not a sale, and charging the customer for the bowl is not one
+            // either.
+            BigDecimal tare = ctx.state.ticket.consumePendingTare();
+            if (tare != null) {
+                quantityKg = quantityKg.subtract(tare).setScale(3, RoundingMode.HALF_UP);
+            }
             if (quantityKg.signum() <= 0) {
                 ctx.state.ticket.setError(i18n.get("op.poidsInvalide"));
                 ctx.handled = true;
                 return;
             }
             BigDecimal unitPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-            ctx.state.ticket.addItem(product.ean, articleCode, product.saleLabel().toUpperCase(),
+            ctx.state.ticket.addItem(product.ean, articleCode, translatedLabel(product),
                     unitPrice, quantityKg, vatRate);
         }
         com.intermarche.pos.ui.ticket.TicketState.TicketItem added =
@@ -217,9 +255,9 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         // LC-02-03-13: an in-store weighed label names no lot, so the recalled lots are
         // listed and the cashier reads the one printed on the pack.
         String recalledLots = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
-                .recalledLotsMessage(product);
+                .recalledLotsJoined(product);
         if (recalledLots != null) {
-            ctx.state.ticket.setNotice(recalledLots);
+            ctx.state.ticket.setNotice(i18n.format("op.produitRappelLots", recalledLots));
         }
         ctx.handled = true;
     }
@@ -289,5 +327,22 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
     private String stripLeadingZeros(String value) {
         String stripped = value.replaceFirst("^0+", "");
         return stripped.isEmpty() ? "0" : stripped;
+    }
+
+    /**
+     * The article's wording in the language the till is set to, upper-cased as
+     * every line label is (BO-03-01-20).
+     *
+     * <p>The administered translation wins; the catalog's own sale label is the
+     * fallback, which is what every line carried before translations existed.
+     *
+     * @param product the article
+     * @return the line label
+     */
+    private String translatedLabel(com.intermarche.pos.domain.catalog.Product product) {
+        String language = i18n == null ? null : i18n.getLang();
+        String label = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                .saleLabel(product, language);
+        return label == null ? "" : label.toUpperCase();
     }
 }

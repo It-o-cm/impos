@@ -603,4 +603,34 @@ class PaymentStateTest {
         state.reset();
         assertNull(state.pendingCardEntryMode);
     }
+    /**
+     * LC-06-03-07: {@code addDepositPayment} registers the recovery under the
+     * ACOMPTE key, accumulates the paid amount and carries the deposit's
+     * per-rate VAT detail and the order code on the entry.
+     */
+    @Test
+    void addDepositPaymentRegistersEntryAndDetail() {
+        PaymentState state = new PaymentState();
+        state.addDepositPayment(new BigDecimal("10.00"), "0.2:1;0.055:0.21", "C04-CMD000001");
+        assertEquals(1, state.payments.size());
+        assertEquals("ACOMPTE", state.payments.get(0).method);
+        assertEquals(0, new BigDecimal("10.00").compareTo(state.payments.get(0).amount));
+        assertEquals("0.2:1;0.055:0.21", state.payments.get(0).depositVatDetail);
+        assertEquals("C04-CMD000001", state.payments.get(0).depositOrderCode);
+        assertEquals(0, new BigDecimal("10.00").compareTo(state.paidAmount));
+    }
+
+    /**
+     * LC-06-03-07: {@code isDepositRecovery} is true on an ACOMPTE entry and
+     * false on every other one (both arms).
+     */
+    @Test
+    void isDepositRecoveryNamesOnlyAcompteEntries() {
+        PaymentState.PaymentEntry recovery = new PaymentState.PaymentEntry("ACOMPTE",
+                new BigDecimal("10.00"), "0.2:1", "C04-CMD000001");
+        PaymentState.PaymentEntry cash = new PaymentState.PaymentEntry("CASH", new BigDecimal("5.00"));
+        assertTrue(recovery.isDepositRecovery());
+        assertFalse(cash.isDepositRecovery());
+    }
 }
+

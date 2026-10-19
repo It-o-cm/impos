@@ -64,11 +64,13 @@ import static org.mockito.Mockito.*;
  * line), {@code reconcileLines} (orphan removal of null-uid and vanished
  * lines, in-place update of both modifier arms, new line), the fidelity
  * ternary of {@code applyHeaderAndTotals}, {@code addPaymentToTicket} (missing
- * ticket, plain method, voucher, unknown method), {@code removePaymentsFromTicket}
+ * ticket, plain method, voucher, unknown method, and the deposit-recovery
+ * enrichment of LC-06-03-07/-08), {@code removePaymentsFromTicket}
  * (missing ticket, present payments, empty payments), {@code validateTicket}
  * (missing ticket, chained and GENESIS previous signature) and
  * {@code cancelDraft} (OPEN draft, null ticket, non-OPEN draft). JaCoCo branch
- * count: 70/70 branches covered (100%). The only two uncovered lines are the
+ * count: 70/70 at the last measured run, before the LC-06-03 deposit arm was
+ * added; its legs are enumerated test by test below. The only two uncovered lines are the
  * JVM-mandated {@code catch (NoSuchAlgorithmException)} of {@code sha256Hex},
  * which is unreachable and carries no branch.
  */
@@ -329,6 +331,47 @@ class TicketPersistenceServiceTest {
             assertEquals(0, new BigDecimal("4.00").compareTo(lineCaptor.getAllValues().get(0).embeddedUnitPrice));
             assertNull(lineCaptor.getAllValues().get(1).embeddedWeight);
             assertNull(lineCaptor.getAllValues().get(1).embeddedUnitPrice);
+        }
+    }
+
+    /**
+     * The activation code of a dematerialised article and the provider that
+     * owes it (BO-03-06-44) are carried from the in-memory line onto its
+     * persisted line, both arms: a customer coming back with a gift card that
+     * never worked is answered by the SOLD line, not by a cart that is gone.
+     */
+    @Test
+    void syncDraftMapsTheActivationCodeOntoEachLine() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        state.fidelity.active = false;
+        TicketState.TicketItem demat = addItem(state, "D1", null, null, "50.00", "1", null);
+        demat.activationCode = "ACT-123";
+        demat.activationProvider = "TRANSACTIS";
+        addItem(state, "P1", null, null, "2.00", "1", null);
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        CashSession session = mock(CashSession.class);
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
+        when(service.cashSessionService.getOpenSession()).thenReturn(session);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
+            service.syncDraft(state);
+            Ticket ticket = created.constructed().get(0);
+            ArgumentCaptor<TicketLine> lineCaptor = ArgumentCaptor.forClass(TicketLine.class);
+            verify(ticket, times(2)).addLine(lineCaptor.capture());
+            assertEquals("ACT-123", lineCaptor.getAllValues().get(0).activationCode);
+            assertEquals("TRANSACTIS", lineCaptor.getAllValues().get(0).activationProvider);
+            assertNull(lineCaptor.getAllValues().get(1).activationCode);
+            assertNull(lineCaptor.getAllValues().get(1).activationProvider);
         }
     }
 
@@ -655,12 +698,48 @@ class TicketPersistenceServiceTest {
         ticket.lines.add(b);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.markLineCancelled(5L, "U1", "12341234");
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
             assertTrue(a.cancelled);
             assertNotNull(a.cancellationDate);
             assertEquals("12341234", a.cancelledBy);
             assertFalse(b.cancelled);
             verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * BO-06-06-04: the justification travels with the witness — its code and
+     * its label are frozen on the line beside the author and the timestamp.
+     */
+    @Test
+    void markLineCancelledStoresTheJustification() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine a = line("U1");
+        ticket.lines.add(a);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234", "ERREUR", "Erreur de saisie");
+            assertEquals("ERREUR", a.cancellationReasonCode);
+            assertEquals("Erreur de saisie", a.cancellationReasonLabel);
+        }
+    }
+
+    /**
+     * BO-06-06-04: no justification administered, no justification stored —
+     * the line carries null rather than an invented code.
+     */
+    @Test
+    void markLineCancelledStoresNoJustificationWhenNoneIsGiven() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine a = line("U1");
+        ticket.lines.add(a);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
+            assertNull(a.cancellationReasonCode);
+            assertNull(a.cancellationReasonLabel);
         }
     }
 
@@ -682,7 +761,7 @@ class TicketPersistenceServiceTest {
         ticket.lines.add(b);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.markLineCancelled(5L, "U1", "12341234");
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
             assertTrue(a.cancelledLast);
         }
     }
@@ -705,7 +784,7 @@ class TicketPersistenceServiceTest {
         ticket.lines.add(b);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.markLineCancelled(5L, "U1", "12341234");
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
             assertFalse(a.cancelledLast);
         }
     }
@@ -720,7 +799,7 @@ class TicketPersistenceServiceTest {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
-            service.markLineCancelled(5L, "U1", "12341234");
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
         }
     }
 
@@ -736,7 +815,7 @@ class TicketPersistenceServiceTest {
         ticket.lines.add(b);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.markLineCancelled(5L, "U1", "12341234");
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
             assertFalse(b.cancelled);
             verify(ticket, never()).persist();
         }
@@ -757,7 +836,7 @@ class TicketPersistenceServiceTest {
         ticket.lines.add(a);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.markLineCancelled(5L, "U1", "12341234");
+            service.markLineCancelled(5L, "U1", "12341234", null, null);
             assertEquals("OLD", a.cancelledBy);
             verify(ticket, never()).persist();
         }
@@ -771,8 +850,8 @@ class TicketPersistenceServiceTest {
     @Test
     void markLineCancelledNoOpWhenIdsNull() {
         TicketPersistenceService service = newService();
-        service.markLineCancelled(null, "U1", "12341234");
-        service.markLineCancelled(5L, null, "12341234");
+        service.markLineCancelled(null, "U1", "12341234", null, null);
+        service.markLineCancelled(5L, null, "12341234", null, null);
     }
 
     /**
@@ -900,7 +979,10 @@ class TicketPersistenceServiceTest {
         when(cardFactory.getKey()).thenReturn("CARD");
         when(voucherFactory.getKey()).thenReturn("VOUCHER");
         Instance<TicketPayment.Factory> instance = mock(Instance.class);
-        when(instance.iterator()).thenReturn(Arrays.asList(cardFactory, voucherFactory).iterator());
+        // A fresh iterator per call: init() may run again to re-index the
+        // factories under keys a test overrides afterwards.
+        when(instance.iterator()).thenAnswer(
+                ignored -> Arrays.asList(cardFactory, voucherFactory).iterator());
         service.factoryInstances = instance;
         service.init();
         return service;
@@ -993,6 +1075,39 @@ class TicketPersistenceServiceTest {
             assertEquals("V123", payment.voucherNumber);
             assertEquals(1, payment.paymentIndex);
             verify(ticket).addPayment(payment);
+        }
+    }
+
+    /**
+     * Covers the deposit arm of {@code addPaymentToTicket} (LC-06-03-07/-08):
+     * an ACOMPTE entry resolves the ACOMPTE factory, and the created
+     * {@link com.intermarche.pos.domain.payment.DepositPayment} is enriched
+     * with the deposit's per-rate VAT detail and the order code before being
+     * added — the figures the final receipt restates and the node accounts.
+     */
+    @Test
+    void addPaymentEnrichesDepositPaymentRecovery() {
+        TicketPayment.Factory acompteFactory = mock(TicketPayment.Factory.class);
+        TicketPayment.Factory voucherFactory = mock(TicketPayment.Factory.class);
+        TicketPersistenceService service = serviceWithFactories(acompteFactory, voucherFactory);
+        com.intermarche.pos.domain.payment.DepositPayment payment =
+                mock(com.intermarche.pos.domain.payment.DepositPayment.class);
+        when(acompteFactory.getKey()).thenReturn("ACOMPTE");
+        // serviceWithFactories indexed the factory under the CARD key it
+        // answered then; re-index under the key it answers now.
+        service.init();
+        when(acompteFactory.create(any(BigDecimal.class), any())).thenReturn(payment);
+        PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("ACOMPTE",
+                new BigDecimal("10.00"), "0.2:1;0.055:0.21", "C04-CMD000001");
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.addPaymentToTicket(5L, entry);
+            assertEquals("0.2:1;0.055:0.21", payment.vatDetail);
+            assertEquals("C04-CMD000001", payment.orderCode);
+            assertEquals(1, payment.paymentIndex);
+            verify(ticket).addPayment(payment);
+            verify(ticket, times(1)).persist();
         }
     }
 

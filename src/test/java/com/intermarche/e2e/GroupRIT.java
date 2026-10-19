@@ -104,7 +104,7 @@ public class GroupRIT {
         // The dead engine forces the local/degraded valuation (never ENGINE).
         Assertions.assertNotEquals("ENGINE", posState.payment.valuationStatus,
                 "an unreachable engine must value the sale locally, was: " + posState.payment.valuationStatus);
-        payThroughScreen(page, "ESPÈCES", "cashForm", "3", false);
+        payThroughScreen(page, "ESPÈCES", "cashForm", "300", false);
         waitForSettlement();
         finishSale(page);
         Assertions.assertEquals(before, consumptionCount(),
@@ -309,6 +309,9 @@ public class GroupRIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

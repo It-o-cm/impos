@@ -117,8 +117,90 @@ public final class DocumentLayout {
      *
      * @return a line of dashes as wide as the paper, without its terminator
      */
+    /**
+     * Marks a text as BOLD for the printer (BO-03-05-01, -03, -05 and -06).
+     *
+     * <p>A DIRECTIVE AND NOT AN ESCAPE SEQUENCE. The register stays text: it
+     * writes {@code [[BOLD]]…[[/BOLD]]} the way it already writes
+     * {@code [[BARCODE …]]} and {@code [[IMAGE …]]}, and the hardware bridge
+     * turns the pair into the printer's own emphasis commands. A layout that
+     * reaches a printer which knows nothing of it shows the markers rather than
+     * garbled control bytes, which is the failure a paramétreur can read.
+     *
+     * <p>The markers DO NOT COUNT as characters of the line: a bold line is
+     * centred on the text it carries, so {@code centre(bold(x))} would pad on a
+     * width the paper never sees. A layout therefore wraps the ALIGNED text,
+     * {@code bold(centre(x))}, and the Javadoc says so because the other order
+     * is the natural mistake.
+     *
+     * @param text the text to emphasise, possibly null
+     * @return the text between its two markers, empty for a null or empty text
+     */
+    public String bold(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        return "[[BOLD]]" + text + "[[/BOLD]]";
+    }
+
+    /**
+     * Lays a text out FLUSH RIGHT on the paper (BO-03-05-01, -03).
+     *
+     * <p>The third alignment the questionnaire names, beside the centring this
+     * class already gives and the plain text that is the left. A line longer
+     * than the paper is answered untouched rather than cut: losing characters
+     * off a banner the shop wrote is worse than a line that wraps on the
+     * printer.
+     *
+     * @param text the text to push right, possibly null
+     * @return the padded line
+     */
+    public String right(String text) {
+        String value = text == null ? "" : text;
+        int padding = width - value.length();
+        return padding <= 0 ? value : " ".repeat(padding) + value;
+    }
+
     public String rule() {
         return "-".repeat(width);
+    }
+
+    /**
+     * Draws a QR CODE carrying a payload ({@code BO-03-05-08}).
+     *
+     * <p>A DIRECTIVE, like {@link #bold(String)} and like the bar code the
+     * register already emits: the layout stays text and the hardware bridge
+     * turns {@code [[QR …]]} into the printer's own QR command. A thermal
+     * head encodes the symbol itself, far smaller and far cleaner than a
+     * raster a layout would have to compute.
+     *
+     * <p>It takes a WHOLE LINE and is not centred by this method: a QR is not
+     * characters, so padding it on the paper width would move it by a count
+     * the printer never sees. A layout that wants it elsewhere places the
+     * directive where it wants it.
+     *
+     * @param payload what the code carries, possibly null
+     * @return the directive, empty for a null or blank payload
+     */
+    public String qr(String payload) {
+        if (payload == null || payload.isBlank()) {
+            return "";
+        }
+        return "[[QR " + payload.trim() + "]]";
+    }
+
+    /**
+     * Draws a BAR CODE carrying a value ({@code BO-03-05-08}), the twin of
+     * {@link #qr(String)} for the shops whose readers are linear.
+     *
+     * @param value what the code carries, possibly null
+     * @return the directive, empty for a null or blank value
+     */
+    public String barcode(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return "[[BARCODE " + value.trim() + "]]";
     }
 
     /**

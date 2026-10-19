@@ -10,9 +10,9 @@ import jakarta.inject.Inject;
 import java.util.List;
 
 /**
- * The conditional-printing RULE (LC-08-03): what actually comes out of the
- * printer once the cashier's {@link PrintChoice} has met the administered
- * forced-printing parameters.
+ * The conditional-printing RULE (LC-08-03, BO-03-03-01): what actually comes
+ * out of the printer once the cashier's {@link PrintChoice} has met the
+ * administered forced-printing parameters.
  * <p>
  * The rule is deliberately one place. The cashier's choice can only ever
  * REMOVE documents; the back office can only ever ADD them back:
@@ -46,6 +46,15 @@ public class PrintPolicy {
     /** Forced-document key of the purchase voucher in the administered list. */
     public static final String DOCUMENT_VOUCHER = "BON";
 
+    /** Forced-document key of the credit note (avoir) in the administered list. */
+    public static final String DOCUMENT_CREDIT_NOTE = "AVOIR";
+
+    /** Forced-document key of the loyalty settlement slip (BO-03-03-10). */
+    public static final String DOCUMENT_LOYALTY = "FID";
+
+    /** Forced-document key of the handover slip of the articles to collect. */
+    public static final String DOCUMENT_COLLECTION = "ENLEVEMENT";
+
     /** The back-office parameters carrying the whole rule. */
     @Inject
     PosSettingsService posSettingsService;
@@ -68,6 +77,29 @@ public class PrintPolicy {
         public boolean isEmpty() {
             return !saleTicket && !cardReceipt && !voucher;
         }
+    }
+
+    /**
+     * Whether a document ASSOCIATED with the ticket comes out (BO-03-03-01).
+     * <p>
+     * The cashier's choice names three documents and no more — the sale ticket,
+     * the card receipt, the purchase voucher — so the others, the credit note
+     * and the loyalty slip among them, are outside what the screen can ask for.
+     * They are governed by the administered forced list alone: with conditional
+     * printing OFF they all come out, which is the register's historical
+     * behaviour; with it ON an associated document comes out only when the shop
+     * named it, because nothing else can speak for it.
+     *
+     * @param documentKey one of the {@code DOCUMENT_} keys of this class, or
+     *        null
+     * @return true when that document is printed
+     */
+    public boolean isAssociatedDocumentPrinted(String documentKey) {
+        if (!isConditionalEnabled()) {
+            return true;
+        }
+        return documentKey != null
+                && posSettingsService.printForcedDocuments().contains(documentKey);
     }
 
     /**

@@ -283,4 +283,147 @@ class TicketLineOrderTest {
     void familyOfToleratesAMissingLine() {
         assertEquals(TicketLineOrder.NO_FAMILY, TicketLineOrder.familyOf(null));
     }
+
+    /**
+     * Builds a ticket line whose product carries one article attribute.
+     *
+     * @param label the product label
+     * @param code the attribute's code, null for a line whose product carries none
+     * @param value the attribute's value
+     * @return the line
+     */
+    private TicketLine attributeLine(String label, String code, String value) {
+        TicketLine line = new TicketLine();
+        line.productLabel = label;
+        line.product = new com.intermarche.pos.domain.catalog.Product();
+        if (code != null) {
+            line.product.attributes.put(code, value);
+        }
+        return line;
+    }
+
+    /**
+     * {@code normalizeIsolation} answers one of its three values: the two named
+     * isolations whatever the case and the surrounding blanks, and no isolation
+     * for a missing value, a blank one and a mode this register does not know.
+     */
+    @Test
+    void normalizeIsolationAnswersOneOfItsThreeValues() {
+        assertEquals(TicketLineOrder.ISOLATE_START, TicketLineOrder.normalizeIsolation("START"));
+        assertEquals(TicketLineOrder.ISOLATE_START, TicketLineOrder.normalizeIsolation("  start "));
+        assertEquals(TicketLineOrder.ISOLATE_END, TicketLineOrder.normalizeIsolation("end"));
+        assertEquals(TicketLineOrder.ISOLATE_NONE, TicketLineOrder.normalizeIsolation(null));
+        assertEquals(TicketLineOrder.ISOLATE_NONE, TicketLineOrder.normalizeIsolation("   "));
+        assertEquals(TicketLineOrder.ISOLATE_NONE, TicketLineOrder.normalizeIsolation("MILIEU"));
+    }
+
+    /**
+     * BO-03-03-17: with the alphabetical option OFF, the family groups come out
+     * in the order their FIRST article appeared — CREMERIE before BOULANGERIE
+     * here, which is the opposite of the alphabetical print and the whole point
+     * of the option.
+     */
+    @Test
+    void familyGroupsFollowTheirFirstArticleWhenNotAlphabetical() {
+        List<TicketLine> lines = new ArrayList<>(List.of(
+                line("LAIT", "CREMERIE", null),
+                line("PAIN", "BOULANGERIE", null),
+                line("YAOURT", "CREMERIE", null)));
+        assertEquals(List.of("LAIT", "YAOURT", "PAIN"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.FAMILY,
+                        false, null, TicketLineOrder.ISOLATE_NONE)));
+        assertEquals(List.of("PAIN", "LAIT", "YAOURT"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.FAMILY,
+                        true, null, TicketLineOrder.ISOLATE_NONE)));
+    }
+
+    /**
+     * BO-03-03-18: an administered attribute with no isolation is a SORT
+     * criterion — the values alphabetically, and the lines carrying none at the
+     * end, because a blank is the absence of a value and not a value that comes
+     * first.
+     */
+    @Test
+    void anAdministeredAttributeSortsTheLinesAndSendsTheBlanksLast() {
+        List<TicketLine> lines = new ArrayList<>(List.of(
+                attributeLine("SANS", null, null),
+                attributeLine("ZONE B", "RAYON", "B"),
+                attributeLine("ZONE A", "RAYON", "A")));
+        assertEquals(List.of("ZONE A", "ZONE B", "SANS"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.ENTRY,
+                        true, "RAYON", TicketLineOrder.ISOLATE_NONE)));
+    }
+
+    /**
+     * BO-03-03-18: the two isolations put the lines carrying the attribute at
+     * one end of the ticket or the other, each block keeping the order it
+     * already had.
+     */
+    @Test
+    void anAdministeredAttributeIsolatesAtEitherEnd() {
+        List<TicketLine> lines = new ArrayList<>(List.of(
+                attributeLine("SANS 1", null, null),
+                attributeLine("AVEC", "RAYON", "B"),
+                attributeLine("SANS 2", null, null)));
+        assertEquals(List.of("AVEC", "SANS 1", "SANS 2"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.ENTRY,
+                        true, "RAYON", TicketLineOrder.ISOLATE_START)));
+        assertEquals(List.of("SANS 1", "SANS 2", "AVEC"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.ENTRY,
+                        true, "RAYON", TicketLineOrder.ISOLATE_END)));
+    }
+
+    /**
+     * No attribute administered — null or blank — and the order obtained so far
+     * stands: the attribute criterion is the LAST step and it must be able to
+     * do nothing at all.
+     */
+    @Test
+    void noAttributeAdministeredLeavesTheOrderAlone() {
+        List<TicketLine> lines = new ArrayList<>(List.of(
+                attributeLine("B", "RAYON", "Z"),
+                attributeLine("A", "RAYON", "A")));
+        assertEquals(List.of("B", "A"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.ENTRY,
+                        true, null, TicketLineOrder.ISOLATE_START)));
+        assertEquals(List.of("B", "A"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.ENTRY,
+                        true, "   ", TicketLineOrder.ISOLATE_START)));
+    }
+
+    /**
+     * {@code attributeOf} answers the empty value on each of its guards — no
+     * line, no code, a blank code — and on a line whose product carries
+     * neither the attribute nor a catalog default for it.
+     */
+    @Test
+    void attributeOfToleratesEveryMissingPiece() {
+        assertEquals("", TicketLineOrder.attributeOf(null, "RAYON"));
+        assertEquals("", TicketLineOrder.attributeOf(attributeLine("A", "RAYON", "B"), null));
+        assertEquals("", TicketLineOrder.attributeOf(attributeLine("A", "RAYON", "B"), "  "));
+        assertEquals("", TicketLineOrder.attributeOf(attributeLine("A", null, null), "RAYON"));
+        assertEquals("", TicketLineOrder.attributeOf(new TicketLine(), "RAYON"));
+    }
+
+    /**
+     * {@code attributeOf} trims what the referential holds: a value padded in
+     * an import must sort with its own kind and not in a column of its own.
+     */
+    @Test
+    void attributeOfTrimsTheReferentialValue() {
+        assertEquals("B", TicketLineOrder.attributeOf(attributeLine("A", "RAYON", "  B "), "RAYON"));
+    }
+
+    /**
+     * The two-argument {@code apply} keeps the register's historical reading:
+     * alphabetical family groups and no attribute criterion.
+     */
+    @Test
+    void theShortApplyKeepsTheHistoricalReading() {
+        List<TicketLine> lines = new ArrayList<>(List.of(
+                line("LAIT", "CREMERIE", null),
+                line("PAIN", "BOULANGERIE", null)));
+        assertEquals(List.of("PAIN", "LAIT"),
+                labels(TicketLineOrder.apply(lines, TicketLineOrder.FAMILY)));
+    }
 }

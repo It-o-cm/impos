@@ -74,6 +74,7 @@
   table.vat th { text-align: center; }
   table.vat td.amt { text-align: right; }
   table.vat td.rate { text-align: center; }
+  table.vat td.mention { font-size: 9px; font-style: italic; }
   .totals table { width: 100%; border-collapse: collapse; }
   .totals td { padding: 2px 5px; }
   .totals tr.due td { font-weight: bold; border-top: 1px solid #111; }
@@ -213,6 +214,9 @@
           <tr><th>{inject:i18n.get('invoice.tauxTva')}</th><th>{inject:i18n.get('invoice.baseHt')}</th><th>{inject:i18n.get('invoice.montantTva')}</th><th>Total TTC</th></tr>
         </thead>
         <tbody>
+          {! BO-02-02-02 : la mention légale imposée par le régime est portée
+           ! sous sa ligne de taux, en pleine largeur du tableau. Aucune mention
+           ! administrée : la table est exactement celle d'avant. !}
           {#for row in document.vatRows}
           <tr>
             <td class="rate">{row.rate}</td>
@@ -220,6 +224,9 @@
             <td class="amt">{row.vat} €</td>
             <td class="amt">{row.includingTax} €</td>
           </tr>
+          {#if row.legalMention}
+          <tr><td class="mention" colspan="4">{row.legalMention}</td></tr>
+          {/if}
           {/for}
         </tbody>
       </table>

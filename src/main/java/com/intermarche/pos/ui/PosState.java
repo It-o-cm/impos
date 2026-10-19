@@ -95,6 +95,24 @@ public class PosState implements Serializable {
     public BigDecimal armedQuantity = null;
 
     /**
+     * The GROSS weight in kilograms keyed on the MANUAL WEIGHT key and armed for
+     * the next weighed article named ({@code LC-02-02-03}), null when nothing is
+     * armed.
+     *
+     * <p>GROSS, and the screen says so in as many words, because on this path
+     * nobody nets it. In an ordinary weighing the register SENDS the tare to the
+     * scale, which returns the NET weight ({@code LC-14-01-06}); with no scale in
+     * the loop the register is the only one left to deduct it
+     * ({@code LC-14-01-08}). A cashier who copied a net figure would be taxed the
+     * tare twice, which is why the screen asks for the gross one and states the
+     * tare it is about to take off.
+     *
+     * <p>Like the armed quantity above, it arms ONE article: a weight left on
+     * would be laid over the next fruit of the basket.
+     */
+    public BigDecimal pendingManualWeightKg = null;
+
+    /**
      * The add suspended while the operator types what the article does not carry
      * ({@code LC-02-03-01/02/03}), never null.
      */
@@ -294,6 +312,15 @@ public class PosState implements Serializable {
      * off, and a banner keeps it visible so no sale is rung as a return by surprise.
      */
     public boolean returnMode = false;
+
+    /**
+     * The code of the ORDER the current ticket was loaded from by a recall
+     * (LC-06-03-07), or null when the ticket is no one's order. Held for the
+     * sale's whole life so the closing can tell the store node the order was
+     * settled, and reset by {@link #clearTicket()} so an order never leaks
+     * into the next customer's sale.
+     */
+    public String recalledOrderCode = null;
 
     /**
      * The label of the administered return TYPE the operator chose (LC-05-04-01),
@@ -503,8 +530,74 @@ public class PosState implements Serializable {
     public volatile BackOfficeSurvey backOfficeSurvey = null;
 
     /**
-     * A back-office survey pushed to the register (EXP-89): a question and the
-     * answer options offered to the cashier.
+     * The survey this lane has PASSED BY (LC-03-07-10): a survey the operator
+     * skipped must not come straight back on the next poll — the node keeps
+     * serving it, the register remembers it chose not to show it again.
+     * Cleared when a different survey or message arrives, or when the channel
+     * goes quiet.
+     */
+    public volatile String skippedSurveyQuestion = null;
+
+    /**
+     * True once the survey of the BEGINNING of the transaction has been asked
+     * (LC-03-07-01): the register asks once per transaction, at the first
+     * article rung up, and never again until the ticket is cleared.
+     */
+    public volatile boolean surveyTransactionStartAsked = false;
+
+    /**
+     * The SERVICE REQUEST this lane has sent to the back office
+     * (LC-01-07-03/-04), the register's own indicator state: no request, one
+     * IN PROGRESS since it was pushed, or one the back office has ACKNOWLEDGED
+     * and the cashier has not validated yet (LC-01-07-06).
+     *
+     * <p>TWO INDICATORS AND ONE STATE, deliberately: the acknowledged request
+     * is no longer in progress — the questionnaire asks for an indicator
+     * DISTINCT from the in-progress one, not for both at once, so one state
+     * names what the lane owes the back office right now: wait (PENDING),
+     * read the answer and validate (ACKED), or nothing (NONE).
+     *
+     * <p>Node-pushed, so it survives {@link #clearTicket()} like the message:
+     * a request for help outlives the customer whose basket interrupted the
+     * reading of its answer.
+     */
+    public volatile ServiceRequestStatus serviceRequest = ServiceRequestStatus.NONE;
+
+    /**
+     * The lifecycle of a service request as the lane sees it
+     * (LC-01-07-03/-04/-05/-06).
+     */
+    public enum ServiceRequestStatus {
+
+        /** Nothing was asked, or the request was cancelled, refused, validated. */
+        NONE,
+
+        /** Pushed, the back office has not acknowledged it yet (LC-01-07-03). */
+        PENDING,
+
+        /** The back office acknowledged it, the lane has not validated it (LC-01-07-04). */
+        ACKED
+    }
+
+    /**
+     * The administered reason of the service request in progress, or null:
+     * what the indicator names so the cashier knows what was asked for.
+     */
+    public volatile String serviceRequestReason = null;
+
+    /**
+     * True while a back-office message has arrived and not been acknowledged
+     * by the operator (LC-01-08-04): the indicator zone shows it and pressing
+     * it consults the message. Set when a message is received, cleared by the
+     * operator's acknowledgement or by the message's own disappearance
+     * (LC-01-08-05). Survives {@link #clearTicket()} like the message.
+     */
+    public volatile boolean boMessageArrived = false;
+
+    /**
+     * A back-office survey pushed to the register (EXP-89): a question, the
+     * answer options offered to the cashier, and — since LC-03-07-06 to -10 —
+     * HOW the answer is typed and whether it may be passed by.
      */
     public static class BackOfficeSurvey implements java.io.Serializable {
         private static final long serialVersionUID = 1L;
@@ -512,6 +605,53 @@ public class PosState implements Serializable {
         public String question;
         /** The answer options offered. */
         public java.util.List<String> options = new java.util.ArrayList<>();
+        /**
+         * How the answer is typed (LC-03-07-06 to -09): OPTIONS (the default,
+         * the administered buttons), NUMERIC, POSTAL_CODE or INFORMATIVE —
+         * or null, which reads as OPTIONS for a lane built before the types
+         * existed.
+         */
+        public String responseType;
+        /**
+         * True when the cashier may NOT pass the survey by (LC-03-07-10): the
+         * banner offers no skip key and stays until it is answered.
+         */
+        public boolean required;
+        /**
+         * The postal-code mask a POSTAL_CODE answer must match
+         * (LC-03-07-07): {@code C} is a digit, everything else literal. Null
+         * when the node administers none, and the format check then only
+         * bounds the length.
+         */
+        public String postalFormat;
+        /**
+         * The valid postal codes a POSTAL_CODE answer must belong to
+         * (LC-03-07-08), or an empty list when the format alone decides.
+         */
+        public java.util.List<String> postalCodes = new java.util.ArrayList<>();
+
+        /**
+         * Tells whether the survey is answered by its administered options
+         * rather than a keyed figure — the legacy behaviour, and the reading
+         * of a null type.
+         *
+         * @return true when the buttons of the banner carry the answer
+         */
+        public boolean isOptionsType() {
+            return responseType == null || responseType.isBlank()
+                    || "OPTIONS".equals(responseType.trim().toUpperCase(java.util.Locale.ROOT));
+        }
+
+        /**
+         * Tells whether the survey is an INFORMATIVE label (LC-03-07-09) —
+         * declared as such, validated with nothing to type.
+         *
+         * @return true when the banner validates the question itself
+         */
+        public boolean isInformative() {
+            return "INFORMATIVE".equals(responseType == null ? ""
+                    : responseType.trim().toUpperCase(java.util.Locale.ROOT));
+        }
     }
 
     /** The button menu currently shown; the sale gestures when the screen opens. */
@@ -562,6 +702,7 @@ public class PosState implements Serializable {
         priceModState.clear();
         collectArmed = false;
         armedQuantity = null;
+        pendingManualWeightKg = null;
         entryPrompt.clear();
         abandonReason = "";
         abandonPrintRequested = false;
@@ -570,6 +711,10 @@ public class PosState implements Serializable {
         invoice.clear();
         supervisorSessionBadge = null;
         cancelByScanArmed = false;
+        recalledOrderCode = null;
+        // LC-03-07-01: the beginning-of-transaction survey is asked once per
+        // TRANSACTION — the next customer's basket is a new one.
+        surveyTransactionStartAsked = false;
     }
 
     /**

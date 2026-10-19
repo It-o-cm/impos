@@ -264,6 +264,53 @@ class TenderDefinitionTest {
     }
 
     /**
+     * {@code activeVicProductCodes} answers the codes of the tenders IN SERVICE
+     * only, trimmed and in administered order (BO-03-09-30): a tender taken out
+     * of service, one carrying no code and one carrying a blank code all
+     * contribute nothing — each leg of the compound condition.
+     */
+    @Test
+    void activeVicProductCodesKeepsOnlyTheTendersInService() {
+        TenderDefinition mealpass = mealVoucher();
+        mealpass.active = true;
+        mealpass.vicProductCode = "  {DAJ}01  ";
+        TenderDefinition giftpass = mealVoucher();
+        giftpass.code = "VOUCHER";
+        giftpass.active = true;
+        giftpass.vicProductCode = "{DCJ}01";
+        TenderDefinition retired = mealVoucher();
+        retired.code = "ECO";
+        retired.active = false;
+        retired.vicProductCode = "{DBJ}01";
+        TenderDefinition noCode = mealVoucher();
+        noCode.code = "CASH";
+        noCode.active = true;
+        noCode.vicProductCode = null;
+        TenderDefinition blankCode = mealVoucher();
+        blankCode.code = "CHEQUE";
+        blankCode.active = true;
+        blankCode.vicProductCode = "   ";
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> TenderDefinition.list("order by displayOrder, code"))
+                    .thenReturn(List.of(mealpass, retired, noCode, blankCode, giftpass));
+            assertEquals(List.of("{DAJ}01", "{DCJ}01"), TenderDefinition.activeVicProductCodes());
+        }
+    }
+
+    /**
+     * A referential administering no product code at all answers an empty list,
+     * so the monetique request is the one it was before the column existed.
+     */
+    @Test
+    void activeVicProductCodesIsEmptyWhenNothingIsAdministered() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> TenderDefinition.list("order by displayOrder, code"))
+                    .thenReturn(List.of());
+            assertTrue(TenderDefinition.activeVicProductCodes().isEmpty());
+        }
+    }
+
+    /**
      * {@code findByCode} answers the administered row, trimming what the caller
      * passed, and null when no row administers the key.
      */
@@ -371,5 +418,55 @@ class TenderDefinitionTest {
         PanacheQuery<TenderDefinition> query = mock(PanacheQuery.class);
         when(query.firstResult()).thenReturn(result);
         return query;
+    }
+
+    /**
+     * {@code inRange} reads the range a buyer writes on paper (BO-03-02-06 and
+     * -07): comma-separated bounds, a span or a single identifier, compared
+     * NUMERICALLY so {@code 007} falls inside {@code 001-099}. A malformed
+     * bound is ignored rather than refused, and a null or blank side answers
+     * false — each leg of the guard.
+     */
+    @Test
+    void inRangeReadsTheAdministeredBounds() {
+        assertTrue(TenderDefinition.inRange("007", "001-099"));
+        assertTrue(TenderDefinition.inRange("001", "001-099"));
+        assertTrue(TenderDefinition.inRange("099", "001-099"));
+        assertFalse(TenderDefinition.inRange("100", "001-099"));
+        // A single identifier, and a list mixing a span and a singleton.
+        assertTrue(TenderDefinition.inRange("500", "500"));
+        assertTrue(TenderDefinition.inRange("500", "001-099,500"));
+        assertTrue(TenderDefinition.inRange("042", "001-099,500"));
+        assertFalse(TenderDefinition.inRange("501", "001-099,500"));
+        // A non-numeric identifier still matches its literal singleton.
+        assertTrue(TenderDefinition.inRange("CB", "CB,CHQ"));
+        assertFalse(TenderDefinition.inRange("CB", "CHQ"));
+        // A malformed bound is ignored, the sound ones still answer.
+        assertTrue(TenderDefinition.inRange("042", "zz-yy,001-099"));
+        assertFalse(TenderDefinition.inRange("042", "zz-yy"));
+        assertFalse(TenderDefinition.inRange("042", "001-,  , -099"));
+        // An empty part of the list is skipped rather than matching everything.
+        assertTrue(TenderDefinition.inRange("042", ",001-099,"));
+        // Each leg of the first guard.
+        assertFalse(TenderDefinition.inRange(null, "001-099"));
+        assertFalse(TenderDefinition.inRange("   ", "001-099"));
+        assertFalse(TenderDefinition.inRange("042", null));
+        assertFalse(TenderDefinition.inRange("042", "   "));
+    }
+
+    /**
+     * {@code locallyModifiable} says whether the STORE may rewrite the tender
+     * or only take it in and out of service (BO-03-02-06 and -07). A range
+     * nobody administered leaves every tender modifiable, which is what they
+     * all were before this rule existed — both arms of the guard.
+     */
+    @Test
+    void locallyModifiableFollowsTheAdministeredRange() {
+        TenderDefinition tender = mealVoucher();
+        tender.functionalId = "030";
+        assertTrue(tender.locallyModifiable(null));
+        assertTrue(tender.locallyModifiable("   "));
+        assertFalse(tender.locallyModifiable("500-599"));
+        assertTrue(tender.locallyModifiable("001-099"));
     }
 }

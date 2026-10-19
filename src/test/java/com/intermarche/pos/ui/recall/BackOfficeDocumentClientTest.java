@@ -202,4 +202,171 @@ class BackOfficeDocumentClientTest {
         BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), http);
         Assertions.assertNull(client.fetch("CMD1"));
     }
+
+    /**
+     * A 200 answer carrying the deposit's per-rate VAT detail parses it onto
+     * the document (LC-06-03-08): the register reads back the ventilation the
+     * creating till computed.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void fetchParsesDepositVatDetail() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "{\"code\":\"C04-CMD000001\",\"kind\":\"COMMANDE\",\"acompteAlreadyPaid\":10.00,"
+                + "\"depositVatDetail\":\"0.2:1;0.055:0.21\","
+                + "\"lines\":[{\"ean\":\"123\",\"label\":\"Article\",\"quantity\":1,"
+                + "\"unitPrice\":60.00,\"vatRate\":20}]}"))
+                .when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.of("TOK"), http);
+        RecalledDocument document = client.fetch("C04-CMD000001");
+        Assertions.assertEquals("0.2:1;0.055:0.21", document.depositVatDetail);
+        Assertions.assertNull(document.totalAmount == null ? null : "unset");
+    }
+
+    /**
+     * pushOrder answers false on a null order (first guard true arm).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void pushOrderWithoutOrderAnswersFalse() throws Exception {
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), mock(HttpClient.class));
+        Assertions.assertFalse(client.pushOrder(null));
+    }
+
+    /**
+     * pushOrder answers false on an order without a code (null-code arm) and
+     * on a blank code (blank arm).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void pushOrderWithoutCodeAnswersFalse() throws Exception {
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), mock(HttpClient.class));
+        RecalledDocument noCode = new RecalledDocument(RecalledDocument.Kind.COMMANDE, null, null, null);
+        Assertions.assertFalse(client.pushOrder(noCode));
+        RecalledDocument blankCode = new RecalledDocument(RecalledDocument.Kind.COMMANDE, "   ", null, null);
+        Assertions.assertFalse(client.pushOrder(blankCode));
+    }
+
+    /**
+     * pushOrder answers false when no store is configured (empty-URL arm) and
+     * on a blank URL (blank arm): a standalone lane keeps the order on its
+     * slip only.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void pushOrderWithoutStoreUrlAnswersFalse() throws Exception {
+        RecalledDocument order = new RecalledDocument(RecalledDocument.Kind.COMMANDE, "C04-CMD000001", null, null);
+        BackOfficeDocumentClient noUrl = client(Optional.empty(), Optional.empty(), mock(HttpClient.class));
+        Assertions.assertFalse(noUrl.pushOrder(order));
+        BackOfficeDocumentClient blankUrl = client(Optional.of("   "), Optional.empty(), mock(HttpClient.class));
+        Assertions.assertFalse(blankUrl.pushOrder(order));
+    }
+
+    /**
+     * pushOrder answers true on a 2xx answer from the node (LC-06-03-01).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void pushOrderAnswersTrueOn2xx() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "OK")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.of("TOK"), http);
+        RecalledDocument order = new RecalledDocument(RecalledDocument.Kind.COMMANDE, "C04-CMD000001",
+                java.util.List.of(), java.math.BigDecimal.ZERO);
+        Assertions.assertTrue(client.pushOrder(order));
+    }
+
+    /**
+     * pushOrder answers false on a non-2xx answer (status-out-of-range arm).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void pushOrderAnswersFalseOnNon2xx() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(409, "conflict")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), http);
+        RecalledDocument order = new RecalledDocument(RecalledDocument.Kind.COMMANDE, "C04-CMD000001", null, null);
+        Assertions.assertFalse(client.pushOrder(order));
+    }
+
+    /**
+     * pushOrder answers false on a thrown transport error (catch arm) rather
+     * than propagating — the deposit was collected and the slip printed.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void pushOrderAnswersFalseOnException() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doThrow(new java.io.IOException("boom")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), http);
+        RecalledDocument order = new RecalledDocument(RecalledDocument.Kind.COMMANDE, "C04-CMD000001", null, null);
+        Assertions.assertFalse(client.pushOrder(order));
+    }
+
+    /**
+     * settleOrder answers false on a null code (null arm) and a blank code
+     * (blank arm).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void settleOrderWithoutCodeAnswersFalse() throws Exception {
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), mock(HttpClient.class));
+        Assertions.assertFalse(client.settleOrder(null));
+        Assertions.assertFalse(client.settleOrder("   "));
+    }
+
+    /**
+     * settleOrder answers false when no store is configured (empty-URL arm)
+     * and on a blank URL (blank arm).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void settleOrderWithoutStoreUrlAnswersFalse() throws Exception {
+        BackOfficeDocumentClient noUrl = client(Optional.empty(), Optional.empty(), mock(HttpClient.class));
+        Assertions.assertFalse(noUrl.settleOrder("C04-CMD000001"));
+        BackOfficeDocumentClient blankUrl = client(Optional.of("   "), Optional.empty(), mock(HttpClient.class));
+        Assertions.assertFalse(blankUrl.settleOrder("C04-CMD000001"));
+    }
+
+    /**
+     * settleOrder answers true on a 2xx answer (the node settled the order or
+     * had already settled it).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void settleOrderAnswersTrueOn2xx() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "OK")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.of("TOK"), http);
+        Assertions.assertTrue(client.settleOrder("C04-CMD000001"));
+    }
+
+    /**
+     * settleOrder answers false on a non-2xx answer (status-out-of-range arm)
+     * and on a thrown transport error (catch arm) — a settle the network ate
+     * is a warning, never a refused sale.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void settleOrderAnswersFalseOnFailure() throws Exception {
+        HttpClient down = mock(HttpClient.class);
+        doReturn(resp(503, "down")).when(down).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), down);
+        Assertions.assertFalse(client.settleOrder("C04-CMD000001"));
+        HttpClient throwing = mock(HttpClient.class);
+        doThrow(new java.io.IOException("boom")).when(throwing).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient failing = client(Optional.of("http://store"), Optional.empty(), throwing);
+        Assertions.assertFalse(failing.settleOrder("C04-CMD000001"));
+    }
 }

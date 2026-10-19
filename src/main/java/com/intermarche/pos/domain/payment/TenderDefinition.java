@@ -61,6 +61,26 @@ public class TenderDefinition extends PanacheEntity {
     @Column(name = "label", nullable = false, length = 60)
     public String label;
 
+    /**
+     * Code of the GROUP this settlement method belongs to
+     * ({@code BO-06-06-09}), or null when it stands alone.
+     *
+     * <p>A state of settlements totals by group as well as by method:
+     * automatic and hand-written cheques are two methods and ONE line of the
+     * accounts. The grouping is administered rather than derived from the
+     * code, because what belongs together is a decision of the shop's
+     * accounting and not a property of the payment class.
+     */
+    @Column(name = "group_code", length = 20)
+    public String groupCode;
+
+    /**
+     * Label of that group ({@code BO-06-06-09}), or null — what the state
+     * prints on the group's sub-total line.
+     */
+    @Column(name = "group_label", length = 60)
+    public String groupLabel;
+
     /** Whether the tender is in service; deactivated, never deleted (BO-03-02-03). */
     @Column(name = "active", nullable = false)
     public boolean active = true;
@@ -133,6 +153,48 @@ public class TenderDefinition extends PanacheEntity {
     @Column(name = "change_tender_code", length = 20)
     public String changeTenderCode;
 
+    /**
+     * The VIC product code the acquirer gave this tender for the MULTI-PRODUCT
+     * card (BO-03-09-30), written as the acquirer writes it — {@code {DAJ}01}
+     * for Mealpass, {@code {DBJ}01} for Ecopass, {@code {DCJ}01} for Gift
+     * pass — or null on a tender the card does not carry.
+     *
+     * <p>HELD VERBATIM AND ON THE TENDER, for two reasons. On the tender,
+     * because that is what the requirement says in so many words: the product
+     * code belongs to the payment mean, not to the register. Verbatim, because
+     * the pair a tag and its value form is the acquirer's to state and not
+     * ours to compose — the register parses it with the very codec it uses on
+     * the wire ({@code VerifoneFrameCodec}, whose {@code {TAG}value} syntax is
+     * the one the requirement itself writes these codes in) and emits it
+     * unchanged. A store whose acquirer changes a code changes a row.
+     */
+    @Column(name = "vic_product_code", length = 20)
+    public String vicProductCode;
+
+    /**
+     * Whether a SELF-SERVICE lane may settle with this tender (BO-03-02-27).
+     *
+     * <p>True by default, so a store that never opens this part keeps offering
+     * every tender on every lane, which is what it did before the column
+     * existed. A lane with nobody behind it cannot take a cheque, endorse it or
+     * verify a signature, and the tender a store forbids there is refused at
+     * the ONE funnel every settlement goes through.
+     */
+    @Column(name = "self_service_allowed", nullable = false)
+    public boolean selfServiceAllowed = true;
+
+    /**
+     * Whether settling with this tender on a self-service lane CALLS the
+     * technical hostess (BO-03-02-29).
+     *
+     * <p>Distinct from forbidding it: a store may let a self-service lane take
+     * a meal voucher and still want somebody to look at it. The call reuses the
+     * supervisor hold every administered tender rule already raises, so the
+     * hostess sees the panel she knows.
+     */
+    @Column(name = "self_service_supervision", nullable = false)
+    public boolean selfServiceSupervision = false;
+
     /** Whether the cashier's holding of this tender is declared automatically (BO-03-02-17). */
     @Column(name = "cashier_declaration", nullable = false)
     public boolean cashierDeclaration = false;
@@ -169,6 +231,51 @@ public class TenderDefinition extends PanacheEntity {
     /** Whether the use of this tender is reported to the fidelity programme (BO-03-02-30). */
     @Column(name = "fidelity_reported", nullable = false)
     public boolean fidelityReported = false;
+
+    /**
+     * The GABARIT printed when this tender is used, by its code; null when the
+     * tender prints nothing of its own (BO-03-02-32).
+     *
+     * <p>A code and not a foreign key, deliberately: the gabarits travel to the
+     * registers on their own domain, and a tender naming one that has not
+     * arrived yet must not block the tender from arriving. A code nobody
+     * administers prints nothing, which is what a tender with no slip does.
+     */
+    @Column(name = "document_template_code", length = 50)
+    public String documentTemplateCode;
+
+    /**
+     * How many times that slip is printed (BO-03-02-33); one by default.
+     *
+     * <p>On the TENDER and not only on the gabarit, because the same layout may
+     * be printed once for one tender and twice for another — the questionnaire
+     * asks the count "par moyen de paiement", and that is where it belongs.
+     * Zero or less reads as one: a tender that prints a slip prints it.
+     */
+    @Column(name = "print_count", nullable = false)
+    public int printCount = 1;
+
+    /**
+     * Whether a DUPLICATE of that slip is printed beside it (BO-03-02-26).
+     *
+     * <p>Not the same thing as printing it twice: a duplicate carries the
+     * reprint name of its gabarit, where a second copy carries the original's.
+     * A deposit slip handed to the customer and kept by the shop is the case
+     * the questionnaire names.
+     */
+    @Column(name = "print_duplicate", nullable = false)
+    public boolean printDuplicate = false;
+
+    /**
+     * Whether that slip is printed EVEN WHEN THE RECEIPT IS NOT
+     * (BO-03-02-31).
+     *
+     * <p>A customer who took a digital receipt still leaves with the paper of
+     * their cheque or their gift card when the shop says so: the slip of a
+     * tender is a proof of settlement, not a copy of the sale.
+     */
+    @Column(name = "print_forced", nullable = false)
+    public boolean printForced = false;
 
     /**
      * Whether an amount may be transferred OUT of this tender ({@code BO-05-02-17}).
@@ -312,6 +419,133 @@ public class TenderDefinition extends PanacheEntity {
      */
     public static List<TenderDefinition> listAllOrdered() {
         return list("order by displayOrder, code");
+    }
+
+    /**
+     * Indicates whether the STORE may change this tender's description, or only
+     * take it in and out of service (BO-03-02-06 and -07).
+     *
+     * <p>The head office reserves a range of functional identifiers to itself:
+     * inside it the description is central and frozen, and the point de vente
+     * keeps nothing but the activation. Outside it the store administers the
+     * tender as it likes. The split is stated as the range the STORE may
+     * modify, because that is the shorter list and the safer default to get
+     * wrong: a range nobody administered leaves every tender modifiable, which
+     * is what they all were before this rule existed.
+     *
+     * @param localRange the administered range of locally modifiable
+     *        identifiers, or null/blank when the store may modify every tender
+     * @return true when the store may rewrite the description
+     */
+    public boolean locallyModifiable(String localRange) {
+        if (localRange == null || localRange.isBlank()) {
+            return true;
+        }
+        return inRange(functionalId, localRange);
+    }
+
+    /**
+     * Tells whether a functional identifier falls inside an administered range
+     * (BO-03-02-06 and -07).
+     *
+     * <p>The syntax is the one a buyer writes on paper: comma-separated bounds,
+     * {@code 001-099} for a span and {@code 500} for a single identifier, so
+     * {@code 001-099,500} reads as "the first hundred, plus 500". Comparison is
+     * NUMERIC where both sides are numbers — {@code 007} must fall inside
+     * {@code 001-099} and a text comparison would get that wrong — and falls
+     * back to the literal match otherwise, so a store whose identifiers are not
+     * numbers is not silently mis-ranged.
+     *
+     * <p>A malformed bound is IGNORED rather than refused: a typo in the back
+     * office must not freeze a referential nobody can edit any more.
+     *
+     * @param functionalId the identifier to test, or null
+     * @param range the administered range, or null
+     * @return true when the identifier falls inside the range
+     */
+    public static boolean inRange(String functionalId, String range) {
+        if (functionalId == null || functionalId.isBlank()
+                || range == null || range.isBlank()) {
+            return false;
+        }
+        String id = functionalId.trim();
+        for (String part : range.split(",")) {
+            String bound = part.trim();
+            if (bound.isEmpty()) {
+                continue;
+            }
+            int dash = bound.indexOf('-');
+            if (dash < 0) {
+                if (bound.equals(id) || sameNumber(bound, id)) {
+                    return true;
+                }
+                continue;
+            }
+            String low = bound.substring(0, dash).trim();
+            String high = bound.substring(dash + 1).trim();
+            Long idValue = number(id);
+            Long lowValue = number(low);
+            Long highValue = number(high);
+            if (idValue == null || lowValue == null || highValue == null) {
+                continue;
+            }
+            if (idValue >= lowValue && idValue <= highValue) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Compares two identifiers numerically when both are numbers.
+     *
+     * @param left the first identifier
+     * @param right the second identifier
+     * @return true when both are numbers and they are equal
+     */
+    private static boolean sameNumber(String left, String right) {
+        Long a = number(left);
+        Long b = number(right);
+        return a != null && b != null && a.longValue() == b.longValue();
+    }
+
+    /**
+     * Reads an identifier as a number, leading zeros included.
+     *
+     * @param raw the identifier, trimmed
+     * @return the numeric value, or null when it is not a number
+     */
+    private static Long number(String raw) {
+        try {
+            return Long.valueOf(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+
+    /**
+     * Returns the VIC product codes of the tenders in service, in administered
+     * order (BO-03-09-30).
+     *
+     * <p>Only the ACTIVE tenders: a payment mean the store took out of service
+     * must not be declared to the terminal as accepted, or the customer is
+     * offered a product the register will then refuse. A tender carrying no
+     * code contributes nothing, so a store that administers none gets an empty
+     * list and a request identical to the one it got before this column
+     * existed.
+     *
+     * @return the ordered VIC product codes, empty when none is administered
+     */
+    public static List<String> activeVicProductCodes() {
+        List<String> codes = new java.util.ArrayList<>();
+        for (TenderDefinition tender : listAllOrdered()) {
+            if (tender != null && tender.active
+                    && tender.vicProductCode != null && !tender.vicProductCode.isBlank()) {
+                codes.add(tender.vicProductCode.trim());
+            }
+        }
+        return codes;
     }
 
     /**

@@ -204,7 +204,7 @@ public class GroupJIT {
         Assertions.assertTrue(page.locator(".overlay-training").isVisible(),
                 "the payment screen must raise the orange training banner");
         // --- A cash tender completes the transaction (only simulated) ---
-        payCashComplete(page, "20");
+        payCashComplete(page, "2000");
         Assertions.assertTrue(posState.payment.transactionComplete,
                 "the training cash tender must complete the transaction in memory");
         Assertions.assertFalse(posState.payment.payments.isEmpty(),
@@ -263,7 +263,7 @@ public class GroupJIT {
     void j3_actions_bloquees() {
         // --- Build a real closed ticket BEFORE entering training (reprint target) ---
         Page sale = freshSale();
-        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        Long ticketId = closeCashSaleOn(sale, "1000", EAN_HUILE);
         sale.close();
         String number = ticketNumber(ticketId);
         CashSession sessionBefore = openSessionOnC04();
@@ -745,6 +745,9 @@ public class GroupJIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

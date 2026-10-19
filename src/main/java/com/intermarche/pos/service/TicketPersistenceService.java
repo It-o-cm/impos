@@ -354,6 +354,14 @@ public class TicketPersistenceService {
             creditPayment.accountName = entry.creditAccountName;
             creditPayment.overLimit = entry.creditOverLimit;
         }
+        if (payment instanceof com.intermarche.pos.domain.payment.DepositPayment depositPayment) {
+            // LC-06-03-07/-08: the deposit's per-rate VAT detail and the order
+            // code ride on the row, so the final receipt restates the
+            // ventilation taken at collection time and the store node can
+            // account the recovery against its order.
+            depositPayment.vatDetail = entry.depositVatDetail;
+            depositPayment.orderCode = entry.depositOrderCode;
+        }
         payment.paymentIndex = ticket.payments.size() + 1;
         ticket.addPayment(payment);
         ticket.persist();
@@ -396,10 +404,15 @@ public class TicketPersistenceService {
      * @param ticketId the database id of the draft ticket, or null (no draft)
      * @param lineUid the stable uid of the line being cancelled
      * @param operatorBadgeId the badge of the operator performing the cancellation, or null
+     * @param reasonCode the code of the administered justification given for
+     *        the cancellation ({@code BO-06-06-04}), or null when the shop
+     *        administers none for that gesture
+     * @param reasonLabel the label of that justification, or null
      */
     @Transactional
-    public void markLineCancelled(Long ticketId, String lineUid, String operatorBadgeId) {
-        LOGGER.info("Entering method markLineCancelled with ticketId: " + ticketId + ", lineUid: " + lineUid + ", operatorBadgeId: " + operatorBadgeId);
+    public void markLineCancelled(Long ticketId, String lineUid, String operatorBadgeId,
+            String reasonCode, String reasonLabel) {
+        LOGGER.info("Entering method markLineCancelled with ticketId: " + ticketId + ", lineUid: " + lineUid + ", operatorBadgeId: " + operatorBadgeId + ", reasonCode: " + reasonCode);
         if (ticketId == null || lineUid == null) { LOGGER.info("Exiting method markLineCancelled"); return; }
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null) { LOGGER.info("Exiting method markLineCancelled"); return; }
@@ -412,6 +425,8 @@ public class TicketPersistenceService {
                 line.cancelled = true;
                 line.cancellationDate = LocalDateTime.now();
                 line.cancelledBy = operatorBadgeId;
+                line.cancellationReasonCode = reasonCode;
+                line.cancellationReasonLabel = reasonLabel;
                 // Last-line vs. mid-ticket cancellation (R10): the fraud indicator
                 // rests on whether the cancelled line was the ticket's last at the
                 // moment of the gesture, so compare its position to the greatest
@@ -734,6 +749,12 @@ public class TicketPersistenceService {
                 line.familyLabel = family.description;
             }
         }
+        // BO-10-02-20: the article's internal code, snapshotted beside the
+        // family and for the same reason — the paper must keep saying what it
+        // said, whatever the referential does afterwards.
+        line.secondCode = line.product == null ? null : line.product.internalCode;
+        // BO-10-05-04: the tare the scale deducted, snapshotted with the rest.
+        line.appliedTareKg = item.appliedTareKg;
         line.productLabel = item.label;
         line.quantity = item.quantity;
         line.unitPrice = item.unitPrice;
@@ -761,6 +782,11 @@ public class TicketPersistenceService {
         // line, kept whether or not this version has a rule for any of them.
         line.gs1Data = item.gs1Data;
         line.gs1ExpiryDate = item.gs1ExpiryDate;
+        // BO-03-06-44: the activation code and the provider that owes it are
+        // transactional data of the line, kept for the same reason the GS1
+        // identifiers above are kept.
+        line.activationCode = item.activationCode;
+        line.activationProvider = item.activationProvider;
         return line;
     }
 

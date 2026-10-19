@@ -371,6 +371,8 @@ public class RefPullService {
                     this.pages(domain, new TypeReference<List<RefPayloads.TenderDefinitionDto>>() {}));
             case "DOCUMENT_TEMPLATES" -> refApplyService.applyDocumentTemplates(
                     this.pages(domain, new TypeReference<List<RefPayloads.DocumentTemplateDto>>() {}));
+            case "PROVIDER_MESSAGES" -> refApplyService.applyProviderMessages(
+                    this.pages(domain, new TypeReference<List<RefPayloads.ProviderMessageDto>>() {}));
             case "ARTICLE_RANGES" -> refApplyService.applyArticleBarcodeRanges(
                     this.pages(domain, new TypeReference<List<RefPayloads.ArticleBarcodeRangeDto>>() {}));
             case "CUSTOMERS" -> refApplyService.applyCustomers(
@@ -379,6 +381,10 @@ public class RefPullService {
                     this.pages(domain, new TypeReference<List<RefPayloads.PostalCodeDto>>() {}));
             case "CURRENCIES" -> refApplyService.applyCurrencies(
                     this.pages(domain, new TypeReference<List<RefPayloads.CurrencyDto>>() {}));
+            case "POS_LISTS" -> refApplyService.applyPosLists(
+                    this.pages(domain, new TypeReference<List<RefPayloads.PosListDto>>() {}));
+            case "STORE_IMAGES" -> refApplyService.applyStoreImages(
+                    this.pages(domain, new TypeReference<List<RefPayloads.StoreImageDto>>() {}));
             case "SETTINGS" -> refApplyService.applySettings(
                     this.pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
             case "ENGINE_FEEDS" -> refApplyService.applyEngineFeeds(

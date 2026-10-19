@@ -61,6 +61,13 @@ class PaymentResourceTest {
         resource.state = mock(PosState.class);
         resource.state.payment = mock(PaymentState.class);
         resource.paymentService = mock(PaymentService.class);
+        // The control point watching the abandon of settlements already taken
+        // (BO-10-02-02) answers as it does with nothing administered — no
+        // control —, which is what every case of this class asserts.
+        resource.endorsementService =
+                mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        when(resource.endorsementService.check(any(), any()))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.NONE);
         resource.voucherService = mock(VoucherService.class);
         resource.ticketPrinterService = mock(TicketPrinterService.class);
         // Every display of the payment screen offers the fidelity lease its
@@ -812,6 +819,169 @@ class PaymentResourceTest {
         verify(resource.voucherService).applyEncodedVoucher(resource.state, type, "good");
         verify(resource.state.payment).clearPendingVoucher();
         verify(resource.state).touch();
+    }
+
+    // --- the PAYMENT AMOUNT control point (BO-10-02-17) ---
+
+    /**
+     * Arms the settlement ceiling and the level the control answers, and gives
+     * the state the ticket the control speaks through.
+     *
+     * @param resource the resource under test
+     * @param ceiling the administered ceiling
+     * @param level what the control point answers here and now
+     */
+    private void armPaymentCeiling(PaymentResource resource, String ceiling,
+            com.intermarche.pos.ui.endorsement.ControlLevel level) {
+        resource.state.ticket = mock(com.intermarche.pos.ui.ticket.TicketState.class);
+        when(resource.posSettingsService.controlPaymentAmountMax())
+                .thenReturn(new BigDecimal(ceiling));
+        when(resource.endorsementService.check(resource.state,
+                com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT)).thenReturn(level);
+        when(resource.endorsementService.controlMessage(
+                com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT, level))
+                .thenReturn("MONTANT D'UN RÈGLEMENT");
+    }
+
+    /**
+     * BO-10-02-17, no ceiling administered: the control is never reached and
+     * the settlement is registered. This is the catalogue's default.
+     */
+    @Test
+    void aKeyedAmountIsUncontrolledWhenNoCeilingIsAdministered() {
+        PaymentResource resource = newResource();
+        when(resource.posSettingsService.controlPaymentAmountMax()).thenReturn(null);
+        assertRedirectPay(resource.doCardPayment("900,00"));
+        verify(resource.paymentService).processCard(resource.state, new BigDecimal("900.00"));
+        verify(resource.endorsementService, never()).check(any(),
+                eq(com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT));
+    }
+
+    /**
+     * BO-10-02-17, the figure AT the ceiling: the comparison is "beyond", so
+     * the ceiling itself settles — the boundary arm.
+     */
+    @Test
+    void aKeyedAmountAtTheCeilingSettles() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(resource.doCardPayment("500,00"));
+        verify(resource.paymentService).processCard(resource.state, new BigDecimal("500.00"));
+        verify(resource.endorsementService, never()).check(any(),
+                eq(com.intermarche.pos.ui.endorsement.ControlPoint.PAYMENT_AMOUNT));
+    }
+
+    /**
+     * BO-10-02-17, beyond the ceiling at level NONE: the point is reached and
+     * lets the settlement through, saying nothing.
+     */
+    @Test
+    void aKeyedAmountBeyondTheCeilingSettlesAtLevelNone() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.NONE);
+        assertRedirectPay(resource.doCardPayment("900,00"));
+        verify(resource.paymentService).processCard(resource.state, new BigDecimal("900.00"));
+        verify(resource.state.ticket, never()).setWarning(any());
+        verify(resource.state.ticket, never()).setError(any());
+    }
+
+    /**
+     * BO-10-02-17, WARN: the cashier is told and the settlement is registered
+     * all the same — the non-blocking alert.
+     */
+    @Test
+    void aKeyedAmountBeyondTheCeilingWarnsAndSettles() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.WARN);
+        assertRedirectPay(resource.doCashPayment("900,00"));
+        verify(resource.state.ticket).setWarning("MONTANT D'UN RÈGLEMENT");
+        verify(resource.paymentService).processCash(resource.state, new BigDecimal("900.00"));
+    }
+
+    /**
+     * BO-03-10-14: an island that blocks the payment pop-ups silences the
+     * non-blocking alert — and the settlement still goes through, because the
+     * message was informative and nothing else changed.
+     */
+    @Test
+    void anIslandBlockingPaymentPopupsSilencesTheAlert() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.WARN);
+        when(resource.posSettingsService.islandBlockPaymentPopups()).thenReturn(true);
+        assertRedirectPay(resource.doCashPayment("900,00"));
+        verify(resource.state.ticket, never()).setWarning(any());
+        verify(resource.paymentService).processCash(resource.state, new BigDecimal("900.00"));
+    }
+
+    /**
+     * BO-03-10-14, the other leg: an island that blocks the pop-ups does NOT
+     * silence a REFUSAL — a settlement the store forbids stays forbidden and
+     * says so.
+     */
+    @Test
+    void anIslandBlockingPaymentPopupsStillRefuses() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        when(resource.posSettingsService.islandBlockPaymentPopups()).thenReturn(true);
+        assertRedirectPay(resource.doCardPayment("900,00"));
+        verify(resource.state.ticket).setError("MONTANT D'UN RÈGLEMENT");
+    }
+
+    /**
+     * BO-10-02-17, BLOCK: the settlement is refused, the tender service is
+     * never called and the screen carries the refusal.
+     */
+    @Test
+    void aKeyedAmountBeyondTheCeilingIsRefusedAtLevelBlock() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(resource.doCardPayment("900,00"));
+        verify(resource.state.ticket).setError("MONTANT D'UN RÈGLEMENT");
+        verify(resource.paymentService, never()).processCard(any(), any());
+    }
+
+    /**
+     * BO-10-02-17, ENDORSE administered on a point no ceremony can serve: the
+     * level that reaches this screen refuses, because the payment screen has no
+     * modal to park a settlement in.
+     */
+    @Test
+    void aKeyedAmountBeyondTheCeilingIsRefusedAtLevelEndorse() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.ENDORSE);
+        assertRedirectPay(resource.doChequePayment("900,00"));
+        verify(resource.state.ticket).setError("MONTANT D'UN RÈGLEMENT");
+        verify(resource.paymentService, never()).processCheque(any(), any());
+    }
+
+    /**
+     * BO-10-02-17, A REFUND IS PLAFONNED LIKE A SETTLEMENT: a negative figure
+     * beyond the ceiling in absolute value is controlled too.
+     */
+    @Test
+    void aNegativeKeyedAmountIsComparedInAbsoluteValue() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(resource.doCashPayment("-900,00"));
+        verify(resource.state.ticket).setError("MONTANT D'UN RÈGLEMENT");
+        verify(resource.paymentService, never()).processCash(any(), any());
+    }
+
+    /**
+     * BO-10-02-17 on the voucher panel: a refused amount LEAVES THE VOUCHER
+     * PENDING, so the cashier re-keys a figure the shop accepts instead of
+     * losing the voucher being entered.
+     */
+    @Test
+    void aRefusedVoucherAmountLeavesTheVoucherPending() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        resource.state.payment.pendingVoucherTypeCode = null;
+        resource.state.payment.pendingVoucherNumber = "N1";
+        assertRedirectPay(resource.validateVoucherAmount("900,00"));
+        verify(resource.voucherService, never()).applyManualVoucher(any(), any(), any(), any());
+        verify(resource.state.payment, never()).clearPendingVoucher();
+        verify(resource.state.ticket).setError("MONTANT D'UN RÈGLEMENT");
     }
 
     // --- validateVoucherAmount ---

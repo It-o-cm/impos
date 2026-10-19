@@ -56,7 +56,16 @@ public class HomeResource {
     @Inject Template supervisor;
     @Inject Template ticket;
 
+    /** The back-office message consult screen (LC-01-08-04). */
+    @Inject @Location("bo-message") Template boMessage;
+
     @Inject @Location("drawer-error") Template drawerError;
+
+    /** The line-cancellation justification chooser (BO-06-06-04). */
+    @Inject @Location("cancel-reason") Template cancelReason;
+
+    /** The manual gross-weight entry screen (LC-02-02-03). */
+    @Inject @Location("manual-weight") Template manualWeight;
 
     @Inject HomeService homeService;
     @Inject TicketService ticketService;
@@ -141,11 +150,22 @@ public class HomeResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance home() {
         LOGGER.info("Entering method home");
+        // BO-06-06-04: a cancellation waiting for its justification takes the
+        // screen. Asked HERE and not at the gesture because the gesture reaches
+        // the register by three roads — the CANCEL key, the cancel-by-scan mode
+        // and the line tapped on the ticket — and the question must be the same
+        // on all three.
+        if (state.ticket.pendingCancelUid != null) {
+            LOGGER.info("Exiting method home");
+            return cancelReason.data("state", state)
+                    .data("reasons", homeService.cancelReasons());
+        }
         LOGGER.info("Exiting method home");
         return main.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
                 .data("waitingLabel", homeService.waitingLabel())
-                .data("drawerAlert", homeService.drawerCapAlert());
+                .data("drawerAlert", homeService.drawerCapAlert())
+                .data("discountPresets", homeService.discountPresets());
     }
 
     /**
@@ -170,6 +190,12 @@ public class HomeResource {
         // poll is how an already-open screen learns that the register locked
         // and must navigate to /lock (see LockCheckFilter).
         result.put("locked", state.isLocked());
+        // LC-01-07-03/-04 and LC-01-08-04: the indicator zone is rendered
+        // SERVER-SIDE outside the fragment, so the lane's request state and
+        // the message-arrived flag ride every answer — version match included
+        // — and the page reloads once when they stop matching what it shows.
+        result.put("serviceRequest", state.serviceRequest.name());
+        result.put("boArrived", state.boMessageArrived);
         // The close asked for by a badge scan rides the same way, and for the
         // same reason: the gesture happens on the scan bus, far from the page,
         // and only this poll can send the screen to the closing (LC-01-02-03).
@@ -280,6 +306,92 @@ public class HomeResource {
         homeService.answerSurvey(answer);
         LOGGER.info("Exiting method surveyAnswer");
         return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Passes the back-office survey by without answering it (LC-03-07-10):
+     * the key only exists on a survey the back office declared optional, and
+     * nothing travels up.
+     *
+     * @return a redirect to the home page
+     */
+    @POST
+    @Path("/action/survey-skip")
+    public Response surveySkip() {
+        LOGGER.info("Entering method surveySkip");
+        homeService.skipSurvey();
+        LOGGER.info("Exiting method surveySkip");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Shows the back-office message the operator asked to consult
+     * (LC-01-08-04): the notice arrived on the cashier's screen — the banner
+     * already showed it — and the indicator keeps it reachable until it is
+     * acknowledged (LC-01-08-05). The screen names no survey's answer
+     * buttons: a question is answered from the banner itself (EXP-89).
+     *
+     * <p>Caisse-side only, like everything this channel shows: the customer
+     * display is another page and renders none of it (LC-01-08-02).
+     *
+     * @return the back-office message page
+     */
+    @GET
+    @Path("/bo-message")
+    @DrawerMayBeOpen
+    public TemplateInstance boMessagePage() {
+        LOGGER.info("Entering method boMessagePage");
+        LOGGER.info("Exiting method boMessagePage");
+        return boMessage.data("state", state);
+    }
+
+    /**
+     * Acknowledges the back-office message (LC-01-08-05): the banner and the
+     * indicator go, and the acknowledgement travels up so the store knows
+     * who read the notice.
+     *
+     * @return a redirect to the home page (outcome in the message zone)
+     */
+    @POST
+    @Path("/action/bo-message/ack")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response ackBoMessage() {
+        LOGGER.info("Entering method ackBoMessage");
+        homeService.ackBackOfficeMessage();
+        LOGGER.info("Exiting method ackBoMessage");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Cancels the service request this lane has in progress (LC-01-07-05):
+     * it disappears from the back office and the indicator from the caisse.
+     *
+     * @return a redirect to the supervisor page (outcome in the message zone)
+     */
+    @POST
+    @Path("/action/service-request/cancel")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response cancelServiceRequest() {
+        LOGGER.info("Entering method cancelServiceRequest");
+        homeService.cancelServiceRequest();
+        LOGGER.info("Exiting method cancelServiceRequest");
+        return Response.seeOther(URI.create("/supervisor")).build();
+    }
+
+    /**
+     * Validates the handling of a request the back office acknowledged
+     * (LC-01-07-06): the indicator disappears from the caisse.
+     *
+     * @return a redirect to the supervisor page (outcome in the message zone)
+     */
+    @POST
+    @Path("/action/service-request/validate")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response validateServiceRequest() {
+        LOGGER.info("Entering method validateServiceRequest");
+        homeService.validateServiceRequest();
+        LOGGER.info("Exiting method validateServiceRequest");
+        return Response.seeOther(URI.create("/supervisor")).build();
     }
 
     /**
@@ -423,17 +535,75 @@ public class HomeResource {
     }
 
     /**
+     * Shows the MANUAL WEIGHT screen ({@code LC-02-02-03}): the operator types
+     * the GROSS weight there, then names the article.
+     *
+     * <p>The screen states the container tare already armed, when there is one,
+     * because that tare is the only part of the deduction known before the
+     * article is chosen — the article tare and the administered default are
+     * resolved at the article itself.
+     *
+     * @return the manual-weight page
+     */
+    @GET
+    @Path("/manual-weight")
+    public TemplateInstance manualWeightPage() {
+        LOGGER.info("Entering method manualWeightPage");
+        LOGGER.info("Exiting method manualWeightPage");
+        return manualWeight.data("state", state)
+                .data("containerLabel", state.tare.containerLabel)
+                .data("containerTare", state.tare.hasContainer()
+                        ? state.tare.containerTare.stripTrailingZeros().toPlainString() : null);
+    }
+
+    /**
+     * Arms the gross weight typed on the manual-weight screen
+     * ({@code LC-02-02-03}).
+     *
+     * @param rawValue the gross weight in kilograms, typed on the screen's keypad
+     * @return a redirect to the sale screen, where the article is now named
+     */
+    @POST
+    @Path("/action/manual-weight")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response armManualWeight(@FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method armManualWeight with rawValue: " + rawValue);
+        homeService.armManualWeight(parseAmount(rawValue));
+        LOGGER.info("Exiting method armManualWeight");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Gives up the armed manual weight ({@code LC-02-02-03}).
+     *
+     * @return a redirect to the sale screen
+     */
+    @GET
+    @Path("/action/manual-weight/cancel")
+    public Response cancelManualWeight() {
+        LOGGER.info("Entering method cancelManualWeight");
+        homeService.clearManualWeight();
+        LOGGER.info("Exiting method cancelManualWeight");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
      * Repeats the registration of the last article ({@code LC-02-13-12}).
      *
-     * @return the home page
+     * @return a 303 redirect to the sale screen (PRG pattern): this GET
+     *         MUTATES, so it must never leave a RENDERED page the browser then
+     *         sits on. The sale screen reloads itself on a payability flip, and
+     *         the reload of a rendered {@code /action/repeat} adds a second unit
+     *         nobody asked for — the same replay class {@code /action/finish}
+     *         is a redirect for.
      */
     @GET
     @Path("/action/repeat")
-    public TemplateInstance repeatLastItem() {
+    public Response repeatLastItem() {
         LOGGER.info("Entering method repeatLastItem");
         homeService.repeatLastItem();
         LOGGER.info("Exiting method repeatLastItem");
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
@@ -596,6 +766,37 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Records the justification the operator tapped and resumes the
+     * cancellation ({@code BO-06-06-04}).
+     *
+     * @param code the code of the justification tapped
+     * @return the home page, or the chooser again when the code is unknown
+     */
+    @GET
+    @Path("/action/cancel-reason")
+    public TemplateInstance cancelLineReason(@QueryParam("code") String code) {
+        LOGGER.info("Entering method cancelLineReason with code: " + code);
+        homeService.cancelLineWithReason(code);
+        LOGGER.info("Exiting method cancelLineReason");
+        return home();
+    }
+
+    /**
+     * Abandons the cancellation the register was asking a justification for
+     * ({@code BO-06-06-04}): the line stays on the ticket.
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/cancel-reason/abandon")
+    public TemplateInstance cancelLineReasonAbandoned() {
+        LOGGER.info("Entering method cancelLineReasonAbandoned");
+        homeService.cancelLineReasonAbandoned();
+        LOGGER.info("Exiting method cancelLineReasonAbandoned");
+        return home();
+    }
+
     // --- Price-modification modal ---
 
     /**
@@ -672,6 +873,28 @@ public class HomeResource {
         homeService.cancelPriceMod();
         LOGGER.info("Exiting method cancelPriceMod");
         return home();
+    }
+
+    /**
+     * Applies one of the ready-made discount keys administered by the back
+     * office (LC-03-02-02 and -04): the modal shows the keys, this route lands
+     * the one the operator tapped. Refusals are named by the service — an
+     * unknown label, a line that vanished, an already-reduced line without
+     * CUMUL — and the modal closes after every outcome, like a submitted
+     * gesture.
+     *
+     * @param label the label of the administered key, as rendered on its button
+     * @return a 303 redirect to the home page (PRG pattern, so a browser
+     *         reload never replays the POST)
+     */
+    @POST
+    @Path("/action/price-mod/preset")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response applyPresetKey(@FormParam("label") String label) {
+        LOGGER.info("Entering method applyPresetKey with label: " + label);
+        homeService.applyPresetKey(label);
+        LOGGER.info("Exiting method applyPresetKey");
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

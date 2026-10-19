@@ -203,7 +203,7 @@ public class GroupKIT {
         scan(EAN_HUILE);
         page.getByText(LABEL_HUILE).waitFor();
         openGesture(page, "remise", "REMISE");
-        typeAndValidate(page, "1");
+        typeAndValidate(page, "100");
         approveEndorsementWithManager(page);
         Assertions.assertEquals(PriceModType.REMISE, posState.ticket.items.get(0).modifierType,
                 "the first line must carry a structured REMISE gesture");
@@ -295,7 +295,7 @@ public class GroupKIT {
         Assertions.assertNotNull(draftId, "the cart must persist an OPEN draft");
         goPay(page);
         // --- Register a PARTIAL card payment (5,00 € of 12,00 €) ---
-        payThroughScreen(page, "CARTE BANCAIRE", "cardForm", "5", true);
+        payThroughScreen(page, "CARTE BANCAIRE", "cardForm", "500", true);
         page.getByText("PAIEMENT CARTE EN COURS").waitFor();
         virtualTerminal.accept();
         Assertions.assertEquals(1, posState.payment.payments.size(), "the card payment must be registered");
@@ -327,7 +327,7 @@ public class GroupKIT {
         page.navigate(base.toString());
         page.getByText(LABEL_HUILE).waitFor();
         goPay(page);
-        payCashComplete(page, "7");
+        payCashComplete(page, "700");
         Assertions.assertTrue(posState.payment.transactionComplete, "the balance tender must complete the transaction");
         finishSale(page);
         Assertions.assertEquals(Ticket.TicketStatus.CLOSED, ticketStatus(draftId),
@@ -362,7 +362,7 @@ public class GroupKIT {
         Long ticketId = posState.payment.ticketDbId;
         Assertions.assertNotNull(ticketId, "the sale must persist despite the dead printer");
         goPay(page);
-        payCashComplete(page, "6");
+        payCashComplete(page, "600");
         // The cash tender opened the drawer; shut it so the drawer-guarded print
         // route is reachable, then print onto the dead printer (swallowed).
         closeDrawer();
@@ -409,9 +409,17 @@ public class GroupKIT {
         Assertions.assertNull(posState.ticket.transientError,
                 "a dead display must be swallowed in silence (no error)");
         toggleDisplay(); // restore the display
-        // Clean up the in-progress sale (cancel the single line).
-        page.navigate(base.toString() + "action/cancelLine");
-        page.getByText("TOTAL À PAYER").waitFor();
+        // Clean up the in-progress sale. NOT by cancelling its line: the only
+        // line of a ticket is refused and the refusal names the exit (EXP-35),
+        // so the probe ends the way a cashier would — the ticket abandon, with
+        // its reason and its aval.
+        page.navigate(base.toString() + "abandon");
+        // The label is the button: the native radio is hidden by the abandon
+        // screen's CSS and the label around it carries the touch target.
+        page.locator("label.reason-btn").first().click();
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("ABANDONNER LE TICKET").setExact(true)).click();
+        approveEndorsementWithManager(page);
         Assertions.assertTrue(posState.ticket.items.isEmpty(), "the K3 probe must end on a clean cart");
         page.close();
     }
@@ -888,6 +896,9 @@ public class GroupKIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

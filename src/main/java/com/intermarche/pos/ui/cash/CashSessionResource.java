@@ -100,7 +100,37 @@ public class CashSessionResource {
                 .data("defaultFloat", prefill)
                 .data("theoreticalFloat", theoretical != null
                         ? String.format("%.2f", theoretical).replace('.', ',') : null)
+                .data("drawerAlert", drawerCapAlert())
                 .data("error", message);
+    }
+
+    /**
+     * The drawer-cap alert shown on the SESSION screen (BO-10-02-11, EXP-17).
+     *
+     * <p>The sale screen has carried this warning since EXP-17, and it is the
+     * screen a cashier lives on. The session screen is the one they reach to DO
+     * something about it — the X report, the withdrawal, the close — and it
+     * was the one screen that stayed silent: a cashier who left the sale screen
+     * on a full drawer arrived here with nothing to tell them why.
+     *
+     * <p>SAME EXCESS, SAME SENTENCE. Both screens read
+     * {@code CashSessionService.drawerCapExcess()} and format the same bundle
+     * key, so the two never say a different figure or a different wording for
+     * one drawer; a test holds the two keys together.
+     *
+     * <p>It never blocks anything — no session gesture is refused because the
+     * drawer is full, and the shop's insurance ceiling is an indicator.
+     *
+     * @return the alert sentence, or null when the cap is not exceeded, not
+     *         administered, or no session is open
+     */
+    private String drawerCapAlert() {
+        BigDecimal excess = cashSessionService.drawerCapExcess();
+        if (excess == null) {
+            return null;
+        }
+        return i18n.format("op.prelevementBilletsContenuTiroir",
+                String.format("%.2f", excess).replace('.', ','));
     }
 
     /**
@@ -200,6 +230,14 @@ public class CashSessionResource {
             LOGGER.info("Exiting method startClosing");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
+        // BO-10-02-08: the closing turns every ticket still parked into a
+        // cancelled one. A shop that watches that gesture is warned before it
+        // happens, or stopped — the cashier then resumes or abandons them
+        // knowingly, instead of discovering the loss afterwards.
+        if (!parkedTicketsAtCloseAllowed()) {
+            LOGGER.info("Exiting method startClosing");
+            return Response.seeOther(URI.create("/session?error=tickets-en-attente")).build();
+        }
         // BO-03-10-10: when the island declares the end of period automatically,
         // the hostess is dispensed from counting — the session closes at once on
         // its theoretical, the Z report prints, and the register locks, without
@@ -236,11 +274,41 @@ public class CashSessionResource {
         }
         // BO-10-02-26: the Z count opens the drawer only when the back office
         // asks for it; disabled, the count is done drawer-closed.
-        if (posSettingsService.drawerOpenOnSessionClose()) {
+        // BO-10-02-04: the Z count opens no sale either — same watched gesture.
+        if (posSettingsService.drawerOpenOnSessionClose()
+                && endorsementService.drawerOutOfSaleAllowed(state)) {
             hardwareService.openDrawer();
         }
         LOGGER.info("Exiting method startClosing");
         return Response.seeOther(URI.create("/cash-count")).build();
+    }
+
+    /**
+     * Applies the PARKED_AT_CLOSE control point (BO-10-02-08).
+     *
+     * <p>Answers whether the closing may go on, and leaves its sentence on the
+     * sale screen when it may not. A register carrying no parked ticket never
+     * reaches the control at all — there is nothing to lose and nothing to say.
+     *
+     * <p>The point is not endorsable: see {@link
+     * com.intermarche.pos.ui.endorsement.ControlPoint#isEndorsable()}.
+     *
+     * @return true when the closing may go on
+     */
+    private boolean parkedTicketsAtCloseAllowed() {
+        if (cashSessionService.parkedTicketCount() == 0) {
+            return true;
+        }
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.PARKED_AT_CLOSE);
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN) {
+            state.ticket.setWarning(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.PARKED_AT_CLOSE, level));
+        } else if (!level.allows()) {
+            state.ticket.setError(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.PARKED_AT_CLOSE, level));
+        }
+        return level.allows();
     }
 
     /**

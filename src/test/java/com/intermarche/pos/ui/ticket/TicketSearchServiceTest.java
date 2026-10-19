@@ -40,9 +40,9 @@ class TicketSearchServiceTest {
     void searchByPatternRoutesAnAmount() {
         TicketSearchService service = spy(new TicketSearchService());
         List<Ticket> marker = List.of(new Ticket());
-        doReturn(marker).when(service).searchClosed(null, null, new BigDecimal("12.50"));
+        doReturn(marker).when(service).searchClosed(null, null, new BigDecimal("12.50"), false);
         assertSame(marker, service.searchByPattern("12,50"));
-        verify(service).searchClosed(null, null, new BigDecimal("12.50"));
+        verify(service).searchClosed(null, null, new BigDecimal("12.50"), false);
     }
 
     /**
@@ -52,9 +52,9 @@ class TicketSearchServiceTest {
     void searchByPatternRoutesADate() {
         TicketSearchService service = spy(new TicketSearchService());
         List<Ticket> marker = List.of(new Ticket());
-        doReturn(marker).when(service).searchClosed(null, LocalDate.of(2026, 3, 14), null);
+        doReturn(marker).when(service).searchClosed(null, LocalDate.of(2026, 3, 14), null, false);
         assertSame(marker, service.searchByPattern("14/03/2026"));
-        verify(service).searchClosed(null, LocalDate.of(2026, 3, 14), null);
+        verify(service).searchClosed(null, LocalDate.of(2026, 3, 14), null, false);
     }
 
     /**
@@ -64,9 +64,9 @@ class TicketSearchServiceTest {
     void searchByPatternRoutesANumber() {
         TicketSearchService service = spy(new TicketSearchService());
         List<Ticket> marker = List.of(new Ticket());
-        doReturn(marker).when(service).searchClosed("C04-T12", null, null);
+        doReturn(marker).when(service).searchClosed("C04-T12", null, null, false);
         assertSame(marker, service.searchByPattern("C04-T12"));
-        verify(service).searchClosed("C04-T12", null, null);
+        verify(service).searchClosed("C04-T12", null, null, false);
     }
 
     /**
@@ -77,9 +77,9 @@ class TicketSearchServiceTest {
     void searchByPatternAmountShapedButUnparsableIsANumber() {
         TicketSearchService service = spy(new TicketSearchService());
         List<Ticket> marker = List.of(new Ticket());
-        doReturn(marker).when(service).searchClosed("1234567", null, null);
+        doReturn(marker).when(service).searchClosed("1234567", null, null, false);
         assertSame(marker, service.searchByPattern("1234567"));
-        verify(service).searchClosed("1234567", null, null);
+        verify(service).searchClosed("1234567", null, null, false);
     }
 
     /**
@@ -167,5 +167,73 @@ class TicketSearchServiceTest {
             panache.when(() -> Ticket.find(anyString(), any(Object[].class))).thenReturn(query);
             assertSame(hits, service.searchClosed("C04-T99", null, null));
         }
+    }
+
+    /**
+     * LC-03-06-02: the reassignment pool keeps only the tickets no client is
+     * attached to — the routed criterion carries the filter down to the
+     * engine, on every one of the three criteria.
+     */
+    @Test
+    void searchByPatternRoutesWithTheUnassignedFilter() {
+        TicketSearchService service = spy(new TicketSearchService());
+        List<Ticket> marker = List.of(new Ticket());
+        doReturn(marker).when(service).searchClosed(null, null, new BigDecimal("12.50"), true);
+        doReturn(marker).when(service).searchClosed(null, LocalDate.of(2026, 3, 14), null, true);
+        doReturn(marker).when(service).searchClosed("C04-T12", null, null, true);
+        assertSame(marker, service.searchByPattern("12,50", true));
+        assertSame(marker, service.searchByPattern("14/03/2026", true));
+        assertSame(marker, service.searchByPattern("C04-T12", true));
+        verify(service).searchClosed(null, null, new BigDecimal("12.50"), true);
+        verify(service).searchClosed(null, LocalDate.of(2026, 3, 14), null, true);
+        verify(service).searchClosed("C04-T12", null, null, true);
+    }
+
+    /**
+     * LC-03-06-02: the unassigned filter reaches the QUERY itself — the
+     * question the pool asks is the closed-ticket question plus the
+     * no-fidelity-card one, on the amount criterion.
+     */
+    @Test
+    void searchClosedUnassignedQueriesTheCardFilter() {
+        TicketSearchService service = new TicketSearchService();
+        List<Ticket> hits = List.of(new Ticket());
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> query = mock(PanacheQuery.class);
+            when(query.list()).thenReturn(hits);
+            panache.when(() -> Ticket.find(anyString(), any(Object[].class))).thenReturn(query);
+            assertSame(hits, service.searchClosed(null, null, new BigDecimal("9.99"), true));
+            panache.verify(() -> Ticket.find(
+                    org.mockito.ArgumentMatchers.argThat((String q) -> q.contains("fidelityCard is null")),
+                    any(Object[].class)));
+        }
+    }
+
+    /**
+     * LC-03-06-02, the blank arm of the pool: no criterion at all still
+     * answers the whole pool — the reassignment screen's full history.
+     */
+    @Test
+    void searchClosedUnassignedBlankAnswersTheWholePool() {
+        TicketSearchService service = new TicketSearchService();
+        List<Ticket> hits = List.of(new Ticket());
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> query = mock(PanacheQuery.class);
+            when(query.list()).thenReturn(hits);
+            panache.when(() -> Ticket.find(anyString(), any(Object[].class))).thenReturn(query);
+            assertSame(hits, service.searchClosed(null, null, null, true));
+        }
+    }
+
+    /**
+     * LC-03-06-02, the ordinary blank arm: no criterion answers nothing —
+     * the ordinary search never returned the world and does not start now.
+     */
+    @Test
+    void searchClosedOrdinaryBlankAnswersNothing() {
+        TicketSearchService service = new TicketSearchService();
+        assertTrue(service.searchClosed(null, null, null, false).isEmpty());
     }
 }

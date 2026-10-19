@@ -52,6 +52,44 @@ public final class InvoiceDocument {
      *
      * @return the format
      */
+    private static DecimalFormat amountFormat(int decimals) {
+        DecimalFormatSymbols symbols = DecimalFormatSymbols.getInstance(Locale.FRENCH);
+        symbols.setGroupingSeparator(' ');
+        return new DecimalFormat(decimals == 3 ? "#,##0.000" : "#,##0.00", symbols);
+    }
+
+    /**
+     * The DECIMALS a commercial document prints each of its figures with
+     * (BO-10-02-19), as the shop administered them.
+     *
+     * <p>Five figures and not one count: the requirement lets a shop state a
+     * unit price on three decimals while its totals stay on two, which is what
+     * a trade in weighed goods asks for.
+     *
+     * @param unitExcludingTax decimals of the unit price excluding tax
+     * @param vatBase decimals of a VAT row's taxable base
+     * @param vatAmount decimals of a VAT row's tax
+     * @param totalExcludingTax decimals of the foot's total excluding tax
+     * @param totalIncludingTax decimals of the foot's total including tax
+     */
+    public record Decimals(int unitExcludingTax, int vatBase, int vatAmount,
+            int totalExcludingTax, int totalIncludingTax) {
+
+        /**
+         * The counts every document used before they became administrable.
+         *
+         * @return two decimals everywhere
+         */
+        public static Decimals standard() {
+            return new Decimals(2, 2, 2, 2, 2);
+        }
+    }
+
+    /**
+     * Builds the amount format of a commercial document on two decimals.
+     *
+     * @return the format
+     */
     private static DecimalFormat amountFormat() {
         DecimalFormatSymbols symbols = DecimalFormatSymbols.getInstance(Locale.FRENCH);
         symbols.setGroupingSeparator(' ');
@@ -65,9 +103,6 @@ public final class InvoiceDocument {
     /** How a document prints a plain date. */
     private static final DateTimeFormatter DATE =
             DateTimeFormatter.ofPattern("dd/MM/yyyy");
-
-    /** How many decimals a tax-excluded unit price is printed with ({@code BO-10-02-19}). */
-    private static final int EXCLUDING_TAX_SCALE = 2;
 
     /**
      * One side of the document: who sells, or who is billed.
@@ -112,7 +147,21 @@ public final class InvoiceDocument {
      * @param vat              the tax
      * @param includingTax     the tax-included total
      */
-    public record VatRow(String rate, String excludingTax, String vat, String includingTax) {
+    public record VatRow(String rate, String excludingTax, String vat, String includingTax,
+                        String legalMention) {
+
+        /**
+         * Builds a row carrying no legal mention — the shape every row had
+         * before the regimes could oblige one ({@code BO-02-02-02}).
+         *
+         * @param rate the rate as the document writes it
+         * @param excludingTax the base excluding tax
+         * @param vat the tax amount
+         * @param includingTax the total including tax
+         */
+        public VatRow(String rate, String excludingTax, String vat, String includingTax) {
+            this(rate, excludingTax, vat, includingTax, null);
+        }
     }
 
     /**
@@ -198,6 +247,20 @@ public final class InvoiceDocument {
     public final String legalFooter;
 
     /**
+     * The logo the back office administered for this store
+     * ({@code BO-03-03-15}), as a {@code data:} URI or a bare base64 payload,
+     * null when the caller holds none.
+     *
+     * <p>Carried on the document rather than read from the classpath by
+     * {@link #getLogo()}: the administered image lives in the database, which
+     * a laid-out document has no business reaching, and the caller that builds
+     * the document is the one that already holds the referential. Null falls
+     * back on the installation's file, so a document laid out by a test or by
+     * the gabarit editor prints exactly what it printed before.
+     */
+    public final String logoImage;
+
+    /**
      * The late-payment mentions a professional invoice must carry.
      *
      * <p>Articles L441-10 and D441-5 of the French commercial code: a penalty at the
@@ -236,12 +299,15 @@ public final class InvoiceDocument {
      * @param dueDate           when the document falls due, empty when it has none
      * @param customerTaxId     the addressee's fiscal identifier as printed, empty
      *                          when the document carries none
+     * @param logoImage         the administered store logo, null to fall back on
+     *                          the installation's file
      */
     private InvoiceDocument(String title, String number, String issueDate, String ticketNumber,
             String saleDate, String terminal, int duplicateNumber, Party seller, Party customer,
             List<Line> lines, List<VatRow> vatRows, List<Tender> tenders,
             String totalExcludingTax, String totalVat, String totalIncludingTax,
-            String paymentMethods, String legalFooter, String dueDate, String customerTaxId) {
+            String paymentMethods, String legalFooter, String dueDate, String customerTaxId,
+            String logoImage) {
         this.title = title;
         this.number = number;
         this.issueDate = issueDate;
@@ -261,6 +327,7 @@ public final class InvoiceDocument {
         this.legalFooter = legalFooter;
         this.dueDate = dueDate;
         this.customerTaxId = customerTaxId;
+        this.logoImage = logoImage;
     }
 
     /**
@@ -269,11 +336,31 @@ public final class InvoiceDocument {
      * @param invoice the document, carrying its number, its addressee and its frozen totals
      * @param ticket  the closed ticket it states
      * @param showEan whether the article codes are printed ({@code BO-03-03-03})
-     * @return the laid-out document
+     * @param i18n the operator wordings
+     * @return the laid-out document, on the standard two decimals
      */
     public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
             com.intermarche.pos.ui.Messages i18n) {
-        return of(invoice, ticket, showEan, null, i18n);
+        return of(invoice, ticket, showEan, null, i18n, Decimals.standard());
+    }
+
+    /**
+     * Lays out a document on the standard two decimals, the addressee's fiscal
+     * identifier printed under the administered wording
+     * ({@code BO-10-04-16}).
+     *
+     * @param invoice    the document, carrying its number, its addressee and its
+     *                   frozen totals
+     * @param ticket     the closed ticket it states
+     * @param showEan    whether the article codes are printed ({@code BO-03-03-03})
+     * @param taxIdLabel the wording to print in place of the digits, null or blank
+     *                   to print the identifier itself
+     * @param i18n       the operator wordings
+     * @return the laid-out document, on the standard two decimals
+     */
+    public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
+            String taxIdLabel, com.intermarche.pos.ui.Messages i18n) {
+        return of(invoice, ticket, showEan, taxIdLabel, i18n, Decimals.standard());
     }
 
     /**
@@ -286,10 +373,36 @@ public final class InvoiceDocument {
      * @param showEan    whether the article codes are printed ({@code BO-03-03-03})
      * @param taxIdLabel the wording to print in place of the digits, null or blank
      *                   to print the identifier itself
+     * @param i18n       the operator wordings
+     * @param decimals   the decimals the shop administered for its documents
+     *                   ({@code BO-10-02-19})
      * @return the laid-out document
      */
     public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
-            String taxIdLabel, com.intermarche.pos.ui.Messages i18n) {
+            String taxIdLabel, com.intermarche.pos.ui.Messages i18n, Decimals decimals) {
+        return of(invoice, ticket, showEan, taxIdLabel, i18n, decimals, null);
+    }
+
+    /**
+     * Lays out a document carrying the logo the back office administered for
+     * this store ({@code BO-03-03-15}).
+     *
+     * @param invoice    the document, carrying its number, its addressee and its
+     *                   frozen totals
+     * @param ticket     the closed ticket it states
+     * @param showEan    whether the article codes are printed ({@code BO-03-03-03})
+     * @param taxIdLabel the wording to print in place of the digits, null or blank
+     *                   to print the identifier itself
+     * @param i18n       the operator wordings
+     * @param decimals   the decimals the shop administered for its documents
+     *                   ({@code BO-10-02-19})
+     * @param logoImage  the administered store logo, null or blank to fall back
+     *                   on the installation's file
+     * @return the laid-out document
+     */
+    public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
+            String taxIdLabel, com.intermarche.pos.ui.Messages i18n, Decimals decimals,
+            String logoImage) {
         List<Tender> tenders = tendersOf(ticket, i18n);
         return new InvoiceDocument(
                 invoice.documentType.getTitle(),
@@ -301,17 +414,18 @@ public final class InvoiceDocument {
                 invoice.printCount,
                 sellerOf(ticket.store),
                 customerOf(invoice),
-                linesOf(ticket, showEan, i18n),
-                vatRowsOf(ticket),
+                linesOf(ticket, showEan, i18n, decimals),
+                vatRowsOf(ticket, decimals),
                 tenders,
-                DF.format(invoice.totalExcludingTax),
-                DF.format(invoice.totalVat),
-                DF.format(invoice.totalIncludingTax),
+                amountFormat(decimals.totalExcludingTax()).format(invoice.totalExcludingTax),
+                amountFormat(decimals.vatAmount()).format(invoice.totalVat),
+                amountFormat(decimals.totalIncludingTax()).format(invoice.totalIncludingTax),
                 joinTenders(tenders),
                 legalFooterOf(ticket.store),
                 invoice.customerDueDate == null ? "" : invoice.customerDueDate.format(DATE),
                 taxIdLabel == null || taxIdLabel.isBlank()
-                        ? text(invoice.customerTaxId) : taxIdLabel);
+                        ? text(invoice.customerTaxId) : taxIdLabel,
+                logoImage);
     }
 
     /**
@@ -362,10 +476,15 @@ public final class InvoiceDocument {
     /**
      * The store logo as a data URI, for a page-rendered document.
      *
-     * @return the data URI, empty when this till has no logo
+     * <p>The ADMINISTERED logo of this store first ({@code BO-03-03-15}), the
+     * installation's file when the document carries none: a store whose back
+     * office imported a logo must see it on its invoices as it sees it on its
+     * receipts, and the two must not be allowed to differ.
+     *
+     * @return the data URI, empty when this till has no logo at all
      */
     public String getLogo() {
-        return com.intermarche.pos.ui.hardware.ReceiptLogo.dataUri();
+        return com.intermarche.pos.ui.hardware.ReceiptLogo.dataUri(logoImage);
     }
 
     /**
@@ -547,7 +666,7 @@ public final class InvoiceDocument {
      * @return the rows
      */
     private static List<Line> linesOf(Ticket ticket, boolean showEan,
-            com.intermarche.pos.ui.Messages i18n) {
+            com.intermarche.pos.ui.Messages i18n, Decimals decimals) {
         List<Line> rows = new ArrayList<>();
         for (TicketLine line : ticket.lines) {
             if (line.cancelled) {
@@ -560,7 +679,9 @@ public final class InvoiceDocument {
                     showEan ? text(line.ean) : "",
                     quantityOf(line),
                     percent(rate),
-                    DF.format(excludingTax(line.unitPrice, rate)),
+                    amountFormat(decimals.unitExcludingTax())
+                            .format(excludingTax(line.unitPrice, rate,
+                                    decimals.unitExcludingTax())),
                     DF.format(orZero(line.unitPrice)),
                     DF.format(orZero(line.totalPrice))));
         }
@@ -591,7 +712,7 @@ public final class InvoiceDocument {
      * @param ticket the closed ticket
      * @return the rows, by ascending rate
      */
-    private static List<VatRow> vatRowsOf(Ticket ticket) {
+    private static List<VatRow> vatRowsOf(Ticket ticket, Decimals decimals) {
         VatBreakdown breakdown = new VatBreakdown();
         for (TicketLine line : ticket.lines) {
             if (line.cancelled) {
@@ -604,10 +725,19 @@ public final class InvoiceDocument {
             // percent() and not the bucket's own getRateFormatted(): the receipt writes
             // "5,50%" and a commercial document writes "5,50 %", and the rate must read
             // the same in the article column and in the VAT table of the SAME page.
+            // BO-02-02-02: the legal mention the regime of this rate obliges,
+            // carried on its own row so the invoice states it beside the tax it
+            // belongs to. Null when the regime administers none, or when no
+            // regime carries that rate at all.
+            com.intermarche.pos.domain.catalog.VatRate regime =
+                    com.intermarche.pos.domain.catalog.VatRate.findByRate(bucket.rate);
+            String legalMention = regime == null || regime.legalMention == null
+                    || regime.legalMention.isBlank() ? null : regime.legalMention.trim();
             rows.add(new VatRow(percent(bucket.rate),
-                    DF.format(bucket.totalExcludingTax),
-                    DF.format(bucket.vatAmount),
-                    DF.format(bucket.totalIncludingTax)));
+                    amountFormat(decimals.vatBase()).format(bucket.totalExcludingTax),
+                    amountFormat(decimals.vatAmount()).format(bucket.vatAmount),
+                    amountFormat(decimals.totalIncludingTax()).format(bucket.totalIncludingTax),
+                    legalMention));
         }
         return rows;
     }
@@ -743,11 +873,15 @@ public final class InvoiceDocument {
      *
      * @param includingTax the tax-included amount, null treated as zero
      * @param rate         the VAT rate as a fraction, e.g. 0.20
+     * @param scale        the decimals the document states this figure on, so
+     *                     that a price printed on three decimals is COMPUTED on
+     *                     three and not rounded to two first ({@code BO-10-02-19})
      * @return the tax-excluded amount
      */
-    private static BigDecimal excludingTax(BigDecimal includingTax, BigDecimal rate) {
+    private static BigDecimal excludingTax(BigDecimal includingTax, BigDecimal rate,
+            int scale) {
         return orZero(includingTax)
-                .divide(BigDecimal.ONE.add(rate), EXCLUDING_TAX_SCALE, RoundingMode.HALF_UP);
+                .divide(BigDecimal.ONE.add(rate), scale, RoundingMode.HALF_UP);
     }
 
     /**

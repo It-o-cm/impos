@@ -27,7 +27,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link RemoteCloseService}.
+ * Unit tests for {@link RemoteCommandService}.
  * <p>
  * The service is the register's collection loop over the store node's order
  * book. Every collaborator ({@link SyncEndpoints}, {@link SessionCloseService},
@@ -54,7 +54,7 @@ import static org.mockito.Mockito.when;
  * 2xx return); {@code authenticated} — both arms of {@code !shared.isBlank()}
  * (header added, header skipped).
  */
-class RemoteCloseServiceTest {
+class RemoteCommandServiceTest {
 
     /**
      * Builds a mocked {@link HttpResponse} of the given status and body.
@@ -77,8 +77,8 @@ class RemoteCloseServiceTest {
      * @param badge the operator badge held by the register, or null when locked
      * @return the wired service
      */
-    private RemoteCloseService newService(String badge) {
-        RemoteCloseService service = new RemoteCloseService();
+    private RemoteCommandService newService(String badge) {
+        RemoteCommandService service = new RemoteCommandService();
         service.syncEndpoints = mock(SyncEndpoints.class);
         when(service.syncEndpoints.hasStoreUrl()).thenReturn(true);
         when(service.syncEndpoints.storeUrl()).thenReturn("http://node:8070");
@@ -92,6 +92,7 @@ class RemoteCloseServiceTest {
         service.terminalId = "POS07";
         service.token = Optional.empty();
         service.pollSeconds = 20L;
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
         service.httpClient = mock(HttpClient.class);
         return service;
     }
@@ -105,7 +106,7 @@ class RemoteCloseServiceTest {
      * @param body the order book the collection returns
      * @throws Exception never, the mocked send declares it
      */
-    private void route(RemoteCloseService service, int getStatus, String body) throws Exception {
+    private void route(RemoteCommandService service, int getStatus, String body) throws Exception {
         when(service.httpClient.send(any(), any())).thenAnswer(invocation -> {
             HttpRequest request = invocation.getArgument(0);
             return "GET".equals(request.method()) ? resp(getStatus, body) : resp(200, "{}");
@@ -119,7 +120,7 @@ class RemoteCloseServiceTest {
      * @return the requests, in order
      * @throws Exception never, the mocked send declares it
      */
-    private List<HttpRequest> sent(RemoteCloseService service) throws Exception {
+    private List<HttpRequest> sent(RemoteCommandService service) throws Exception {
         ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
         verify(service.httpClient, org.mockito.Mockito.atLeastOnce()).send(captor.capture(), any());
         return captor.getAllValues();
@@ -130,7 +131,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aStandaloneRegisterCollectsNothing() {
-        RemoteCloseService service = newService(null);
+        RemoteCommandService service = newService(null);
         when(service.syncEndpoints.hasStoreUrl()).thenReturn(false);
         service.onStart(new StartupEvent());
         assertNull(service.executor);
@@ -141,7 +142,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aRegisterWithANodeStartsItsLoop() {
-        RemoteCloseService service = newService(null);
+        RemoteCommandService service = newService(null);
         service.onStart(new StartupEvent());
         assertNotNull(service.executor);
         service.executor.shutdownNow();
@@ -153,7 +154,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aFailedCollectionIsSwallowed() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         when(service.httpClient.send(any(), any())).thenThrow(new IOException("node down"));
         service.collectSafely();
         verify(service.sessionCloseService, never()).close(any(), any());
@@ -164,7 +165,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aSuccessfulCollectionCarriesTheOrderOut() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectSafely();
         verify(service.sessionCloseService).close(service.state, "back-office");
@@ -176,7 +177,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aCloseOrderClosesTheSessionAndIsAcknowledged() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\",\"issuedBy\":\"Marie\"}]");
         service.collectOnce();
         verify(service.sessionCloseService).close(service.state, "back-office");
@@ -194,7 +195,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void anAlreadyClosedRegisterStillAcknowledges() throws Exception {
-        RemoteCloseService service = newService(null);
+        RemoteCommandService service = newService(null);
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectOnce();
         verify(service.sessionCloseService, never()).close(any(), any());
@@ -209,7 +210,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aPeriodEndOrderClosesAnIdleRegister() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION_IF_IDLE\"}]");
         service.collectOnce();
         verify(service.sessionCloseService).close(service.state, "fin de période");
@@ -226,7 +227,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aPeriodEndOrderSparesARegisterMidSale() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         service.state.ticket.items.add(new TicketState.TicketItem());
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION_IF_IDLE\"}]");
         service.collectOnce();
@@ -243,7 +244,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aBackOfficeOrderDoesNotWaitForTheCart() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         service.state.ticket.items.add(new TicketState.TicketItem());
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectOnce();
@@ -257,7 +258,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void anUnknownOrderIsLeftPending() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"REBOOT\"}]");
         service.collectOnce();
         verify(service.sessionCloseService, never()).close(any(), any());
@@ -272,7 +273,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void severalOrdersAreAllCollected() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"REBOOT\"},"
                 + "{\"uid\":\"u-2\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectOnce();
@@ -286,7 +287,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void anEmptyOrderBookDoesNothing() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[]");
         service.collectOnce();
         verify(service.sessionCloseService, never()).close(any(), any());
@@ -299,7 +300,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void theReaderToleratesAnEmptyAnswer() {
-        RemoteCloseService service = newService(null);
+        RemoteCommandService service = newService(null);
         assertTrue(service.orders(null).isEmpty());
         assertTrue(service.orders("").isEmpty());
         assertTrue(service.orders("pas du JSON").isEmpty());
@@ -314,7 +315,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aCollectionAnsweredBelow200Fails() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 100, "");
         IllegalStateException failure = assertThrows(IllegalStateException.class, service::collectOnce);
         assertTrue(failure.getMessage().contains("HTTP 100"));
@@ -326,7 +327,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aCollectionAnsweredAbove299Fails() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 500, "");
         IllegalStateException failure = assertThrows(IllegalStateException.class, service::collectOnce);
         assertTrue(failure.getMessage().contains("HTTP 500"));
@@ -339,7 +340,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aRefusedAcknowledgementFails() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         when(service.httpClient.send(any(), any())).thenAnswer(invocation -> {
             HttpRequest request = invocation.getArgument(0);
             return "GET".equals(request.method())
@@ -356,7 +357,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void anOpenNodeIsReachedWithoutAToken() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         route(service, 200, "[]");
         service.collectOnce();
         assertFalse(sent(service).get(0).headers().firstValue("X-Sync-Token").isPresent());
@@ -368,7 +369,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aBlankTokenAddsNoHeader() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         service.token = Optional.of("   ");
         route(service, 200, "[]");
         service.collectOnce();
@@ -381,7 +382,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void aConfiguredTokenIsPresentedOnEveryCall() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         service.token = Optional.of("secret");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectOnce();
@@ -401,7 +402,7 @@ class RemoteCloseServiceTest {
      */
     @Test
     void anAcknowledgementAnsweredBelow200Fails() throws Exception {
-        RemoteCloseService service = newService("007");
+        RemoteCommandService service = newService("007");
         when(service.httpClient.send(any(), any())).thenAnswer(invocation -> {
             HttpRequest request = invocation.getArgument(0);
             return "GET".equals(request.method())
@@ -411,5 +412,212 @@ class RemoteCloseServiceTest {
         IllegalStateException failure = assertThrows(IllegalStateException.class, service::collectOnce);
         assertTrue(failure.getMessage().contains("HTTP 100"));
         assertTrue(failure.getMessage().contains("/api/commands/u-1/ack"));
+    }
+
+    /**
+     * BO-04-02-05: the reader picks up the REASON of each order inside that
+     * order's own object — an order carrying none answers null, an escaped
+     * quote comes back unescaped, and one order's reason never leaks into
+     * the next.
+     */
+    @Test
+    void theReaderPicksUpEachOrdersOwnReason() {
+        RemoteCommandService service = newService(null);
+        List<String[]> found = service.orders(
+                "[{\"uid\":\"u-1\",\"type\":\"SUPERVISOR_REFUSED\",\"issuedBy\":\"Alice\","
+                        + "\"reason\":\"Pas de remise au-dela de 10 \\\"euros\\\"\"},"
+                        + "{\"uid\":\"u-2\",\"type\":\"CLOSE_SESSION\",\"issuedBy\":null,"
+                        + "\"reason\":null}]");
+        assertEquals(2, found.size());
+        assertEquals("Pas de remise au-dela de 10 \"euros\"", found.get(0)[2]);
+        assertNull(found.get(1)[2]);
+    }
+
+    /**
+     * BO-04-02-05: a refusal is written in the cashier's message zone and
+     * acknowledged, whatever the register was doing — an answer delivered
+     * twice reads as a second refusal.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void aRefusalIsShownAndAcknowledged() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "[{\"uid\":\"u-9\",\"type\":\"SUPERVISOR_REFUSED\","
+                + "\"issuedBy\":\"Alice\",\"reason\":\"Geste non autorise\"}]");
+        service.collectOnce();
+        assertEquals("Geste non autorise", service.state.ticket.transientError);
+        verify(service.sessionCloseService, never()).close(any(), any());
+        assertTrue(sent(service).stream()
+                .anyMatch(request -> request.uri().getPath().endsWith("/api/commands/u-9/ack")));
+    }
+
+    /**
+     * BO-04-02-05: a refusal the back office sent with no wording says the
+     * least that is still true rather than showing an empty zone.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void aRefusalWithoutWordingFallsBackOnTheDefault() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "[{\"uid\":\"u-9\",\"type\":\"SUPERVISOR_REFUSED\","
+                + "\"issuedBy\":\"Alice\",\"reason\":null}]");
+        service.collectOnce();
+        assertEquals("Demande refusée par le back-office", service.state.ticket.transientError);
+        service.state.ticket.transientError = null;
+        service.refuse("u-8", "   ");
+        assertEquals("Demande refusée par le back-office", service.state.ticket.transientError);
+    }
+
+    /**
+     * LC-01-07-04: the back office acknowledging the lane's request switches
+     * the register's own indicator to the DISTINCT acknowledged one — not the
+     * in-progress one — and the order is acknowledged so the board knows it
+     * was carried out.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAcknowledgementSwitchesTheIndicatorAndIsAcknowledged() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        service.state.serviceRequest = com.intermarche.pos.ui.PosState.ServiceRequestStatus.PENDING;
+        route(service, 200, "[{\"uid\":\"u-a\",\"type\":\"SUPERVISOR_ACK\","
+                + "\"issuedBy\":\"Marie\",\"reason\":\"Marie Curie\"}]");
+        service.collectOnce();
+        assertEquals(com.intermarche.pos.ui.PosState.ServiceRequestStatus.ACKED,
+                service.state.serviceRequest);
+        assertEquals("DEMANDE ACQUITT\u00c9E PAR Marie Curie", service.state.ticket.transientError);
+        assertTrue(sent(service).stream()
+                .anyMatch(request -> request.uri().getPath().endsWith("/api/commands/u-a/ack")));
+    }
+
+    /**
+     * LC-01-07-04: an acknowledgement with no named acknowledger still says
+     * the least that is still true, and switches the indicator the same way.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAcknowledgementWithoutNameStillSwitchesTheIndicator() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        service.state.serviceRequest = com.intermarche.pos.ui.PosState.ServiceRequestStatus.PENDING;
+        route(service, 200, "[{\"uid\":\"u-b\",\"type\":\"SUPERVISOR_ACK\","
+                + "\"issuedBy\":\"Marie\",\"reason\":null}]");
+        service.collectOnce();
+        assertEquals(com.intermarche.pos.ui.PosState.ServiceRequestStatus.ACKED,
+                service.state.serviceRequest);
+        assertEquals("DEMANDE ACQUITT\u00c9E PAR LE BACK-OFFICE",
+                service.state.ticket.transientError);
+    }
+
+    /**
+     * LC-01-07-04: an acknowledgement that lands on a lane holding no request
+     * is acknowledged — the back office answered a question the lane has
+     * stopped asking — and lights no indicator: nothing must show for a
+     * request that never was.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAcknowledgementWithNoPendingRequestChangesNothingButIsAcknowledged() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        service.state.serviceRequest = com.intermarche.pos.ui.PosState.ServiceRequestStatus.NONE;
+        route(service, 200, "[{\"uid\":\"u-c\",\"type\":\"SUPERVISOR_ACK\","
+                + "\"issuedBy\":\"Marie\",\"reason\":\"Marie Curie\"}]");
+        service.collectOnce();
+        assertEquals(com.intermarche.pos.ui.PosState.ServiceRequestStatus.NONE,
+                service.state.serviceRequest);
+        assertNull(service.state.ticket.transientError);
+        assertTrue(sent(service).stream()
+                .anyMatch(request -> request.uri().getPath().endsWith("/api/commands/u-c/ack")));
+    }
+
+    /**
+     * LC-01-07-03: a refusal answers the request — the lane's in-progress
+     * indicator comes down with the wording, like the board's own banner.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void aRefusalLowersTheInProgressIndicator() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.state.serviceRequest = com.intermarche.pos.ui.PosState.ServiceRequestStatus.PENDING;
+        route(service, 200, "[{\"uid\":\"u-d\",\"type\":\"SUPERVISOR_REFUSED\","
+                + "\"issuedBy\":\"Alice\",\"reason\":\"Geste non autorise\"}]");
+        service.collectOnce();
+        assertEquals(com.intermarche.pos.ui.PosState.ServiceRequestStatus.NONE,
+                service.state.serviceRequest);
+        assertNull(service.state.serviceRequestReason);
+    }
+
+    /**
+     * The reason reader tolerates an order object that is never closed and
+     * one that carries no reason at all.
+     */
+    @Test
+    void theReasonReaderToleratesATruncatedAnswer() {
+        RemoteCommandService service = newService(null);
+        assertNull(service.reasonOf("{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}", 0));
+        assertEquals("tronque", service.reasonOf("\"reason\":\"tronque\"", 0));
+    }
+
+    /**
+     * BO-04-02-02: an authorisation from the back office is armed on the
+     * gesture the lane is holding, announced to the cashier, and
+     * acknowledged.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAuthorisationIsArmedOnThePendingGesture() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
+        service.state.endorsement.request("CANCEL_LINE");
+        route(service, 200, "[{\"uid\":\"u-5\",\"type\":\"SUPERVISOR_GRANTED\","
+                + "\"issuedBy\":\"Marie Curie\",\"reason\":\"Autorisé par Marie Curie\"}]");
+        service.collectOnce();
+        assertEquals("Autorisé par Marie Curie", service.state.endorsement.remoteGrant);
+        assertNotNull(service.state.ticket.transientError);
+        assertTrue(sent(service).stream()
+                .anyMatch(request -> request.uri().getPath().endsWith("/api/commands/u-5/ack")));
+    }
+
+    /**
+     * BO-04-02-02: an authorisation that lands when no gesture is pending
+     * arms nothing and is acknowledged all the same — the back office
+     * answered a question the lane has stopped asking.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAuthorisationWithoutAPendingGestureArmsNothing() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
+        route(service, 200, "[{\"uid\":\"u-6\",\"type\":\"SUPERVISOR_GRANTED\","
+                + "\"issuedBy\":null,\"reason\":null}]");
+        service.collectOnce();
+        assertNull(service.state.endorsement.remoteGrant);
+        assertTrue(sent(service).stream()
+                .anyMatch(request -> request.uri().getPath().endsWith("/api/commands/u-6/ack")));
+    }
+
+    /**
+     * BO-04-02-02: an authorisation carrying no wording names the back
+     * office rather than nobody.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAuthorisationWithoutWordingNamesTheBackOffice() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
+        service.state.endorsement.request("CANCEL_LINE");
+        route(service, 200, "[]");
+        service.grant("u-7", "   ");
+        assertEquals("le back-office", service.state.endorsement.remoteGrant);
     }
 }

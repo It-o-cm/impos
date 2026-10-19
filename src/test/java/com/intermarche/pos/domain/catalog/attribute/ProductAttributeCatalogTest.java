@@ -13,14 +13,15 @@ import org.junit.jupiter.api.Test;
 class ProductAttributeCatalogTest {
 
     /**
-     * The catalog declares the twelve well-known behavioural attributes, in order —
-     * every one a BOOL defaulting to false, except the recalled lots, which carry lot
-     * numbers and default to nothing, and the eco-tax, which carries an amount
-     * ({@code BO-10-04-14}).
+     * The catalog declares the well-known behavioural attributes, in order —
+     * every one a BOOL defaulting to false, except the recalled lots and the
+     * dematerialised provider, which carry text and default to nothing, and the
+     * eco-tax and the software tare, which carry amounts
+     * ({@code BO-10-04-14}, {@code LC-14-01-07}, {@code BO-03-06-44}).
      */
     @Test
     void catalogDeclaresTwelveWellKnownAttributes() {
-        Assertions.assertEquals(13, ProductAttributeCatalog.CATALOG.size());
+        Assertions.assertEquals(18, ProductAttributeCatalog.CATALOG.size());
         Assertions.assertEquals(ProductAttributeCatalog.DISCOUNT_FORBIDDEN,
                 ProductAttributeCatalog.CATALOG.get(0).code());
         Assertions.assertEquals(ProductAttributeCatalog.VAT_EXEMPT,
@@ -39,13 +40,32 @@ class ProductAttributeCatalogTest {
                 ProductAttributeCatalog.CATALOG.get(5).code());
         Assertions.assertEquals(ProductAttributeCatalog.SOCIAL_CARD_ELIGIBLE,
                 ProductAttributeCatalog.CATALOG.get(6).code());
-        // The software tare closes the catalog (LC-14-01-07).
         Assertions.assertEquals(ProductAttributeCatalog.TARE,
                 ProductAttributeCatalog.CATALOG.get(12).code());
+        // The dematerialised pair closes the catalog: the flag demanding the
+        // second scan, then the provider that owes the activation
+        // (BO-03-06-44).
+        Assertions.assertEquals(ProductAttributeCatalog.ACTIVATION_REQUIRED,
+                ProductAttributeCatalog.CATALOG.get(13).code());
+        Assertions.assertEquals(ProductAttributeCatalog.ACTIVATION_PROVIDER,
+                ProductAttributeCatalog.CATALOG.get(14).code());
+        // BO-03-01-18: the two exclusion lists close the catalog.
+        Assertions.assertEquals(ProductAttributeCatalog.DISABLED_ISLANDS,
+                ProductAttributeCatalog.CATALOG.get(15).code());
+        Assertions.assertEquals(ProductAttributeCatalog.DISABLED_TERMINALS,
+                ProductAttributeCatalog.CATALOG.get(16).code());
+        // BO-03-01-20: the translated wordings close the catalog.
+        Assertions.assertEquals(ProductAttributeCatalog.TRANSLATED_LABELS,
+                ProductAttributeCatalog.CATALOG.get(17).code());
         for (ProductAttributeDef def : ProductAttributeCatalog.CATALOG) {
-            if (ProductAttributeCatalog.RECALL_LOTS.equals(def.code())) {
-                // One of the two non-booleans of the catalog: a recall names lot
-                // NUMBERS, and a flag could not carry them.
+            if (ProductAttributeCatalog.RECALL_LOTS.equals(def.code())
+                    || ProductAttributeCatalog.ACTIVATION_PROVIDER.equals(def.code())
+                    || ProductAttributeCatalog.DISABLED_ISLANDS.equals(def.code())
+                    || ProductAttributeCatalog.DISABLED_TERMINALS.equals(def.code())
+                    || ProductAttributeCatalog.TRANSLATED_LABELS.equals(def.code())) {
+                // The TEXT attributes: a recall names lot NUMBERS, a
+                // dematerialised article names its PROVIDER, and the two
+                // exclusion lists name islands and registers — none is a flag.
                 Assertions.assertEquals(ProductAttributeType.TEXT, def.type());
                 Assertions.assertEquals("", def.defaultValue());
             } else if (ProductAttributeCatalog.ECO_TAX.equals(def.code())

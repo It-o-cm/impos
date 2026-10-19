@@ -320,4 +320,33 @@ class LockCheckFilterTest {
             verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
         }
     }
+
+    /**
+     * BO-10-02-28: the idle delay VERROUILLE by default — the operator is held
+     * aside and resumes with their own code — and FERME when the shop
+     * administers it, which drops the identity altogether.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void theIdleDelayLocksOrClosesAsAdministered() throws Exception {
+        PosState paused = unlocked();
+        paused.auth.operatorId = 7L;
+        paused.auth.operatorBadgeId = "1234";
+        paused.auth.lastActivityAt = System.currentTimeMillis() - 5000L;
+        LockCheckFilter lock = newFilter(paused, 1);
+        lock.filter(ctxFor("sale"));
+        assertTrue(paused.isLocked());
+        assertTrue(paused.auth.isPaused());
+
+        PosState closed = unlocked();
+        closed.auth.operatorId = 7L;
+        closed.auth.operatorBadgeId = "1234";
+        closed.auth.lastActivityAt = System.currentTimeMillis() - 5000L;
+        LockCheckFilter close = newFilter(closed, 1);
+        when(close.posSettingsService.idleAction()).thenReturn("  close  ");
+        close.filter(ctxFor("sale"));
+        assertTrue(closed.isLocked());
+        assertFalse(closed.auth.isPaused());
+    }
 }

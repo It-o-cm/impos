@@ -385,4 +385,95 @@ class VerifoneTerminalClientTest {
         org.junit.jupiter.api.Assertions.assertNull(VerifoneTerminalClient.mapEntryMode(null));
         org.junit.jupiter.api.Assertions.assertNull(VerifoneTerminalClient.mapEntryMode("ZZ"));
     }
+
+    /**
+     * BO-03-09-31: the administered Label Point De Vente is appended to the
+     * request VERBATIM when its activation key is on, and nothing is appended
+     * when the key is off — the frame is then the one the client built before
+     * the key existed (both arms of the activation guard).
+     */
+    @Test
+    void theAdministeredPdvLabelTravelsOnlyWhenActivated() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        Mockito.when(settings.terminalPdvLabelEnabled()).thenReturn(true);
+        Mockito.when(settings.terminalPdvLabel()).thenReturn("  {LPDV}MAGASIN 34  ");
+        VerifoneTerminalClient on = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french(), settings);
+        assertTrue(on.buildRequest("debit", new BigDecimal("12.00")).endsWith("{LPDV}MAGASIN 34"));
+
+        Mockito.when(settings.terminalPdvLabelEnabled()).thenReturn(false);
+        VerifoneTerminalClient off = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french(), settings);
+        org.junit.jupiter.api.Assertions.assertFalse(
+                off.buildRequest("debit", new BigDecimal("12.00")).contains("LPDV"));
+    }
+
+    /**
+     * An activation with NOTHING administered appends nothing: an empty label
+     * is not a label. A client built without the administered parameters at all
+     * behaves the same way (the null-service and the blank-label legs).
+     */
+    @Test
+    void anEmptyPdvLabelAppendsNothing() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        Mockito.when(settings.terminalPdvLabelEnabled()).thenReturn(true);
+        Mockito.when(settings.terminalPdvLabel()).thenReturn("   ");
+        VerifoneTerminalClient blank = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french(), settings);
+        String blankFrame = blank.buildRequest("debit", new BigDecimal("12.00"));
+
+        Mockito.when(settings.terminalPdvLabel()).thenReturn(null);
+        VerifoneTerminalClient nullLabel = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french(), settings);
+
+        VerifoneTerminalClient noSettings = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french());
+        String bareFrame = noSettings.buildRequest("debit", new BigDecimal("12.00"));
+        assertEquals(bareFrame, blankFrame);
+        assertEquals(bareFrame, nullLabel.buildRequest("debit", new BigDecimal("12.00")));
+    }
+
+    /**
+     * BO-03-09-30: the VIC product codes of the tenders in service are appended
+     * verbatim, in administered order, parsed with the very codec the wire uses
+     * — nothing here composes a tag.
+     */
+    @Test
+    void theAdministeredVicProductCodesTravelVerbatim() {
+        com.intermarche.pos.domain.payment.TenderDefinition mealpass =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        mealpass.code = "TR";
+        mealpass.active = true;
+        mealpass.vicProductCode = "{DAJ}01";
+        com.intermarche.pos.domain.payment.TenderDefinition giftpass =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        giftpass.code = "VOUCHER";
+        giftpass.active = true;
+        giftpass.vicProductCode = "{DCJ}01";
+        VerifoneTerminalClient client = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french(), null);
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> ms =
+                     Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            ms.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                            .list("order by displayOrder, code"))
+                    .thenReturn(java.util.List.of(mealpass, giftpass));
+            String frame = client.buildRequest("debit", new BigDecimal("12.00"));
+            assertTrue(frame.endsWith("{DAJ}01{DCJ}01"), frame);
+        }
+    }
+
+    /**
+     * A referential the client cannot reach costs the customer nothing: the
+     * codes are an addition to the request, never a condition of it (the catch
+     * arm — no static mock here, so the finder raises).
+     */
+    @Test
+    void anUnreachableReferentialDoesNotStopTheRequest() {
+        VerifoneTerminalClient client = new VerifoneTerminalClient(
+                new StubTransport(true), TestMessages.french(), null);
+        String frame = client.buildRequest("debit", new BigDecimal("12.00"));
+        assertTrue(frame.contains("AMOUNT-PLACEHOLDER"), frame);
+    }
 }

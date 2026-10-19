@@ -48,6 +48,10 @@ public class CashSessionService {
 
     private static final Logger LOGGER = Logger.getLogger(CashSessionService.class);
 
+    /** The register's own retention sweep (BO-10-08-13/-14/-15). */
+    @jakarta.inject.Inject
+    StoredValueRetentionService storedValueRetentionService;
+
     @Inject
     TicketNumberService ticketNumberService;
 
@@ -815,6 +819,30 @@ public class CashSessionService {
     }
 
     /**
+     * How many tickets this register would LOSE by closing now (BO-10-02-08).
+     *
+     * <p>The closing turns every ticket still parked into a cancelled one; this
+     * counts them before the fact, so the screen can warn or stop. Counted on
+     * the same terminal and the same status the closing itself walks, because a
+     * count that disagreed with the deletion would be worse than no count.
+     *
+     * @return the number of parked tickets on this register, zero when the
+     *         session is already closed or none is parked
+     */
+    public long parkedTicketCount() {
+        LOGGER.info("Entering method parkedTicketCount");
+        CashSession session = getOpenSession();
+        if (session == null) {
+            LOGGER.info("Exiting method parkedTicketCount");
+            return 0;
+        }
+        long count = Ticket.count("terminalId = ?1 and status = ?2",
+                session.terminalId, Ticket.TicketStatus.PARKED);
+        LOGGER.info("Exiting method parkedTicketCount");
+        return count;
+    }
+
+    /**
      * Closes the open session of this register (Z report): stores the counted
      * amount, the denominations detail, the theoretical amount, the variance
      * and the withdrawal, then marks the session closed and journals it.
@@ -981,6 +1009,28 @@ public class CashSessionService {
         session.paperDeclaration = paperDeclaration;
         session.status = CashSession.SessionStatus.CLOSED;
         session.persist();
+
+        // BO-10-08-13/-14/-15: the register sweeps its own stale instruments
+        // here, because it has no scheduler and the close is the one moment it
+        // is certainly not selling. A sweep that fails must not fail a close:
+        // the session is already written above.
+        try {
+            storedValueRetentionService.sweep();
+        } catch (Exception purgeFailed) {
+            LOGGER.warnf("Purge des codes-barres impossible (%s)", purgeFailed.getMessage());
+        }
+
+        // BO-09-03-04: the transaction counter restarts at one where the shop
+        // asks for it. Like the sweep above, a failure here is journalised and
+        // never fails a close that is already written.
+        if (posSettingsService.resetTicketCounterAtPeriodEnd()) {
+            try {
+                ticketNumberService.resetTicketNumbers();
+            } catch (Exception resetFailed) {
+                LOGGER.warnf("Remise à zéro du compteur de tickets impossible (%s)",
+                        resetFailed.getMessage());
+            }
+        }
 
         // BO-03-10-10: an island auto-declaration is named in the journal, else
         // its zero variance would be indistinguishable from a correct count.

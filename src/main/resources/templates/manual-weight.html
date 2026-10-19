@@ -1,0 +1,82 @@
+{!
+ ! LC-02-02-03 : la saisie MANUELLE du poids. La touche POIDS MANUEL de l'ecran
+ ! de vente ouvre cet ecran, l'operateur tape le poids puis choisit l'article —
+ ! l'ordre exact de l'exigence. Le poids arme vit dans PosState et est consomme
+ ! par le premier article pese nomme ensuite.
+ !
+ ! LE POIDS DEMANDE EST LE POIDS BRUT, et l'ecran le dit. Dans une pesee
+ ! ordinaire la caisse ENVOIE la tare a la balance, qui rend le net
+ ! (LC-14-01-06) ; ici aucune balance n'est dans la boucle, donc c'est la caisse
+ ! qui deduira la tare (LC-14-01-08) au moment de l'article, ou la tare article
+ ! et la tare par defaut sont connues. Si l'operateur recopiait un poids NET, la
+ ! tare serait retiree deux fois : d'ou la consigne, et d'ou le rappel du
+ ! contenant deja arme, seule part de la deduction connue a cet instant.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('manualweight.poidsBrutKg')}</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
+        .main-area { display: flex; justify-content: center; align-items: center; }
+        .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 24px 32px; width: 30rem; }
+        .panel h2 { text-transform: uppercase; margin-bottom: 8px; text-align: center; letter-spacing: 1px; }
+        .hint { color: var(--text-muted); font-size: var(--fs-body); text-align: center; margin-bottom: 14px; }
+        .container-box { border: 1px solid var(--warning); color: var(--warning); border-radius: 8px; padding: 8px 12px; text-align: center; font-weight: bold; margin-bottom: 14px; }
+        .kb-area { margin-top: 10px; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+    <div class="top-bar">
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
+        <span>{inject:i18n.get('manualweight.poidsBrutKg')}</span>
+        <span id="clock">--:--:--</span>
+    </div>
+
+    <div class="main-area">
+        <div class="panel">
+            <h2>{inject:i18n.get('manualweight.poidsBrutKg')}</h2>
+            <div class="hint">{inject:i18n.get('manualweight.consigne')}</div>
+            {#if containerLabel}
+            <div class="container-box">{inject:i18n.get('manualweight.tareContenant')} {containerLabel} ({containerTare} kg)</div>
+            {/if}
+            <form action="/action/manual-weight" method="POST" id="weightForm">
+                <input type="hidden" name="rawValue" id="weightHidden" value="0">
+                <div id="weightDisplay" class="price-input-display pad-display"></div>
+                <div class="kb-area pos-kb-compact" id="weightKbArea"></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="bottom-nav">
+        <a class="btn btn-muted" href="/action/manual-weight/cancel">{inject:i18n.get('common.back')}</a>
+        <button type="submit" form="weightForm" class="btn btn-success">{inject:i18n.get('common.validate')}</button>
+    </div>
+</div>
+
+{#include keyboard-lib /}
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* Un poids n'est pas un montant : il garde sa virgule (mode decimal), comme
+       la quantite decimale de l'invite de saisie. 1,240 kg n'est pas 124 centimes. */
+    PosInput.setup({
+        displayId: 'weightDisplay',
+        hiddenId: 'weightHidden',
+        containerId: 'weightKbArea',
+        keyboardType: 'price',
+        mode: 'decimal',
+        placeholder: "0"
+    });
+</script>
+</body>
+</html>

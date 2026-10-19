@@ -110,8 +110,12 @@ public class TerminalClientProducer {
             case "auto":
                 return new AutoAcceptTerminalClient();
             case "verifone":
+                // BO-03-09-30/-31: the administered monetique parameters are
+                // HANDED OVER, like the message resolver beside them — the
+                // client is built here and not by the container.
                 return new VerifoneTerminalClient(
-                        new VerifoneTransport(verifoneHost, verifonePort, verifoneTimeoutMs), i18n);
+                        new VerifoneTransport(verifoneHost, verifonePort, verifoneTimeoutMs),
+                        i18n, posSettingsService);
             case "bridge":
                 return new HardwareBridgeTerminalClient(hardwareClient, bridgePollMs,
                         bridgeDeadlineMs, i18n);

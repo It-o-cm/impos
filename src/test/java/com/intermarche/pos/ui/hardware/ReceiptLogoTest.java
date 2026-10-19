@@ -92,10 +92,42 @@ class ReceiptLogoTest {
      * @throws Exception when a cache field cannot be reset
      */
     private void resetCaches() throws Exception {
-        setStatic("loaded", false);
-        setStatic("directive", null);
+        clearStaticMap("DIRECTIVES");
         setStatic("dataUriLoaded", false);
         setStatic("dataUri", null);
+        // BO-03-03-15: the single-entry cache of the ADMINISTERED image, so a
+        // scenario never reads the picture the previous one imported.
+        setStatic("administeredSource", null);
+        setStatic("administeredWidth", 0);
+        setStatic("administeredDirective", null);
+    }
+
+    /**
+     * Encodes an image as the PNG {@code data:} URI the back office
+     * distributes ({@code BO-03-03-15}).
+     *
+     * @param image the image to encode
+     * @return the data URI
+     * @throws Exception when the image cannot be written
+     */
+    private String dataUriOf(BufferedImage image) throws Exception {
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        ImageIO.write(image, "png", png);
+        return "data:image/png;base64," + Base64.getEncoder().encodeToString(png.toByteArray());
+    }
+
+    /**
+     * Empties a private static {@link java.util.Map} cache of {@link ReceiptLogo} by
+     * reflection; the field is {@code final}, so it is cleared in place rather than
+     * reassigned.
+     *
+     * @param name the field name
+     * @throws Exception when the field cannot be accessed
+     */
+    private void clearStaticMap(String name) throws Exception {
+        Field field = ReceiptLogo.class.getDeclaredField(name);
+        field.setAccessible(true);
+        ((java.util.Map<?, ?>) field.get(null)).clear();
     }
 
     /**
@@ -369,5 +401,109 @@ class ReceiptLogoTest {
             imageIo.when(() -> ImageIO.read(any(InputStream.class))).thenReturn(null);
             assertEquals("", ReceiptLogo.directive());
         }
+    }
+
+    /**
+     * BO-03-03-15: an administered image is rasterised to the paper exactly
+     * as the installation's file is — cropped to its ink, scaled to the
+     * width, packed into dots — and a bare base64 payload reads the same as
+     * a {@code data:} URI.
+     *
+     * @throws Exception when the fixture cannot be built
+     */
+    @Test
+    void anAdministeredImageIsRasterisedToThePaper() throws Exception {
+        resetCaches();
+        String uri = dataUriOf(mixedInkImage());
+        String directive = ReceiptLogo.directive(uri, 384);
+        assertTrue(directive.startsWith(SQUARE_PREFIX));
+        assertTrue(directive.endsWith(DIRECTIVE_SUFFIX));
+        assertEquals(SQUARE_BITS, Base64.getDecoder().decode(
+                directive.substring(SQUARE_PREFIX.length(),
+                        directive.length() - DIRECTIVE_SUFFIX.length())).length);
+        resetCaches();
+        String bare = uri.substring(uri.indexOf(',') + 1);
+        assertEquals(directive, ReceiptLogo.directive(bare, 384));
+    }
+
+    /**
+     * BO-03-03-15: the administered rasterisation is memoised on the picture
+     * AND the width — the same pair answers the cached string, a different
+     * width recomputes.
+     *
+     * @throws Exception when the fixture cannot be built
+     */
+    @Test
+    void theAdministeredRasterIsMemoisedOnPictureAndWidth() throws Exception {
+        resetCaches();
+        String uri = dataUriOf(mixedInkImage());
+        String first = ReceiptLogo.directive(uri, 384);
+        assertSame(first, ReceiptLogo.directive(uri, 384));
+        String narrow = ReceiptLogo.directive(uri, 192);
+        assertTrue(narrow.startsWith("[[IMAGE 192 192 "));
+        assertNotEquals(first, narrow);
+    }
+
+    /**
+     * BO-03-03-15: a width narrower than one packed byte falls back on the
+     * default paper width rather than failing a receipt, and the one-argument
+     * entry prints at that same default.
+     *
+     * @throws Exception when the fixture cannot be built
+     */
+    @Test
+    void anImpossibleWidthFallsBackOnThePaper() throws Exception {
+        resetCaches();
+        String uri = dataUriOf(mixedInkImage());
+        assertTrue(ReceiptLogo.directive(uri, 4).startsWith(SQUARE_PREFIX));
+        resetCaches();
+        assertTrue(ReceiptLogo.directive(uri).startsWith(SQUARE_PREFIX));
+    }
+
+    /**
+     * BO-03-03-15: an administered picture that is not readable at all —
+     * invalid base64, or bytes that are not an image — prints nothing, and
+     * an entirely white one prints nothing either. None of the three fails
+     * the document.
+     *
+     * @throws Exception when the fixture cannot be built
+     */
+    @Test
+    void anUnprintableAdministeredImagePrintsNothing() throws Exception {
+        resetCaches();
+        assertEquals("", ReceiptLogo.directive("data:image/png;base64,!!!!", 384));
+        resetCaches();
+        assertEquals("", ReceiptLogo.directive("data:image/png;base64,AAAA", 384));
+        resetCaches();
+        assertEquals("", ReceiptLogo.directive(dataUriOf(whiteImage()), 384));
+    }
+
+    /**
+     * BO-03-03-15: no administered picture falls back on the installation's
+     * file, for the raster as for the page rendering.
+     *
+     * @throws Exception when the caches cannot be reset
+     */
+    @Test
+    void noAdministeredImageFallsBackOnTheInstallation() throws Exception {
+        resetCaches();
+        assertEquals(ReceiptLogo.directive(384), ReceiptLogo.directive(null, 384));
+        assertEquals(ReceiptLogo.directive(384), ReceiptLogo.directive("   ", 384));
+        assertEquals(ReceiptLogo.dataUri(), ReceiptLogo.dataUri(null));
+        assertEquals(ReceiptLogo.dataUri(), ReceiptLogo.dataUri("  "));
+    }
+
+    /**
+     * BO-03-03-15: a page-rendered document is handed the administered
+     * picture as it stands, a bare payload being given back its prefix.
+     *
+     * @throws Exception when the fixture cannot be built
+     */
+    @Test
+    void thePageRenderingHandsOverTheAdministeredPicture() throws Exception {
+        resetCaches();
+        String uri = dataUriOf(mixedInkImage());
+        assertEquals(uri, ReceiptLogo.dataUri(uri));
+        assertEquals("data:image/png;base64,ABC", ReceiptLogo.dataUri("ABC"));
     }
 }

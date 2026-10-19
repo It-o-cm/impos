@@ -172,7 +172,10 @@ panneau qu'il sert.
   prix lu, et POIDS DÉDUIT du prix au kilo du référentiel (sens inverse) affiché sur les deux
   visus et imprimé sur le ticket (« 0,375 kg à 4,00 €/kg ») ; sans prix référentiel, pas de poids.
 - **B34 Code-barres à poids embarqué + préfixes reclassés** [S] (EXP-27) : préfixes poids
-  23/25/27/29 (24 et 26 basculés côté prix, 02/27/29 ajoutés) ; le repli ne dépend plus du
+  23/25/29 (24 et 26 basculés côté prix, 02/29 ajoutés) ; **27 appartient au ticket balance
+  comptoir** (B15) et n'est donc PAS un préfixe poids : les deux lots de préfixes sont disjoints
+  par contrat — les deux handlers partagent la priorité 1, et 27 présent des deux côtés laissait
+  l'ordre des beans décider lequel ramassait le papier du comptoir. Le repli ne dépend plus du
   filtre 2\d{12} mais du préfixe administré. Étiquette en francs → conversion en euros au taux
   6,55957 descendu du back-office (Currency), position/longueur administrées par plage.
 - **B35 Code famille** [S] (EXP-24) : « 80 » VALIDER « 2,35 » VALIDER → ligne « EPICERIE
@@ -290,6 +293,25 @@ panneau qu'il sert.
   puis le produit enregistre sans passer par la saisie.
   Un seul pavé par écran, deux propriétaires successifs : le tampon tant que rien n'est
   choisi, `PosInput` dès qu'un champ l'est — jamais les deux à la fois.
+
+- **C17 Plafond de montant d'un article** [S] (BO-10-02-16) : le FORÇAGE de prix passe par le
+  point de contrôle `control.item-amount`, comparé au plafond `control.item-amount-max`.
+  Plafond vide ou illisible → aucun contrôle, c'est le défaut ; figure égale au plafond →
+  passe (la comparaison est un AU-DELÀ) ; au-delà → `NONE` passe en silence, `WARN` laisse
+  l'alerte et poursuit, `BLOCK` refuse sans proposer d'aval, `ENDORSE` parque le geste pour
+  un manager SANS consulter `gesture.endorsement-*` (c'est ce qui distingue cette route de
+  la route normale). **Comparé EN VALEUR ABSOLUE** : un prix forcé de −150 sur un retour est
+  plafonné comme une vente de 150, ce que l'exigence demande en toutes lettres. Les autres
+  gestes de prix (remise, discount) ne sont pas concernés et ne lisent même pas le plafond.
+- **C18 Plafond de montant d'un règlement** [S] (BO-10-02-17) : tout montant TAPÉ à l'écran
+  de règlement — les treize panneaux passent par le même parseur — est confronté au point
+  `control.payment-amount` et au plafond `control.payment-amount-max`, en valeur absolue
+  elle aussi. `WARN` prévient et règle, `BLOCK` refuse et le service de règlement n'est pas
+  appelé, `ENDORSE` refuse également : l'écran de règlement n'a pas de modale où parquer un
+  règlement, et le point n'est donc pas avalisable. Ce que la caisse calcule elle-même —
+  reste dû, arrondi espèces, rendu monnaie — ne passe pas par là et n'est pas plafonné : le
+  magasin plafonne ce qu'on tape, pas ce qu'il doit. Sur le panneau des bons, un refus
+  **laisse le bon en attente** pour que le caissier retape un montant recevable.
 
 ## D. Fidélité [S]
 
@@ -1047,6 +1069,14 @@ station à feuilles). **Rien n'est écrit ni numéroté avant l'émission** (`/i
   ROULEAUX disparaissent et l'écran le dit (« les pièces restent pour rendre la monnaie »). Ce
   qui ramène un tiroir sous le plafond, c'est la liasse. C'est une présentation, pas une règle :
   le chemin d'enregistrement est le même.
+- **Q12 Le plafond se dit aussi à l'écran de session** [S] (BO-10-02-11, 12/10) : le même
+  bandeau — même chiffre, même phrase, même lien **PRÉLEVER** vers le mode billets — figure
+  désormais sur `/session`. C'était le seul écran muet alors que c'est celui où le caissier
+  vient agir : rapport X, prélèvement, clôture. Les deux écrans lisent le même
+  `drawerCapExcess()` et formatent la même clé de message, et deux tests tiennent la phrase
+  littérale des deux côtés pour qu'elle ne diverge pas. Aucun geste de session n'est bloqué
+  par un tiroir plein : plafond non atteint, non administré ou session fermée → aucun bandeau,
+  pas un bandeau vide.
 
 ## R. Consommation & budgets moteur (campagnes)
 
@@ -1144,9 +1174,10 @@ Chantier LC-13-06, absent du catalogue jusqu'ici. Textes, routes et paramètres 
   l'écran (`bundle`/`load` rendent une map vide, `get` retombe sur la clé par défaut fr).
 - **T8 Routes langue et gardes session/verrou** [S] (LC-13-06-03) : `/language-select` et
   `/action/language` sont hors du gate SESSION (`ALLOWED_PREFIXES` de `SessionCheckFilter`) → joignables
-  une fois connecté SANS session (écran session) comme en session. Ils ne sont PAS dans
-  `ALLOWED_PREFIXES` de `LockCheckFilter` : caisse VERROUILLÉE, `/language-select` est redirigé vers
-  `/lock`. ÉCART : `lock.html` offre un lien langue qui, verrouillé, retombe sur `/lock` (lien inopérant).
+  une fois connecté SANS session (écran session) comme en session. Ils sont AUSSI dans
+  `ALLOWED_PREFIXES` de `LockCheckFilter` : caisse VERROUILLÉE, l'écran de langue répond au lieu
+  d'être dérouté — c'est l'écran qu'une caisse fermée offre, et le lien langue de `lock.html` y
+  mène vraiment (LC-13-06-03 : choisir sa langue AVANT la prise de poste).
 
 ## O. Inventaire exhaustif — messages d'erreur & modales
 

@@ -43,6 +43,8 @@ class TareServiceTest {
     private TareService newService(BigDecimal defaultTare) {
         TareService service = new TareService();
         service.posSettingsService = mock(PosSettingsService.class);
+        // The administered lists (BO-04-02-07), consulted for the containers.
+        service.posListService = mock(com.intermarche.pos.service.PosListService.class);
         when(service.posSettingsService.defaultTare()).thenReturn(defaultTare);
         return service;
     }
@@ -180,7 +182,7 @@ class TareServiceTest {
     @Test
     void selectContainerArmsMatchingContainer() {
         TareService service = newService(BigDecimal.ZERO);
-        when(service.posSettingsService.tareContainers()).thenReturn(List.of(
+        when(service.posListService.tareContainers()).thenReturn(List.of(
                 new PosSettingsService.TareContainer("BQS", "Barquette S", new BigDecimal("0.035"))));
         PosState state = new PosState();
         assertTrue(service.selectContainer(state, "BQS"));
@@ -195,7 +197,7 @@ class TareServiceTest {
     @Test
     void selectContainerRejectsUnknownCode() {
         TareService service = newService(BigDecimal.ZERO);
-        when(service.posSettingsService.tareContainers()).thenReturn(List.of(
+        when(service.posListService.tareContainers()).thenReturn(List.of(
                 new PosSettingsService.TareContainer("BQS", "Barquette S", new BigDecimal("0.035"))));
         PosState state = new PosState();
         assertFalse(service.selectContainer(state, "NOPE"));
@@ -209,7 +211,7 @@ class TareServiceTest {
     @Test
     void scanContainerArmsMatchingBarcode() {
         TareService service = newService(BigDecimal.ZERO);
-        when(service.posSettingsService.tareContainers()).thenReturn(List.of(
+        when(service.posListService.tareContainers()).thenReturn(List.of(
                 new PosSettingsService.TareContainer("3800000000010", "Filet", new BigDecimal("0.028"))));
         PosState state = new PosState();
         assertTrue(service.scanContainer(state, "3800000000010"));
@@ -268,7 +270,7 @@ class TareServiceTest {
         TareService service = newService(BigDecimal.ZERO);
         List<PosSettingsService.TareContainer> list = List.of(
                 new PosSettingsService.TareContainer("BQS", "Barquette S", new BigDecimal("0.035")));
-        when(service.posSettingsService.tareContainers()).thenReturn(list);
+        when(service.posListService.tareContainers()).thenReturn(list);
         assertEquals(list, service.containers());
     }
 }

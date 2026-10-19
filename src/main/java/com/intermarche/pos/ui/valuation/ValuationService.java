@@ -440,6 +440,45 @@ public class ValuationService {
      * @param creationDate the ticket creation date
      * @return the basket request
      */
+    /**
+     * Fills the line's FAMILY and SUB-FAMILY codes, where the shop sends the
+     * nomenclature to the offer engine (BO-10-03-19).
+     *
+     * <p>The deepest family the referential files the article under is the
+     * sub-family, and its parent is the family — which is how the nomenclature
+     * reads, and why the two are not looked up separately. An article filed
+     * under nothing, or a shop that does not send the nomenclature, leaves both
+     * null rather than empty: the engine must not group under a family that
+     * does not exist.
+     *
+     * <p>Package-visible so its legs are exercised directly rather than through
+     * a whole revaluation.
+     *
+     * @param dto the line being built
+     * @param item the cart line it states
+     */
+    void fillNomenclature(ValuationPayloads.ItemDto dto,
+            com.intermarche.pos.ui.ticket.TicketState.TicketItem item) {
+        if (!posSettingsService.fidelitySendSubFamily()) {
+            return;
+        }
+        com.intermarche.pos.domain.catalog.Product product = item.plu != null
+                ? com.intermarche.pos.domain.catalog.Product.findByPlu(item.plu)
+                : (item.ean == null ? null
+                        : com.intermarche.pos.domain.catalog.Product.findByEan(item.ean));
+        if (product == null) {
+            return;
+        }
+        com.intermarche.pos.domain.catalog.ProductFamily family =
+                com.intermarche.pos.domain.catalog.ProductFamily.findDirectFamily(product);
+        if (family == null) {
+            return;
+        }
+        dto.subFamilyCode = family.code;
+        String parent = family.parentCode();
+        dto.familyCode = parent == null || parent.isBlank() ? null : parent;
+    }
+
     private ValuationPayloads.BasketDto buildBasket(TicketState ticket, String fidelityCard,
                                                     List<ImfidClient.CardPromotion> cardPromotions,
                                                     LocalDateTime creationDate) {
@@ -469,6 +508,13 @@ public class ValuationService {
             }
             basket.cardPromotions = promotions;
             basket.cardNumber = fidelityCard;
+        }
+        // BO-03-06-43: the promotions a barcode ARMED on this ticket. The
+        // register carries their names and nothing else — what they are worth
+        // is the engine's, exactly as a card-borne promotion's is. Absent, the
+        // field stays null and the request is unchanged.
+        if (ticket.scannedPromotions != null && !ticket.scannedPromotions.isEmpty()) {
+            basket.scannedPromotions = new ArrayList<>(ticket.scannedPromotions);
         }
         Store store = Store.findAll().firstResult();
         basket.storeCode = store != null ? store.code : "0000";
@@ -500,6 +546,11 @@ public class ValuationService {
             if (item.gs1ExpiryDate != null) {
                 dto.bestBeforeDate = item.gs1ExpiryDate.toString();
             }
+            // BO-10-03-19: the nomenclature of the article, where the shop sends
+            // it, so the programme can grant an advantage at family or
+            // sub-family level. Read from the referential and not from the line,
+            // which does not carry it before the sale is persisted.
+            fillNomenclature(dto, item);
             if (item.priceEmbedded) {
                 // PRICE-EMBEDDED sticker (EAN 2x, prefixes 21-22): the price
                 // lives on the paper, not in any catalog. The contract's

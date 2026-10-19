@@ -13,7 +13,9 @@ import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -612,5 +614,117 @@ class EanScanHandlerTest {
         verify(ticket).addItem(eq(CODE), isNull(), eq("COCA COLA"),
                 eq(new BigDecimal("2.3000")), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
         verify(ticket, never()).setError("PRODUIT INTERDIT À LA VENTE");
+    }
+
+    /**
+     * BO-03-01-18: an article the store took out of THIS register is refused
+     * here, with no line rung; one the scope allows is rung as before (both
+     * arms, plus the absent-service arm outside CDI).
+     */
+    @Test
+    void anArticleOutOfThisRegistersScopeIsRefused() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        EanScanHandler handler = newHandler();
+        handler.articleScopeService =
+                mock(com.intermarche.pos.ui.ticket.ArticleScopeService.class);
+        when(handler.articleScopeService.soldHere(p)).thenReturn(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("ARTICLE NON VENDU SUR CETTE CAISSE");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+
+        EanScanHandler allowed = newHandler();
+        allowed.articleScopeService =
+                mock(com.intermarche.pos.ui.ticket.ArticleScopeService.class);
+        when(allowed.articleScopeService.soldHere(p)).thenReturn(true);
+        ScanContext second = new ScanContext(CODE, newState(ticket));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            allowed.handle(second);
+        }
+        assertTrue(second.handled);
+        verify(ticket).addItem(eq(CODE), isNull(), eq("COCA COLA"),
+                eq(BigDecimal.ZERO), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
+    }
+
+    /**
+     * BO-03-06-44: a DEMATERIALISED article is rung first and the register then
+     * ASKS for its activation code, naming the awaited line and snapshotting
+     * the provider the referential declared. The line is added — the customer
+     * is paying for it — and the demand rides on the message band.
+     */
+    @Test
+    void aDematerialisedArticleAsksForItsActivationCode() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        added.uid = "ligne-1";
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .ACTIVATION_REQUIRED, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .ACTIVATION_PROVIDER, "TRANSACTIS");
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        assertEquals("TRANSACTIS", added.activationProvider);
+        assertEquals("ligne-1", ticket.pendingActivationUid);
+        verify(ticket).setWarning("SCANNEZ LE CODE D'ACTIVATION");
+    }
+
+    /**
+     * An ORDINARY article asks for nothing: no wait is opened and the line
+     * carries no provider (the other arm of the guard).
+     */
+    @Test
+    void anOrdinaryArticleOpensNoActivationWait() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        added.uid = "ligne-1";
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        assertNull(added.activationProvider);
+        assertNull(ticket.pendingActivationUid);
+        verify(ticket, never()).setWarning(any());
+    }
+
+    /**
+     * BO-10-02-15: an article scanned while a settlement is under way, where
+     * the shop forbids it, is refused AND consumed — it must not walk on to the
+     * handlers behind and be rung by another road.
+     */
+    @Test
+    void anArticleScannedDuringTheSettlementIsRefusedAndConsumed() {
+        EanScanHandler handler = newHandler();
+        when(handler.ticketService.saleRefusedDuringPayment(any())).thenReturn(true);
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext("3017620422003", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 }

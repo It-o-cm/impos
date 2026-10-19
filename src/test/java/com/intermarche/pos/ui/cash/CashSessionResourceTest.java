@@ -78,6 +78,10 @@ class CashSessionResourceTest {
         // The close-drawer gate defaults ON — the pre-existing behavior the
         // start-closing case relies on (BO-10-02-26).
         when(resource.posSettingsService.drawerOpenOnSessionClose()).thenReturn(true);
+        // BO-10-02-04: the drawer-outside-a-sale control answers as it does
+        // with nothing administered — the drawer opens —, which is what every
+        // case of this class was written against.
+        when(resource.endorsementService.drawerOutOfSaleAllowed(any())).thenReturn(true);
         return resource;
     }
 
@@ -87,8 +91,9 @@ class CashSessionResourceTest {
      * permissive matchers on the current-session and error-message values.
      *
      * @param resource the resource whose {@code session} template is stubbed
-     * @return the three chained {@link TemplateInstance} mocks, the last of
-     *         which is the final rendered view
+     * @return the chained {@link TemplateInstance} mocks: the current-session
+     *         link, the default-float link, the link carrying the error, the
+     *         final rendered view, and the link carrying the drawer alert
      */
     private TemplateInstance[] stubSessionChain(CashSessionResource resource) {
         TemplateInstance ti1 = mock(TemplateInstance.class);
@@ -96,14 +101,17 @@ class CashSessionResourceTest {
         TemplateInstance ti3 = mock(TemplateInstance.class);
         TemplateInstance tiFloat = mock(TemplateInstance.class);
         TemplateInstance tiTheo = mock(TemplateInstance.class);
+        TemplateInstance tiDrawer = mock(TemplateInstance.class);
         when(resource.session.data("state", resource.state)).thenReturn(ti1);
         when(ti1.data(eq("current"), any())).thenReturn(ti2);
         when(ti2.data(eq("defaultFloat"), any())).thenReturn(tiFloat);
         // EXP-02: the page now also carries the theoretical float (report of the
         // previous close) between the default float and the error message.
         when(tiFloat.data(eq("theoreticalFloat"), any())).thenReturn(tiTheo);
-        when(tiTheo.data(eq("error"), any())).thenReturn(ti3);
-        return new TemplateInstance[]{ti1, ti2, tiTheo, ti3};
+        // BO-10-02-11: and the drawer-cap alert, between the two.
+        when(tiTheo.data(eq("drawerAlert"), any())).thenReturn(tiDrawer);
+        when(tiDrawer.data(eq("error"), any())).thenReturn(ti3);
+        return new TemplateInstance[]{ti1, ti2, tiDrawer, ti3, tiTheo};
     }
 
     /**
@@ -118,6 +126,40 @@ class CashSessionResourceTest {
     }
 
     // --- sessionPage ---
+
+    /**
+     * BO-10-02-11: the session screen states the drawer-cap alert when the
+     * theoretical cash is over the administered ceiling — same figure and same
+     * sentence as the sale screen's, ending on the withdrawal the banner links
+     * to.
+     */
+    @Test
+    void sessionPageStatesTheDrawerCapAlert() {
+        CashSessionResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.cashSessionService.drawerCapExcess()).thenReturn(new BigDecimal("1850.40"));
+        TemplateInstance[] chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage(null));
+        verify(chain[4]).data("drawerAlert",
+                "PRÉLÈVEMENT BILLETS — CONTENU TIROIR 1850,40 €");
+    }
+
+    /**
+     * BO-10-02-11, the other arm: no excess — ceiling not administered, not
+     * reached, or no session open — and the page carries NO alert at all,
+     * rather than an empty banner.
+     */
+    @Test
+    void sessionPageStatesNoAlertWhenTheDrawerIsUnderTheCap() {
+        CashSessionResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.cashSessionService.drawerCapExcess()).thenReturn(null);
+        TemplateInstance[] chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage(null));
+        verify(chain[4]).data("drawerAlert", null);
+    }
 
     /**
      * {@code sessionPage()} renders the already-open error message for the

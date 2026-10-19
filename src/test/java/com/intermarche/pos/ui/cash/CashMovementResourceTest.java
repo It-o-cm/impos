@@ -79,6 +79,8 @@ class CashMovementResourceTest {
         resource.cashSessionService = mock(CashSessionService.class);
         resource.cashMovementService = mock(CashMovementService.class);
         resource.posSettingsService = mock(PosSettingsService.class);
+        // The administered lists (BO-04-03-12), consulted for the justifications.
+        resource.posListService = mock(com.intermarche.pos.service.PosListService.class);
         resource.endorsementService = mock(EndorsementService.class);
         resource.cashMovement = mock(Template.class);
         resource.ticketPrinterService =
@@ -96,7 +98,8 @@ class CashMovementResourceTest {
      * @return the chain, the last element being the rendered view
      */
     private TemplateInstance[] stubPageChain(CashMovementResource resource) {
-        when(resource.posSettingsService.cashMovementReasons()).thenReturn(List.of("Coffre"));
+        when(resource.posListService.justifications(
+                com.intermarche.pos.service.PosListService.FUNCTION_EXPENSE)).thenReturn(List.of("Coffre"));
         when(resource.posSettingsService.cashMovementTenders()).thenReturn(List.of());
         when(resource.posSettingsService.cashMovementEndorsementThreshold())
                 .thenReturn(new BigDecimal("100.00"));
@@ -137,7 +140,8 @@ class CashMovementResourceTest {
      */
     private TemplateInstance[] stubChainWith(CashMovementResource resource,
                                              List<String> reasons, List<String> tenders) {
-        when(resource.posSettingsService.cashMovementReasons()).thenReturn(reasons);
+        when(resource.posListService.justifications(
+                com.intermarche.pos.service.PosListService.FUNCTION_EXPENSE)).thenReturn(reasons);
         when(resource.posSettingsService.cashMovementTenders()).thenReturn(tenders);
         when(resource.posSettingsService.cashMovementEndorsementThreshold())
                 .thenReturn(new BigDecimal("100.00"));

@@ -177,6 +177,26 @@ public class ThemeService {
         }
 
         /**
+         * Whether the enter key alone opens the settlement (BO-10-02-13),
+         * available in every template as {@code {enterAsTotal}}.
+         *
+         * <p>Resolved through Arc like {@code posTheme()}, and false whenever
+         * the parameters cannot be read: a register that cannot say what the
+         * key does keeps the behaviour it has always had.
+         *
+         * @return true when enter on an empty buffer is the TOTAL key
+         */
+        public static boolean enterAsTotal() {
+            try {
+                InstanceHandle<com.intermarche.pos.service.PosSettingsService> handle =
+                        Arc.container().instance(com.intermarche.pos.service.PosSettingsService.class);
+                return handle.isAvailable() && handle.get().enterAsTotal();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
          * The resolved theme name, available in every template as
          * {@code {posTheme}} without any per-resource plumbing.
          *

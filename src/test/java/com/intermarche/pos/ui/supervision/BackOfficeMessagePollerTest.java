@@ -80,7 +80,7 @@ class BackOfficeMessagePollerTest {
     void pollOnceAppliesAPlainMessage() {
         BackOfficeMessagePoller poller = poller(Optional.of("http://node/msg"));
         when(poller.client.fetchPending()).thenReturn(
-                new BackOfficeMessageClient.PendingMessage("Réunion 14h", null, null));
+                new BackOfficeMessageClient.PendingMessage("Réunion 14h", null, null, null, false, null, null));
         poller.pollOnce();
         verify(poller.homeService).receiveBackOfficeMessage(eq("Réunion 14h"), isNull());
         verify(poller.state).touch();
@@ -93,7 +93,7 @@ class BackOfficeMessagePollerTest {
     void pollOnceTreatsBlankQuestionAsNoSurvey() {
         BackOfficeMessagePoller poller = poller(Optional.of("http://node/msg"));
         when(poller.client.fetchPending()).thenReturn(
-                new BackOfficeMessageClient.PendingMessage("txt", "   ", "a;b"));
+                new BackOfficeMessageClient.PendingMessage("txt", "   ", "a;b", null, false, null, null));
         poller.pollOnce();
         verify(poller.homeService).receiveBackOfficeMessage(eq("txt"), isNull());
     }
@@ -106,7 +106,7 @@ class BackOfficeMessagePollerTest {
     void pollOnceBuildsASurveyDroppingBlankOptions() {
         BackOfficeMessagePoller poller = poller(Optional.of("http://node/msg"));
         when(poller.client.fetchPending()).thenReturn(
-                new BackOfficeMessageClient.PendingMessage(null, "Café ?", "Oui; ;Non"));
+                new BackOfficeMessageClient.PendingMessage(null, "Café ?", "Oui; ;Non", null, false, null, null));
         ArgumentCaptor<PosState.BackOfficeSurvey> captor =
                 ArgumentCaptor.forClass(PosState.BackOfficeSurvey.class);
         poller.pollOnce();
@@ -123,7 +123,7 @@ class BackOfficeMessagePollerTest {
     void pollOnceSurveyWithNullOptionsHasNoOptions() {
         BackOfficeMessagePoller poller = poller(Optional.of("http://node/msg"));
         when(poller.client.fetchPending()).thenReturn(
-                new BackOfficeMessageClient.PendingMessage(null, "Q", null));
+                new BackOfficeMessageClient.PendingMessage(null, "Q", null, null, false, null, null));
         ArgumentCaptor<PosState.BackOfficeSurvey> captor =
                 ArgumentCaptor.forClass(PosState.BackOfficeSurvey.class);
         poller.pollOnce();

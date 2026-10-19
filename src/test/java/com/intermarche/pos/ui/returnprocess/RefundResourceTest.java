@@ -50,6 +50,9 @@ class RefundResourceTest {
         resource.state.refund = mock(RefundState.class);
         resource.refundService = mock(RefundService.class);
         resource.posSettingsService = mock(PosSettingsService.class);
+        resource.posListService = mock(com.intermarche.pos.service.PosListService.class);
+        // The administered lists (BO-04-02-07), consulted for the return types.
+        resource.posListService = mock(com.intermarche.pos.service.PosListService.class);
         resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         resource.returnSearchPage = mock(Template.class);
         resource.returnDetailPage = mock(Template.class);
@@ -97,8 +100,9 @@ class RefundResourceTest {
     @Test
     void reasonSelectsReasonAndReturnsDetailWithReasons() {
         RefundResource resource = newResource();
-        when(resource.posSettingsService.returnReasons())
-                .thenReturn(List.of("Erreur de caisse", "Article périmé"));
+        when(resource.posListService.returnReasons())
+                .thenReturn(List.of(new com.intermarche.pos.service.PosListService.ListChoice("CAISSE", "Erreur de caisse"),
+                        new com.intermarche.pos.service.PosListService.ListChoice("PERIME", "Article périmé")));
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.reason("Article périmé"));
         verify(resource.refundService).selectReason(resource.state, "Article périmé");

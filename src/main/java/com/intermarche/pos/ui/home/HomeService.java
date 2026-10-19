@@ -74,6 +74,10 @@ public class HomeService {
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /** The administered lists: service requests and return types (BO-04-02-07). */
+    @Inject
+    com.intermarche.pos.service.PosListService posListService;
+
     /** The cash session, read for the drawer-cap alert (EXP-17). */
     @Inject
     com.intermarche.pos.service.CashSessionService cashSessionService;
@@ -280,6 +284,50 @@ public class HomeService {
     }
 
     /**
+     * Arms the GROSS weight keyed by the operator for the NEXT weighed article
+     * named ({@code LC-02-02-03}): the key, then the weight, then the article —
+     * the order the requirement states.
+     *
+     * <p>It is the fallback of a lane whose scale is absent or refused, and the
+     * only path where the register deducts the tare itself
+     * ({@code LC-14-01-08}): the deduction happens at the article, where the
+     * article tare is known, not here.
+     *
+     * <p>A null, zero or negative weight arms nothing and says so, exactly as
+     * the quantity key does: an armed figure nobody can see is worse than a
+     * refusal.
+     *
+     * @param grossWeightKg the gross weight in kilograms, as typed
+     */
+    public void armManualWeight(BigDecimal grossWeightKg) {
+        LOGGER.info("Entering method armManualWeight with grossWeightKg: " + grossWeightKg);
+        if (grossWeightKg == null || grossWeightKg.signum() <= 0) {
+            state.pendingManualWeightKg = null;
+            state.ticket.setError(i18n.get("op.poidsInvalide"));
+            state.touch();
+            LOGGER.info("Exiting method armManualWeight");
+            return;
+        }
+        state.pendingManualWeightKg = grossWeightKg;
+        state.ticket.setNotice(i18n.format("op.poidsBrutSaisissezArticle",
+                grossWeightKg.stripTrailingZeros().toPlainString().replace('.', ',')));
+        state.touch();
+        LOGGER.info("Exiting method armManualWeight");
+    }
+
+    /**
+     * Gives up the armed manual weight ({@code LC-02-02-03}): the operator left
+     * the weighing screen without choosing an article, and a weight left armed
+     * would be laid over the next one they ring.
+     */
+    public void clearManualWeight() {
+        LOGGER.info("Entering method clearManualWeight");
+        state.pendingManualWeightKg = null;
+        state.touch();
+        LOGGER.info("Exiting method clearManualWeight");
+    }
+
+    /**
      * Takes ONE UNIT — or the quantity keyed just before — off the line a
      * cancel-by-scan found, rather than striking the whole line out.
      *
@@ -483,17 +531,212 @@ public class HomeService {
             LOGGER.info("Exiting method cancelLineByUid");
             return;
         }
+        // BO-06-06-04: WHY before WHO. A shop that administers justifications
+        // for this gesture is asked for one before anything else — before the
+        // aval, so the reason survives the parking the aval imposes, and because
+        // a cashier explains the cancellation before a manager authorises it. No
+        // list administered, no question: the gesture is the one of before.
+        if (state.ticket.pendingCancelReasonCode == null
+                && !posListService.justificationsOf(
+                        com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE).isEmpty()) {
+            state.ticket.pendingCancelUid = targetUid;
+            state.touch();
+            LOGGER.info("Exiting method cancelLineByUid");
+            return;
+        }
         boolean isLast = targetUid.equals(state.lastEnteredItemId);
         String gestureKey = isLast ? "cancel-last" : "cancel-line";
         if (endorsementService.gestureAuthorized(state, gestureKey)) {
-            ticketService.cancelItemById(state, targetUid);
-            if (isLast) {
-                state.lastEnteredItemId = null;
+            cancelLineNow(targetUid, isLast);
+            LOGGER.info("Exiting method cancelLineByUid");
+            return;
+        }
+        // BO-10-02-01: the gesture IS watched — WHAT the shop does with it is
+        // administered. NONE is not reachable here: the flag above is the off
+        // switch, so this point only ever says warn, refuse, or ask a manager.
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_LINE);
+        switch (level) {
+            case BLOCK -> state.ticket.setError(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_LINE, level));
+            case WARN -> {
+                state.ticket.setWarning(endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_LINE, level));
+                cancelLineNow(targetUid, isLast);
             }
-        } else {
-            endorsementService.requestAuthorization(state, "CANCEL_LINE_" + targetUid);
+            default -> endorsementService.requestAuthorization(state, "CANCEL_LINE_" + targetUid);
         }
         LOGGER.info("Exiting method cancelLineByUid");
+    }
+
+    /**
+     * Cancels the line, here and now, with no question asked.
+     *
+     * <p>Split out because the cancellation happens on two paths — the
+     * unwatched gesture and the control point that let it through with a
+     * warning — and a line cancelled two ways would eventually be cancelled two
+     * different ways.
+     *
+     * @param targetUid the uid of the line to cancel
+     * @param isLast whether that line was the last one registered
+     */
+    private void cancelLineNow(String targetUid, boolean isLast) {
+        ticketService.cancelItemById(state, targetUid);
+        if (isLast) {
+            state.lastEnteredItemId = null;
+        }
+    }
+
+    /**
+     * Records the justification the operator tapped and resumes the
+     * cancellation it was asked for ({@code BO-06-06-04}).
+     *
+     * <p>Nothing is cancelled here: the reason is stored and the gesture
+     * re-enters {@link #cancelLineByUid(String)} at its start, so the
+     * anti-fraud guard, the administered control point and the aval all apply
+     * exactly as they would have. A code the administered list does not carry
+     * is refused rather than recorded as itself — a state grouping by reason
+     * must not grow a column of codes nobody administered.
+     *
+     * @param code the code of the justification the operator tapped
+     */
+    public void cancelLineWithReason(String code) {
+        LOGGER.info("Entering method cancelLineWithReason with code: " + code);
+        String targetUid = state.ticket.pendingCancelUid;
+        if (targetUid == null) {
+            LOGGER.info("Exiting method cancelLineWithReason");
+            return;
+        }
+        com.intermarche.pos.service.PosListService.ListChoice justification =
+                posListService.justificationOf(
+                        com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE, code);
+        if (justification == null) {
+            state.ticket.setError(i18n.get("op.motifAnnulationInconnu"));
+            state.touch();
+            LOGGER.info("Exiting method cancelLineWithReason");
+            return;
+        }
+        state.ticket.pendingCancelUid = null;
+        state.ticket.pendingCancelReasonCode = justification.code();
+        state.ticket.pendingCancelReasonLabel = justification.label();
+        cancelLineByUid(targetUid);
+        LOGGER.info("Exiting method cancelLineWithReason");
+    }
+
+    /**
+     * Abandons the cancellation the register was asking a justification for
+     * ({@code BO-06-06-04}): the line stays on the ticket.
+     */
+    public void cancelLineReasonAbandoned() {
+        LOGGER.info("Entering method cancelLineReasonAbandoned");
+        state.ticket.pendingCancelUid = null;
+        state.ticket.pendingCancelReasonCode = null;
+        state.ticket.pendingCancelReasonLabel = null;
+        state.touch();
+        LOGGER.info("Exiting method cancelLineReasonAbandoned");
+    }
+
+    /**
+     * The justifications offered for a line cancellation
+     * ({@code BO-06-06-04}), for the chooser screen.
+     *
+     * @return the justifications, in display order, empty when the shop
+     *         administers none
+     */
+    public List<com.intermarche.pos.service.PosListService.ListChoice> cancelReasons() {
+        LOGGER.info("Entering method cancelReasons");
+        LOGGER.info("Exiting method cancelReasons");
+        return posListService.justificationsOf(
+                com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE);
+    }
+
+    /**
+     * Applies the QUANTITY control point to a quantity the cashier just keyed
+     * (BO-10-02-06).
+     *
+     * <p>Answers whether the caller may go on. A warning leaves a notice and
+     * lets it go on; a refusal and an aval request both stop it, the second
+     * having parked the gesture so the manager's credential replays it.
+     *
+     * @param uid the line the quantity is keyed on
+     * @param value the quantity keyed
+     * @return true when the quantity may be applied
+     */
+    private boolean quantityControlPassed(String uid, BigDecimal value) {
+        int ceiling = posSettingsService.controlQuantityMax();
+        // A ceiling of zero or less is the absence of a ceiling, not a ceiling
+        // every quantity exceeds: the same reading as the ticket total's.
+        if (ceiling <= 0 || value.compareTo(BigDecimal.valueOf(ceiling)) <= 0) {
+            return true;
+        }
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.QUANTITY);
+        switch (level) {
+            case BLOCK -> {
+                state.ticket.setError(endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.QUANTITY, level));
+                return false;
+            }
+            case ENDORSE -> {
+                endorsementService.requestPriceModification(
+                        state, com.intermarche.pos.ui.PriceModType.QUANTITY, uid, value);
+                return false;
+            }
+            case WARN -> state.ticket.setWarning(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.QUANTITY, level));
+            default -> {
+                // No control administered: the quantity goes through.
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Applies the ITEM AMOUNT control point to a price the cashier just keyed
+     * (BO-10-02-16).
+     *
+     * <p>Answers whether the caller may go on, exactly as the quantity's does:
+     * a warning leaves a notice and lets it go on, a refusal and an aval
+     * request both stop it, the second having parked the gesture so the
+     * manager's credential replays it.
+     *
+     * <p>THE COMPARISON IS ABSOLUTE. The questionnaire asks the ceiling to hold
+     * "aussi bien aux ventes qu'aux retours", and a return is the same figure
+     * with the other sign: comparing the signed value would let a shop plafond
+     * its sales and leave its refunds open.
+     *
+     * <p>A blank ceiling is the absence of a ceiling and not a ceiling of zero,
+     * the same reading as the ticket total's.
+     *
+     * @param uid the line the price is keyed on
+     * @param value the price keyed
+     * @return true when the price may be applied
+     */
+    private boolean itemAmountControlPassed(String uid, BigDecimal value) {
+        java.math.BigDecimal ceiling = posSettingsService.controlItemAmountMax();
+        if (ceiling == null || value == null || value.abs().compareTo(ceiling) <= 0) {
+            return true;
+        }
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.ITEM_AMOUNT);
+        switch (level) {
+            case BLOCK -> {
+                state.ticket.setError(endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.ITEM_AMOUNT, level));
+                return false;
+            }
+            case ENDORSE -> {
+                endorsementService.requestPriceModification(
+                        state, com.intermarche.pos.ui.PriceModType.FORCE_PRICE, uid, value);
+                return false;
+            }
+            case WARN -> state.ticket.setWarning(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.ITEM_AMOUNT, level));
+            default -> {
+                // No control administered: the price goes through.
+            }
+        }
+        return true;
     }
 
     /**
@@ -606,7 +849,12 @@ public class HomeService {
         // LC-05-02-09/14: taking an article back without its origin ticket can be
         // forbidden store-wide; the recall-based return (/return) is then the only
         // way in.
-        if (!posSettingsService.returnWithoutOriginAllowed()) {
+        // BO-03-13-06: the administered return TYPE may carry the permission the
+        // store withholds in general — a type declared "ticket d'origine non
+        // trouvé" is exactly the case the questionnaire asks for, and it stays
+        // under the supervisor endorsement below. Without a type, the store-wide
+        // key decides as it always did.
+        if (!posSettingsService.returnWithoutOriginAllowed() && !activeTypeAllowsNoOrigin()) {
             state.ticket.setError(i18n.get("op.retourSansTicketOrigine"));
             state.touch();
             LOGGER.info("Exiting method toggleReturnMode");
@@ -623,7 +871,10 @@ public class HomeService {
         // LC-05-01-01: supervisor authorization when the back office asks for it.
         // Only the ENTRY is endorsed — ending the mode gives the till back its
         // ordinary powers and needs no manager.
-        if (endorsementService.gestureAuthorized(state, "return")) {
+        // BO-03-13-08: a type declared "articles spécifiques" is dispensed from
+        // the endorsement — an exchange of equal value does not call a manager.
+        // Every other type goes through the authorization exactly as before.
+        if (activeTypeIsEndorsementExempt() || endorsementService.gestureAuthorized(state, "return")) {
             performReturnModeToggle();
         } else {
             endorsementService.requestAuthorization(state, RETURN_MODE_ACTION);
@@ -658,7 +909,7 @@ public class HomeService {
         String typed = label == null ? "" : label.trim();
         com.intermarche.pos.service.PosSettingsService.ReturnType type = null;
         for (com.intermarche.pos.service.PosSettingsService.ReturnType candidate
-                : posSettingsService.returnTypes()) {
+                : posListService.returnTypes()) {
             if (candidate.label().equalsIgnoreCase(typed)) {
                 type = candidate;
                 break;
@@ -682,6 +933,30 @@ public class HomeService {
         }
         LOGGER.info("Exiting method startReturnType");
         return false;
+    }
+
+    /**
+     * Whether the return type the operator chose may be used when the original
+     * ticket was not found (BO-03-13-06).
+     *
+     * @return true when the active type carries the no-origin permission
+     */
+    private boolean activeTypeAllowsNoOrigin() {
+        com.intermarche.pos.service.PosSettingsService.ReturnType type =
+                posListService.returnType(state.returnTypeLabel);
+        return type != null && type.originOptional();
+    }
+
+    /**
+     * Whether the return type the operator chose is dispensed from the
+     * supervisor endorsement (BO-03-13-08).
+     *
+     * @return true when the active type is exempt
+     */
+    private boolean activeTypeIsEndorsementExempt() {
+        com.intermarche.pos.service.PosSettingsService.ReturnType type =
+                posListService.returnType(state.returnTypeLabel);
+        return type != null && type.endorsementExempt();
     }
 
     /**
@@ -1070,6 +1345,11 @@ public class HomeService {
                 // A CONFIRMATION, not a refusal: the zone is shared, so the
                 // setter is what decides whether it is drawn red with an ERR
                 // marker or as an acknowledgement.
+                // LC-01-07-03: the request is IN PROGRESS the moment the back
+                // office took it — the lane shows it until it is cancelled,
+                // refused, acknowledged or validated.
+                state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+                state.serviceRequestReason = reason;
                 state.ticket.setNotice(i18n.get("op.superviseurPrevenu"));
             } else {
                 state.ticket.setError(i18n.format("op.appelSuperviseurRefuse", String.valueOf(response.statusCode())));
@@ -1085,43 +1365,285 @@ public class HomeService {
     }
 
     /**
-     * Answers the back-office survey the register was shown (EXP-89): the answer
-     * travels back up the same channel as a supervisor call (reason SONDAGE), and
-     * the survey is cleared so it stops showing. A no-op when no survey is
-     * pending or the answer is blank.
+     * Cancels the service request this lane has in progress (LC-01-07-05): the
+     * request disappears from the back office and the indicator from the
+     * caisse.
      *
-     * @param answer the option the cashier chose
+     * <p>Refused on no pending request — there is nothing to cancel — and kept
+     * when the back office cannot be reached, so the operator can try again:
+     * a cancellation the node never heard of would leave the banner up there
+     * and take the indicator down here, which is exactly the disagreement the
+     * requirement refuses.
      */
-    /**
-     * The administered service-request reasons for the supervisor screen (EXP-84),
-     * split from the semicolon-separated Def; blank entries dropped.
-     *
-     * @return the reasons list, possibly empty
-     */
-    public java.util.List<String> supervisorServiceReasons() {
-        LOGGER.info("Entering method supervisorServiceReasons");
-        java.util.List<String> reasons = new ArrayList<>();
-        for (String raw : posSettingsService.supervisorServiceReasons().split(";")) {
-            if (!raw.isBlank()) {
-                reasons.add(raw.trim());
-            }
+    public void cancelServiceRequest() {
+        LOGGER.info("Entering method cancelServiceRequest");
+        if (!syncOutboxService.isEnabled()) {
+            state.ticket.setError(i18n.get("op.supervisionNonConfigureeCaisse"));
+            state.touch();
+            LOGGER.info("Exiting method cancelServiceRequest");
+            return;
         }
-        LOGGER.info("Exiting method supervisorServiceReasons");
-        return reasons;
+        if (state.serviceRequest != PosState.ServiceRequestStatus.PENDING) {
+            state.ticket.setNotice(i18n.get("supervisor.aucuneDemandeEnCours"));
+            state.touch();
+            LOGGER.info("Exiting method cancelServiceRequest");
+            return;
+        }
+        try {
+            java.util.Map<String, String> payload = new java.util.HashMap<>();
+            payload.put("terminalId", ticketNumberService.getTerminalId());
+            int status = postToNode("/api/supervisor/cancel", payload);
+            if (status >= 200 && status < 300) {
+                state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+                state.serviceRequestReason = null;
+                state.ticket.setNotice(i18n.get("supervisor.demandeAnnulee"));
+            } else {
+                state.ticket.setError(i18n.format("op.appelSuperviseurRefuse",
+                        String.valueOf(status)));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            state.ticket.setError(i18n.get("op.appelSuperviseurInterrompu"));
+        } catch (Exception e) {
+            state.ticket.setError(i18n.get("op.appelSuperviseurImpossible"));
+        }
+        state.touch();
+        LOGGER.info("Exiting method cancelServiceRequest");
     }
 
+    /**
+     * Validates the handling of a request the back office has ACKNOWLEDGED
+     * (LC-01-07-06): the operator closes it, and the indicator disappears
+     * from the caisse.
+     *
+     * <p>Refused while the request is still pending — the back office has not
+     * answered yet, and validating a demand nobody has read would tell the
+     * lane it is done when the banner says it is not. The gesture is purely
+     * local: the back office already dropped the call when it acknowledged
+     * it, so nothing travels up.
+     */
+    public void validateServiceRequest() {
+        LOGGER.info("Entering method validateServiceRequest");
+        if (state.serviceRequest != PosState.ServiceRequestStatus.ACKED) {
+            state.ticket.setNotice(i18n.get("supervisor.demandeNonAcquittee"));
+            state.touch();
+            LOGGER.info("Exiting method validateServiceRequest");
+            return;
+        }
+        state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        state.serviceRequestReason = null;
+        state.ticket.setNotice(i18n.get("supervisor.demandeTraitee"));
+        state.touch();
+        LOGGER.info("Exiting method validateServiceRequest");
+    }
+
+    /**
+     * Acknowledges the back-office message the operator has consulted
+     * (LC-01-08-05): the banner and the indicator go, and the acknowledgement
+     * travels up so the store knows WHO read the notice (BO-03-08-04).
+     *
+     * <p>The message stays when the node cannot be reached, for the same
+     * reason as the cancellation: an acknowledgement the store never filed
+     * would re-serve the notice on the next poll, and the honest state is the
+     * one the operator can try again. A survey is answered by its own buttons
+     * (EXP-89); acknowledging with nothing to acknowledge is a no-op notice.
+     */
+    public void ackBackOfficeMessage() {
+        LOGGER.info("Entering method ackBackOfficeMessage");
+        if ((state.backOfficeMessage == null || state.backOfficeMessage.isBlank())
+                && state.backOfficeSurvey == null) {
+            state.ticket.setNotice(i18n.get("supervisor.aucunMessage"));
+            state.touch();
+            LOGGER.info("Exiting method ackBackOfficeMessage");
+            return;
+        }
+        if (!syncOutboxService.isEnabled()) {
+            state.ticket.setError(i18n.get("op.supervisionNonConfigureeCaisse"));
+            state.touch();
+            LOGGER.info("Exiting method ackBackOfficeMessage");
+            return;
+        }
+        try {
+            java.util.Map<String, String> payload = new java.util.HashMap<>();
+            payload.put("terminalId", ticketNumberService.getTerminalId());
+            payload.put("operatorCode", state.auth.operatorBadgeId);
+            payload.put("operatorName", state.getOperatorName());
+            payload.put("text", state.backOfficeMessage);
+            int status = postToNode("/api/supervisor/ack-message", payload);
+            if (status >= 200 && status < 300) {
+                state.backOfficeMessage = "";
+                state.backOfficeSurvey = null;
+                state.boMessageArrived = false;
+                state.ticket.setNotice(i18n.get("supervisor.messageAcquite"));
+            } else {
+                state.ticket.setError(i18n.format("op.appelSuperviseurRefuse",
+                        String.valueOf(status)));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            state.ticket.setError(i18n.get("op.appelSuperviseurInterrompu"));
+        } catch (Exception e) {
+            state.ticket.setError(i18n.get("op.appelSuperviseurImpossible"));
+        }
+        state.touch();
+        LOGGER.info("Exiting method ackBackOfficeMessage");
+    }
+
+    /**
+     * Posts one JSON payload to the store node's supervisor channel, on the
+     * same client and token as the supervisor call itself.
+     *
+     * @param path the machine-surface path under the store URL
+     * @param payload the fields to send
+     * @return the HTTP status the node answered
+     * @throws Exception when the node cannot be reached or the payload cannot
+     *         be written
+     */
+    private int postToNode(String path, java.util.Map<String, String> payload) throws Exception {
+        java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(syncOutboxService.getStoreUrl() + path))
+                .timeout(java.time.Duration.ofSeconds(3))
+                .header("Content-Type", "application/json")
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
+                        objectMapper.writeValueAsString(payload)));
+        String sharedToken = supervisorToken.orElse("");
+        if (!sharedToken.isBlank()) {
+            builder.header("X-Sync-Token", sharedToken);
+        }
+        java.net.http.HttpResponse<String> response = SUPERVISOR_CLIENT.send(
+                builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        return response.statusCode();
+    }
+
+    /**
+     * The administered service-request types for the supervisor screen
+     * (EXP-84, {@code BO-04-02-07}): the distributed referential when the
+     * store node holds one, the semicolon-separated setting otherwise.
+     *
+     * @return the types, possibly empty
+     */
+    public java.util.List<com.intermarche.pos.service.PosListService.ServiceRequestType>
+            supervisorServiceReasons() {
+        LOGGER.info("Entering method supervisorServiceReasons");
+        LOGGER.info("Exiting method supervisorServiceReasons");
+        return posListService.serviceRequestTypes();
+    }
+
+    /**
+     * Answers the back-office survey the register was shown (EXP-89): the
+     * answer travels back up the same channel as a supervisor call (reason
+     * SONDAGE), and the survey is cleared so it stops showing. A no-op when
+     * no survey is pending or the answer is blank.
+     *
+     * <p>LC-03-07-06 to -09: the answer is TYPED. An OPTIONS survey keeps its
+     * buttons; a NUMERIC one takes a figure of at most ten digits keyed on
+     * the pad; a POSTAL_CODE one takes the administered mask ({@code C} is a
+     * digit) and, when the shop keeps a list, membership in it — both checked
+     * HERE, with the survey KEPT on a refusal so the operator retries rather
+     * than reads nothing; an INFORMATIVE one validates the label with
+     * nothing to type, and its validation carries the marker {@code VU} up
+     * the channel rather than an invented answer.
+     *
+     * @param answer the option chosen, or the figure keyed
+     */
     public void answerSurvey(String answer) {
-        LOGGER.info("Entering method answerSurvey");
-        if (state.backOfficeSurvey == null || answer == null || answer.isBlank()) {
+        LOGGER.info("Entering method answerSurvey with answer: " + answer);
+        PosState.BackOfficeSurvey survey = state.backOfficeSurvey;
+        if (survey == null || answer == null || answer.isBlank()) {
             LOGGER.info("Exiting method answerSurvey");
             return;
         }
-        String question = state.backOfficeSurvey.question;
-        callSupervisor("SONDAGE", question + " : " + answer);
+        String typed = answer.trim();
+        String normalizedType = survey.responseType == null ? "OPTIONS"
+                : survey.responseType.trim().toUpperCase(java.util.Locale.ROOT);
+        if ("NUMERIC".equals(normalizedType) && !typed.matches("\\d{1,10}")) {
+            // LC-03-07-06: ten digits at least is what the pad offers, and a
+            // figure is what the shop asked for — anything else is a mistype,
+            // named, with the survey kept for the retry.
+            state.ticket.setError(i18n.get("op.sondageNombreInvalide"));
+            state.touch();
+            LOGGER.info("Exiting method answerSurvey");
+            return;
+        }
+        if ("POSTAL_CODE".equals(normalizedType)) {
+            String postal = typed.toUpperCase(java.util.Locale.ROOT);
+            if (!postalFormatMatches(survey.postalFormat, postal)) {
+                // LC-03-07-07: the administered mask decides the shape —
+                // France CCCCC, Belgium CCCC, Portugal CCCC-CCC.
+                state.ticket.setError(i18n.get("op.sondageCodePostalInvalide"));
+                state.touch();
+                LOGGER.info("Exiting method answerSurvey");
+                return;
+            }
+            if (!survey.postalCodes.isEmpty() && !survey.postalCodes.contains(postal)) {
+                // LC-03-07-08: the administered list decides the membership,
+                // and a code the shop does not serve is refused by name.
+                state.ticket.setError(i18n.get("op.sondageCodePostalAbsent"));
+                state.touch();
+                LOGGER.info("Exiting method answerSurvey");
+                return;
+            }
+        }
+        String carried = survey.isInformative() ? "VU" : typed;
+        callSupervisor("SONDAGE", survey.question + " : " + carried);
+        state.backOfficeSurvey = null;
+        state.backOfficeMessage = "";
+        state.skippedSurveyQuestion = null;
+        state.touch();
+        LOGGER.info("Exiting method answerSurvey");
+    }
+
+    /**
+     * Whether a keyed postal code matches the administered mask
+     * (LC-03-07-07): {@code C} is a digit and everything else is literal, so
+     * {@code CCCCC} matches 33980 and {@code CCCC-CCC} matches 4100-300. A
+     * null or blank mask bounds nothing but the length: four to ten digits
+     * and dashes is accepted, the shop that administers no mask still gets a
+     * sane figure.
+     *
+     * @param mask the administered mask, or null
+     * @param postal the keyed postal code
+     * @return true when the postal code matches the mask
+     */
+    boolean postalFormatMatches(String mask, String postal) {
+        if (mask == null || mask.isBlank()) {
+            return postal.length() >= 4 && postal.length() <= 10;
+        }
+        if (postal.length() != mask.length()) {
+            return false;
+        }
+        for (int index = 0; index < mask.length(); index++) {
+            char slot = mask.charAt(index);
+            if (slot == 'C') {
+                if (!Character.isDigit(postal.charAt(index))) {
+                    return false;
+                }
+            } else if (Character.toUpperCase(slot) != Character.toUpperCase(postal.charAt(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Passes the survey by without answering it (LC-03-07-10): the survey
+     * disappears and NOTHING travels up — no answer was given. The register
+     * remembers the skip so the next poll of the same survey does not bring
+     * it straight back; the first DIFFERENT message or survey, or the
+     * channel's own silence, forgets the skip. A no-op when no survey is
+     * shown.
+     */
+    public void skipSurvey() {
+        LOGGER.info("Entering method skipSurvey");
+        if (state.backOfficeSurvey == null) {
+            LOGGER.info("Exiting method skipSurvey");
+            return;
+        }
+        state.skippedSurveyQuestion = state.backOfficeSurvey.question;
         state.backOfficeSurvey = null;
         state.backOfficeMessage = "";
         state.touch();
-        LOGGER.info("Exiting method answerSurvey");
+        LOGGER.info("Exiting method skipSurvey");
     }
 
     /**
@@ -1137,7 +1659,22 @@ public class HomeService {
     public void receiveBackOfficeMessage(String text, PosState.BackOfficeSurvey survey) {
         LOGGER.info("Entering method receiveBackOfficeMessage");
         state.backOfficeMessage = text == null ? "" : text;
-        state.backOfficeSurvey = survey;
+        // LC-03-07-10: a survey the operator PASSED BY is not shown again on
+        // the next poll of the same one — the register remembers the skip.
+        // The first DIFFERENT message or survey, or the channel's own blank
+        // answer, forgets it: a skip binds one survey, not the channel.
+        boolean skipped = survey != null && survey.question != null
+                && survey.question.equals(state.skippedSurveyQuestion);
+        state.backOfficeSurvey = skipped ? null : survey;
+        if (!skipped) {
+            state.skippedSurveyQuestion = null;
+        }
+        // LC-01-08-04: a message that has ARRIVED is consultable — the
+        // indicator stays until the operator acknowledges it, and a blank
+        // answer (the node taking the notice down, LC-01-08-05) lowers it
+        // again: there is nothing left to consult.
+        state.boMessageArrived = (text != null && !text.isBlank())
+                || (survey != null && !skipped);
         state.touch();
         LOGGER.info("Exiting method receiveBackOfficeMessage");
     }
@@ -1151,6 +1688,15 @@ public class HomeService {
      */
     public void submitPriceMod(PriceModType type, String uid, BigDecimal value) {
         LOGGER.info("Entering method submitPriceMod with type: " + type + ", uid: " + uid + ", value: " + value);
+        if (type == PriceModType.FORCE_PRICE && !itemAmountControlPassed(uid, value)) {
+            // BO-10-02-16: the control has spoken — it refused the figure, or it
+            // parked the gesture for a manager. Either way nothing is applied
+            // here, and the modal closes as it does after any submission.
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method submitPriceMod");
+            return;
+        }
         if (type == PriceModType.QUANTITY && (uid == null || uid.isBlank())) {
             // The modal opened with no target line because there was none to open
             // on: there is therefore no line to multiply, and the figure is armed
@@ -1212,10 +1758,89 @@ public class HomeService {
             state.ticket.setError(i18n.get("op.ligneIntrouvable"));
             return;
         }
+        // LC-03-02-10: a manual remise or discount on an already-reduced line is
+        // refused where the store forbids the cumulation — and the refusal is
+        // NAMED, which is what the line asks beyond the guard itself. The guard
+        // still lives in TicketService; this only composes it with the
+        // administered rule to say why nothing moved.
+        if ((type == PriceModType.REMISE || type == PriceModType.DISCOUNT)
+                && ticketService.isAlreadyReduced(item)
+                && !posSettingsService.discountCumulativeOnDiscounted()) {
+            state.ticket.setError(i18n.get("op.articleDejaRemise"));
+            return;
+        }
         if (type == PriceModType.REMISE) ticketService.applyRemise(item, value);
         else if (type == PriceModType.DISCOUNT) ticketService.applyDiscount(item, value);
         else if (type == PriceModType.FORCE_PRICE) ticketService.forcePrice(item, value);
         ticketService.recalculateTotal(state);
+    }
+
+    /**
+     * The ready-made discount keys the back office administers, for the
+     * price-modification modal to render (LC-03-02-02 and -04).
+     *
+     * @return the administered keys, in order, never null
+     */
+    public java.util.List<com.intermarche.pos.service.PosSettingsService.DiscountPreset> discountPresets() {
+        LOGGER.info("Entering method discountPresets");
+        LOGGER.info("Exiting method discountPresets");
+        return posSettingsService.discountPresets();
+    }
+
+    /**
+     * Applies one of the ready-made discount keys shown in the open
+     * price-modification modal (LC-03-02-02 and -04).
+     *
+     * <p>THE SAME GESTES as a keyed figure — the key decides nothing the
+     * register's guards do not already decide, and every refusal below is
+     * NAMED so the operator knows why nothing moved: the family switch
+     * (BO-03-07-01), a target line that vanished, a label nobody administered,
+     * and an already-reduced line the key is not allowed to pile on
+     * (BO-03-07-11). On success the modal closes like any submitted gesture.
+     *
+     * @param label the label of the administered key the operator tapped
+     */
+    public void applyPresetKey(String label) {
+        LOGGER.info("Entering method applyPresetKey with label: " + label);
+        if (!posSettingsService.discountEnabled()) {
+            state.ticket.setError(i18n.get("op.remisesDesactivees"));
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method applyPresetKey");
+            return;
+        }
+        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
+                posSettingsService.discountPreset(label);
+        if (preset == null) {
+            state.ticket.setError(i18n.get("op.presetInconnu"));
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method applyPresetKey");
+            return;
+        }
+        TicketState.TicketItem item = state.ticket.items.stream()
+                .filter(i -> i.uid.equals(state.priceModState.targetUid))
+                .findFirst()
+                .orElse(null);
+        if (item == null) {
+            state.ticket.setError(i18n.get("op.ligneIntrouvable"));
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method applyPresetKey");
+            return;
+        }
+        if (ticketService.isAlreadyReduced(item) && !preset.cumulative()) {
+            state.ticket.setError(i18n.get("op.articleDejaRemise"));
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method applyPresetKey");
+            return;
+        }
+        ticketService.applyPreset(item, label);
+        ticketService.recalculateTotal(state);
+        state.priceModState.clear();
+        state.touch();
+        LOGGER.info("Exiting method applyPresetKey");
     }
 
     /**
@@ -1259,6 +1884,13 @@ public class HomeService {
         if (!hasEan || weighedLine || item.priceEmbedded
                 || item.getTotalPrice().signum() < 0 || item.moneyProduct) {
             state.ticket.setError(i18n.get("op.quantiteNonModifiableLigne"));
+            return;
+        }
+        // BO-10-02-06: above the administered ceiling the shop decides what
+        // happens — nothing, a warning, a refusal, or a manager's aval. The
+        // absolute bounds below stand whatever the ceiling says: they are what
+        // the line can physically carry, not a policy.
+        if (value != null && !quantityControlPassed(uid, value)) {
             return;
         }
         if (item.decimalQuantity) {

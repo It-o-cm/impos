@@ -31,6 +31,18 @@ public class EndorsementState implements Serializable {
     /** The manager badge scanned during the endorsement, or null. */
     public String scannedBadge = null;
 
+    /**
+     * Who, at the back office, authorised the gesture this lane is holding
+     * ({@code BO-04-02-02}), or null when nobody did.
+     *
+     * <p>An authorisation and not a performance: it lets the pending gesture
+     * through without a code being typed at the till, and the cashier still
+     * presses the key they were pressing. Cleared with the request, like
+     * everything else here, so one authorisation can never serve a second
+     * gesture.
+     */
+    public String remoteGrant = null;
+
     /** The current endorsement error, or null. */
     public String error = null;
 
@@ -119,6 +131,7 @@ public class EndorsementState implements Serializable {
         this.requestedAction = null;
         this.error = null;
         this.scannedBadge = null;
+        this.remoteGrant = null;
         this.pendingForm = new java.util.LinkedHashMap<>();
         this.returnPath = null;
         clearPendingPrice();

@@ -122,6 +122,38 @@ public class FidelityService {
     }
 
     /**
+     * Confirms the replacement of the attached card by the one whose scan was
+     * parked (LC-03-04-08): the new card goes through the ONE attachment entry
+     * point, exactly as if it had been scanned on an empty ticket. A proposal
+     * already consumed — or parked for a card since detached — is a no-op.
+     *
+     * @param state the current POS state
+     */
+    public void confirmReplacement(PosState state) {
+        LOGGER.info("Entering method confirmReplacement with state: " + state);
+        String parked = state.fidelity.pendingReplacementCard;
+        if (parked != null && !parked.isBlank()) {
+            validateCard(state, parked);
+        }
+        state.fidelity.pendingReplacementCard = null;
+        LOGGER.info("Exiting method confirmReplacement");
+    }
+
+    /**
+     * Keeps the attached card and drops the parked replacement (LC-03-04-08):
+     * the second scan is the customer's or the operator's mistake, and the
+     * first holder keeps their advantages. Idempotent by construction.
+     *
+     * @param state the current POS state
+     */
+    public void keepReplacement(PosState state) {
+        LOGGER.info("Entering method keepReplacement with state: " + state);
+        state.fidelity.pendingReplacementCard = null;
+        state.touch();
+        LOGGER.info("Exiting method keepReplacement");
+    }
+
+    /**
      * Reads the attached card's account once to feed the main-screen summary
      * (status + available balance). Best effort under the breaker: a silent
      * degraded leaves the fields null and the screen simply shows the bare

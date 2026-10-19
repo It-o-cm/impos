@@ -85,6 +85,12 @@ class TicketLayoutGoldenMasterTest {
         service.posSettingsService = mock(PosSettingsService.class);
         when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(true);
         when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(true);
+        // The currency defaults of the catalogue, which print exactly what the
+        // register printed before the symbol became administrable: the symbol
+        // E, after the amount (BO-10-07-04/-05/-06).
+        when(service.posSettingsService.currencySymbolPrinted()).thenReturn(true);
+        when(service.posSettingsService.currencySymbol()).thenReturn("E");
+        when(service.posSettingsService.currencySymbolPosition()).thenReturn("RIGHT");
         return service;
     }
 
@@ -94,6 +100,46 @@ class TicketLayoutGoldenMasterTest {
      * @param service the printer under test
      * @return the printed content
      */
+    /**
+     * Opens a {@code PanacheEntityBase} static mock that answers every
+     * catalog lookup with nothing, for the tests that drive a printing
+     * funnel without a static mock of their own. The caller closes the mock
+     * through its own try-with-resources.
+     *
+     * @return the opened static mock, answering no row anywhere
+     */
+    private static MockedStatic<PanacheEntityBase> quietCatalog() {
+        MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+        silenceCatalog(panache);
+        return panache;
+    }
+
+    /**
+     * Neutralises the catalog lookups a rendering makes without the test's
+     * knowledge, inside a {@code MockedStatic<PanacheEntityBase>} scope and
+     * BEFORE the test's own stubs — the most recently registered stub wins, so
+     * the exact stubs must come after these catch-alls. {@code find} is reached
+     * by the VAT legal mentions ({@code VatRate.findByRate}), {@code list} by
+     * the per-line valuation lookup and the administered document names: a
+     * plain unit test has no persistence context to answer either with.
+     *
+     * @param panache the static mock the test holds open
+     */
+    private static void silenceCatalog(MockedStatic<PanacheEntityBase> panache) {
+        @SuppressWarnings("unchecked")
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> nothing =
+                mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
+                .thenReturn(java.util.List.of());
+    }
+
     private String captureReceipt(TicketPrinterService service) {
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
         verify(service.hardwareService).printReceipt(captor.capture());
@@ -186,6 +232,7 @@ class TicketLayoutGoldenMasterTest {
     void goldenSaleReceipt() {
         TicketPrinterService service = newService();
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            silenceCatalog(panache);
             assertGolden("sale-receipt", service.renderTicket(sale(), false, 0));
         }
     }
@@ -197,6 +244,7 @@ class TicketLayoutGoldenMasterTest {
     void goldenSaleReceiptDuplicata() {
         TicketPrinterService service = newService();
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            silenceCatalog(panache);
             assertGolden("sale-receipt-duplicata", service.renderTicket(sale(), true, 2));
         }
     }
@@ -218,6 +266,7 @@ class TicketLayoutGoldenMasterTest {
         valuation.correctionLabel = "AJUSTEMENT EGALIM";
         valuation.correctionAmount = new BigDecimal("0.42");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            silenceCatalog(panache);
             panache.when(() -> TicketLineValuation.list("ticket.id", 1L))
                     .thenReturn(java.util.List.of(valuation));
             assertGolden("sale-receipt-egalim", service.renderTicket(ticket, false, 0));
@@ -237,6 +286,7 @@ class TicketLayoutGoldenMasterTest {
         ticket.fidelityCard = "2990000000019";
         ticket.fidelityUnavailable = true;
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            silenceCatalog(panache);
             assertGolden("sale-receipt-fidelity-offline", service.renderTicket(ticket, false, 0));
         }
     }
@@ -300,7 +350,8 @@ class TicketLayoutGoldenMasterTest {
         Refund refund = new Refund();
         refund.totalAmount = new BigDecimal("7.90");
         refund.creationDate = NOW;
-        try (MockedStatic<DateTimeProvider> time = mockStatic(DateTimeProvider.class)) {
+        try (MockedStatic<DateTimeProvider> time = mockStatic(DateTimeProvider.class);
+                MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
             time.when(DateTimeProvider::now).thenReturn(NOW);
             service.printRefundVoucher(refund, "AV-000001", null);
         }

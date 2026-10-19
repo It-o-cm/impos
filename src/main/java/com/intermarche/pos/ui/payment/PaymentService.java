@@ -66,6 +66,29 @@ public class PaymentService {
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /**
+     * The register's own identity, for the cheque endorsement tokens
+     * (BO-03-02-43): a cheque back saying WHICH till took it is what a bank
+     * return is traced with.
+     */
+    @Inject
+    com.intermarche.pos.service.TicketNumberService ticketNumberService;
+
+    /**
+     * The point-of-sale number, for the cheque endorsement tokens
+     * ({@code BO-03-02-43}), absent on a register that has not been
+     * commissioned into the organisation tree.
+     *
+     * <p>An {@link java.util.Optional} and NOT a {@code String} carrying an
+     * empty default: SmallRye converts an empty default to null, and a
+     * non-optional injection point then fails the startup validation of the
+     * runtime configuration — the register would refuse to boot for the want
+     * of a number it does not need. The store node reads the same property the
+     * same way.
+     */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "pos.pdv.number")
+    java.util.Optional<String> pdvNumber;
+
     /** The administered tender rules — ceilings, change, drawer (BO-03-02). */
     @Inject
     TenderRulesService tenderRulesService;
@@ -117,6 +140,13 @@ public class PaymentService {
     @Inject
     com.intermarche.pos.ui.hardware.PrintPolicy printPolicy;
 
+    /**
+     * The seam to the store node's order store: tells the node an order
+     * recalled and settled at this till is closed (LC-06-03-07).
+     */
+    @Inject
+    com.intermarche.pos.ui.recall.BackOfficeDocumentClient documentClient;
+
     /** Emits the document the settlement calls for, at the closing (LC-08-04-16). */
     @Inject
     com.intermarche.pos.ui.invoice.InvoiceService invoiceService;
@@ -144,6 +174,10 @@ public class PaymentService {
 
     @Inject
     ValuationReconciler valuationReconciler;
+
+    /** The survey trigger of the transaction's end (LC-03-07-02). */
+    @Inject
+    com.intermarche.pos.ui.supervision.SurveyTriggerService surveyTriggerService;
 
     /** French display format for amounts on the customer display. */
     private final DecimalFormat df = new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
@@ -233,13 +267,6 @@ public class PaymentService {
     }
 
     /**
-     * Cancels the registered payments coherently: clears the in-memory list
-     * and removes the persisted payments from the draft, so a later restart
-     * recovery cannot resurrect them.
-     *
-     * @param state the current POS state
-     */
-    /**
      * Cancels a SINGLE registered payment without purging the others (EXP-63):
      * the entry leaves the in-memory list and the draft is re-persisted with the
      * remaining payments, so a restart recovery cannot resurrect the cancelled
@@ -253,11 +280,17 @@ public class PaymentService {
     public boolean cancelOnePayment(PosState state, int index) {
         LOGGER.info("Entering method cancelOnePayment with index: " + index);
         synchronized (state) {
+            PaymentState.PaymentEntry cancelled = index >= 0
+                    && index < state.payment.payments.size()
+                    ? state.payment.payments.get(index) : null;
             if (!state.payment.removePayment(index)) {
                 LOGGER.info("Exiting method cancelOnePayment");
                 return false;
             }
             Long ticketId = state.payment.ticketDbId;
+            // BO-03-02-35: the slip of the one settlement undone, printed once
+            // the removal succeeded — a refused index prints nothing.
+            printCancellationSlip(ticketId, cancelled);
             if (ticketId != null) {
                 // Re-persist the remaining payments through the same funnel used
                 // to add them: clear the persisted set, replay what survives.
@@ -272,6 +305,92 @@ public class PaymentService {
         }
     }
 
+    /**
+     * Prints the slip of a settlement paid by gift card (BO-03-03-11).
+     *
+     * <p>The REMAINING balance is what the issuer answered minus what was just
+     * settled: the register knows both and the customer is owed the
+     * subtraction. A balance the issuer did not state leaves the line out
+     * rather than printing a zero nobody verified.
+     *
+     * <p>A printer failure never fails the settlement: the money moved, the
+     * paper is its witness.
+     *
+     * @param state the current POS state
+     * @param cardNumber the gift-card number
+     * @param amount the amount just settled
+     * @param balanceBefore the balance the issuer answered, or null
+     */
+    private void printGiftCardPaymentSlip(PosState state, String cardNumber,
+                                          BigDecimal amount, BigDecimal balanceBefore) {
+        if (ticketPrinterService == null) {
+            return;
+        }
+        try {
+            BigDecimal remaining = balanceBefore == null
+                    ? null : balanceBefore.subtract(amount).max(BigDecimal.ZERO);
+            String ticketNumber = null;
+            if (state.payment.ticketDbId != null) {
+                com.intermarche.pos.domain.sale.Ticket ticket =
+                        com.intermarche.pos.domain.sale.Ticket.findById(state.payment.ticketDbId);
+                if (ticket != null) {
+                    ticketNumber = ticket.ticketNumber;
+                }
+            }
+            ticketPrinterService.printGiftCardPaymentReceipt(ticketNumber, cardNumber,
+                    amount, remaining);
+        } catch (Exception e) {
+            LOGGER.warnf("Justificatif carte cadeau non imprime: %s", e.getMessage());
+        }
+    }
+
+    /**
+     * Prints the slip of one cancelled settlement (BO-03-02-35).
+     *
+     * <p>The tender's ADMINISTERED wording is used when the referential carries
+     * one, and the settlement key otherwise: a slip naming "CHEQUE" to a
+     * customer who was handed back a cheque is the point, and a store that has
+     * not filled the referential in still gets a readable paper.
+     *
+     * <p>A printer failure never fails the cancellation: giving the cheque back
+     * is the gesture, the paper is its witness. The register logs and goes on.
+     *
+     * @param ticketId the draft the settlement was on, or null
+     * @param entry the cancelled settlement, or null when there was none
+     */
+    private void printCancellationSlip(Long ticketId, PaymentState.PaymentEntry entry) {
+        if (entry == null || ticketPrinterService == null) {
+            return;
+        }
+        try {
+            String label = entry.method;
+            com.intermarche.pos.domain.payment.TenderDefinition tender =
+                    com.intermarche.pos.domain.payment.TenderDefinition.findByCode(entry.method);
+            if (tender != null && tender.label != null && !tender.label.isBlank()) {
+                label = tender.label;
+            }
+            String ticketNumber = null;
+            if (ticketId != null) {
+                com.intermarche.pos.domain.sale.Ticket ticket =
+                        com.intermarche.pos.domain.sale.Ticket.findById(ticketId);
+                if (ticket != null) {
+                    ticketNumber = ticket.ticketNumber;
+                }
+            }
+            ticketPrinterService.printPaymentCancellation(ticketNumber, label, entry.amount);
+        } catch (Exception e) {
+            LOGGER.warnf("Ticket d'annulation de reglement non imprime: %s", e.getMessage());
+        }
+    }
+
+    /**
+     * Cancels the registered payments coherently: clears the in-memory list
+     * and removes the persisted payments from the draft, so a later restart
+     * recovery cannot resurrect them. Each cancelled settlement leaves its own
+     * slip (BO-03-02-35).
+     *
+     * @param state the current POS state
+     */
     public void cancelPayments(PosState state) {
         LOGGER.info("Entering method cancelPayments with state: " + state);
         // Single-writer discipline (see initPayment).
@@ -295,6 +414,12 @@ public class PaymentService {
             state.payment.valuationMealEligible = null;
             state.payment.valuationMealThreshold = null;
             state.payment.valuationUpsells = new java.util.ArrayList<>();
+            // BO-03-02-35: a settlement undone is an event. One slip per
+            // settlement the customer actually handed over, printed BEFORE the
+            // list is cleared — afterwards there is nothing left to name.
+            for (PaymentState.PaymentEntry entry : state.payment.payments) {
+                printCancellationSlip(ticketId, entry);
+            }
             state.clearPayments();
             // Back to the cart: revalue immediately so the screen shows engine
             // totals again without waiting for the next mutation
@@ -331,6 +456,14 @@ public class PaymentService {
         // Single-writer discipline (see initPayment).
         synchronized (state) {
             if (tendered == null || tendered.signum() <= 0) return false;
+
+            // BO-03-02-27/-29: what a SELF-SERVICE lane may settle with, and
+            // what it calls the technical hostess for. Opposed before anything
+            // is registered, like every other administered tender rule.
+            if (!selfServiceTenderAllowed(state, methodKey, displayName, tendered)) {
+                state.touch();
+                return false;
+            }
 
             BigDecimal remaining = state.getRemaining();
             BigDecimal amountToPay = tendered.min(remaining);
@@ -442,7 +575,13 @@ public class PaymentService {
             return;
         }
         String number = ticketPersistenceService.issueChangeCreditNote(ticketId, owed);
-        if (number != null) {
+        // BO-03-03-01: the note is ISSUED whatever the printing rule — it is a
+        // registry fact and a balance the customer owns — but it is only
+        // PRINTED when the shop named it among the forced documents, because
+        // the end-of-transaction screen cannot ask for it.
+        if (number != null
+                && printPolicy.isAssociatedDocumentPrinted(
+                        com.intermarche.pos.ui.hardware.PrintPolicy.DOCUMENT_CREDIT_NOTE)) {
             ticketPrinterService.printChangeVoucher(number, owed);
         }
     }
@@ -478,6 +617,85 @@ public class PaymentService {
      * @param tendered the amount handed over
      * @param verdict the rule the settlement broke
      */
+    /**
+     * Opposes the self-service rules of a tender (BO-03-02-27 and -29).
+     *
+     * <p>Nothing changes on a MANNED till: both rules are read off the
+     * register's own kind, which the back office distributed on its checkout
+     * point, and a till the referential does not describe is treated as manned
+     * — a lane missing from the referential is a referential problem, not a
+     * reason to refuse a customer at the one moment they are paying.
+     *
+     * <p>On a self-service lane, a tender the store forbade there is refused
+     * and says so; a tender the store watches there raises the SAME supervisor
+     * hold every administered tender rule raises, so the hostess sees the panel
+     * she already knows. The hold is skipped when an authorization is already
+     * in hand, or the hostess would be called for the settlement she just
+     * allowed.
+     *
+     * @param state the current POS state
+     * @param methodKey the settlement key being registered
+     * @param displayName the tender's wording, for the supervisor panel
+     * @param tendered the amount handed over
+     * @return true when the settlement may go on
+     */
+    private boolean selfServiceTenderAllowed(PosState state, String methodKey,
+                                             String displayName, BigDecimal tendered) {
+        if (!selfServicePoint()) {
+            return true;
+        }
+        com.intermarche.pos.domain.payment.TenderDefinition tender;
+        try {
+            tender = com.intermarche.pos.domain.payment.TenderDefinition.findByCode(methodKey);
+        } catch (Exception e) {
+            // A referential this register cannot read opposes nothing.
+            return true;
+        }
+        if (tender == null) {
+            return true;
+        }
+        if (!tender.selfServiceAllowed) {
+            state.ticket.setError(i18n.get("op.reglementIndisponibleLibreService"));
+            return false;
+        }
+        if (tender.selfServiceSupervision
+                && !overrideCovers(state, methodKey,
+                        new TenderRulesService.Verdict(
+                                com.intermarche.pos.domain.payment.TenderDefinition
+                                        .ControlLevel.SUPERVISOR,
+                                i18n.get("op.reglementSurveilleLibreService")))) {
+            holdForSupervisor(state, methodKey, displayName, tendered,
+                    new TenderRulesService.Verdict(
+                            com.intermarche.pos.domain.payment.TenderDefinition
+                                    .ControlLevel.SUPERVISOR,
+                            i18n.get("op.reglementSurveilleLibreService")));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether this register is a SELF-SERVICE lane (BO-03-02-27).
+     *
+     * <p>Read off the checkout point the back office distributed, which is the
+     * only description of a register that does not depend on the register
+     * believing something about itself. A point nobody described, or a
+     * referential that cannot be read, answers "manned".
+     *
+     * @return true when the register stands on a self-service point
+     */
+    private boolean selfServicePoint() {
+        try {
+            String terminalId = ticketNumberService == null
+                    ? null : ticketNumberService.getTerminalId();
+            com.intermarche.pos.domain.store.CheckoutPoint point =
+                    com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(terminalId);
+            return point != null && point.isSelfService();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void holdForSupervisor(PosState state, String methodKey, String displayName,
             BigDecimal tendered, TenderRulesService.Verdict verdict) {
         state.payment.tenderHeldMethod = methodKey;
@@ -731,6 +949,33 @@ public class PaymentService {
     }
 
     /**
+     * Applies the CARD PAYMENT control point (BO-10-02-10).
+     *
+     * <p>Answers whether the card may be used, and leaves its sentence on the
+     * sale screen when it may not.
+     *
+     * @param state the current POS state
+     * @return true when the settlement may go on
+     */
+    private boolean cardPaymentAllowed(PosState state) {
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.CARD_PAYMENT);
+        // BO-03-10-14: an island may silence the non-blocking alerts tied to a
+        // tender. The refusal below is NOT silenced: a card the store forbids
+        // stays forbidden and says so.
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN) {
+            if (!posSettingsService.islandBlockPaymentPopups()) {
+                state.ticket.setWarning(endorsementService.controlMessage(
+                        com.intermarche.pos.ui.endorsement.ControlPoint.CARD_PAYMENT, level));
+            }
+        } else if (!level.allows()) {
+            state.ticket.setError(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.CARD_PAYMENT, level));
+        }
+        return level.allows();
+    }
+
+    /**
      * Registers a card payment; the amount defaults to the remaining due.
      *
      * @param state the current POS state
@@ -740,6 +985,11 @@ public class PaymentService {
         LOGGER.info("Entering method processCard with state: " + state + ", amount: " + amount);
         if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
         if (amount.signum() <= 0) { LOGGER.info("Exiting method processCard"); return; }
+        // BO-10-02-10: the shop may watch the use of the card at this register
+        // — nothing, a warning, or a refusal. Said BEFORE the terminal is asked
+        // anything, because a transaction started is a transaction to undo. The
+        // point is not endorsable: see ControlPoint.isEndorsable().
+        if (!cardPaymentAllowed(state)) { LOGGER.info("Exiting method processCard"); return; }
 
         // One transaction at a time: the pending amount is the UI-facing
         // in-flight marker, whatever the terminal implementation.
@@ -1089,6 +1339,12 @@ public class PaymentService {
                 LOGGER.info("Exiting method processSupplierGiftCard");
                 return;
             }
+            // BO-03-03-11: the slip of a settlement PAID by gift card, which is
+            // not the voucher a customer buying one walks away with. What it
+            // adds is the balance the card still carries — the one question
+            // asked at the counter — and that balance is the issuer's answer
+            // minus what was just spent.
+            printGiftCardPaymentSlip(state, cardNumber, amount, balance);
         }
         LOGGER.info("Exiting method processSupplierGiftCard");
     }
@@ -1194,8 +1450,65 @@ public class PaymentService {
      * @return the endorsement, one line per newline
      */
     private String endorsementText(BigDecimal amount) {
-        return java.time.LocalDateTime.now().format(ENDORSEMENT_DATE)
-                + "\n" + df.format(amount) + " EUR";
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        String administered = posSettingsService == null
+                ? null : posSettingsService.chequeEndorsementLines();
+        if (administered == null || administered.isBlank()) {
+            // Nothing administered: the date and the amount, exactly as before
+            // the key existed (BO-03-02-43).
+            return now.format(ENDORSEMENT_DATE) + "\n" + df.format(amount) + " EUR";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String line : administered.split(";")) {
+            String rendered = fillEndorsementTokens(line.trim(), now, amount);
+            if (rendered.isEmpty()) {
+                // An empty administered line prints nothing rather than a blank
+                // band: paper on the back of a cheque is scarce.
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(rendered);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Substitutes the endorsement tokens of one administered line
+     * (BO-03-02-43).
+     *
+     * <p>A token the register cannot answer renders EMPTY rather than leaving
+     * the token visible: a cheque carrying {@code {pdv}} in ink is worse than
+     * one carrying nothing there.
+     *
+     * @param line the administered line
+     * @param now the moment the cheque is being taken
+     * @param amount the amount the cheque settles
+     * @return the line with its tokens replaced
+     */
+    private String fillEndorsementTokens(String line, java.time.LocalDateTime now,
+                                         BigDecimal amount) {
+        return line
+                .replace("{date}", now.format(java.time.format.DateTimeFormatter
+                        .ofPattern("dd/MM/yyyy")))
+                .replace("{heure}", now.format(java.time.format.DateTimeFormatter
+                        .ofPattern("HH:mm")))
+                .replace("{montant}", df.format(amount))
+                .replace("{caisse}", ticketNumberService == null
+                        ? "" : safeText(ticketNumberService.getTerminalId()))
+                .replace("{pdv}", safeText(pdvNumber == null ? null : pdvNumber.orElse(null)))
+                .trim();
+    }
+
+    /**
+     * Returns a text, never null.
+     *
+     * @param value the text, or null
+     * @return the text, or the empty string
+     */
+    private String safeText(String value) {
+        return value == null ? "" : value;
     }
 
     /**
@@ -1500,12 +1813,22 @@ public class PaymentService {
             com.intermarche.pos.ui.hardware.PrintPolicy.Decision decision =
                     printPolicy.decide(choice, ticket, state.payment.cardSignatureRequired);
             if (decision.saleTicket()) {
-                ticketPrinterService.printTicket(ticketId);
+                // BO-03-03-36: the exit ticket REPLACES the sale receipt where
+                // the store administers it — substitutive, not one ticket more.
+                // It answers zero when it is not administered, and the receipt
+                // prints exactly as before.
+                if (ticketPrinterService.printExitTicket(ticketId) == 0) {
+                    ticketPrinterService.printTicket(ticketId);
+                }
             }
             if (decision.cardReceipt()) {
                 ticketPrinterService.printCardReceipt(ticketId,
                         state.payment.cardSignatureRequired, null);
             }
+            // BO-03-02-26, -31, -32 and -33: the slip of each tender used,
+            // AFTER the receipt and not instead of it. A tender administered
+            // "forced printing" comes out even when the receipt did not.
+            ticketPrinterService.printTenderSlips(ticket, decision.saleTicket());
             state.payment.printApplied = true;
             state.touch();
         }
@@ -1622,12 +1945,18 @@ public class PaymentService {
                 // their handover slip, additional to the receipt. After the
                 // receipt, because it states a PAID sale — the desk hands goods
                 // over against a sale that is over.
-                ticketPrinterService.printCollectionVoucher(ticketId);
+                if (printPolicy.isAssociatedDocumentPrinted(
+                        com.intermarche.pos.ui.hardware.PrintPolicy.DOCUMENT_COLLECTION)) {
+                    ticketPrinterService.printCollectionVoucher(ticketId);
+                }
                 // BO-03-03-10: a settlement taken on the loyalty balance gets
                 // its own slip, additional to the receipt and after it — the
                 // proof the customer comes back with on a disputed cagnotte
                 // débit. A sale that did not touch the balance prints nothing.
-                ticketPrinterService.printLoyaltyReceipt(ticketId);
+                if (printPolicy.isAssociatedDocumentPrinted(
+                        com.intermarche.pos.ui.hardware.PrintPolicy.DOCUMENT_LOYALTY)) {
+                    ticketPrinterService.printLoyaltyReceipt(ticketId);
+                }
                 // LC-08-04-16: the settlement may call for a document of its own —
                 // typically an invoice on a sale paid by customer credit. It is
                 // emitted here, after the receipt, because it states a CLOSED sale
@@ -1652,6 +1981,19 @@ public class PaymentService {
                 issueChangeCreditNote(state, ticketId);
             }
 
+            // LC-06-03-07: a sale that settles a recalled order closes that
+            // order. Told AFTER the fiscal moment and tolerantly — the sale is
+            // closed whatever the node answers, and the push exists so the
+            // same code cannot be recalled and paid twice.
+            if (state.recalledOrderCode != null) {
+                documentClient.settleOrder(state.recalledOrderCode);
+            }
+
+            // LC-03-07-02: the transaction is ending — ask for the survey
+            // administered for that moment BEFORE the broom clears the
+            // per-transaction flags, so the banner reads on the sale screen
+            // the cashier lands on.
+            surveyTriggerService.fireOnTransactionEnd(state);
             hardwareService.displayMessage(i18n.both("display.merciBientot"));
             state.clearTicket();
         }

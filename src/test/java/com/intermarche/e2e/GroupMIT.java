@@ -286,7 +286,10 @@ public class GroupMIT {
     private void openThemeSelector(Page page) {
         Locator themeLink = page.locator("a[href='/theme-select']");
         if (themeLink.count() == 0) {
-            page.locator("a[href='/action/menu/poste']").click();
+            // The theme key lives in the AUTRE menu since the five-menu rework
+            // (PosMenu.AUTRE): the bottom bar is the menu selector, and the key
+            // that opens that menu carries its own URL key.
+            page.locator("a[href='/action/menu/autre']").click();
         }
         themeLink.first().click();
         // The selector title is now a top-bar span "Thème d'affichage" (CSS
@@ -532,6 +535,9 @@ public class GroupMIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

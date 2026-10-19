@@ -91,28 +91,33 @@ public class GroupQIT {
     /**
      * Q1 — Mouvement générique.
      * <p>
-     * A cash withdrawal below the threshold records directly ({@code MOUVEMENT
-     * ENREGISTRÉ}, a {@link CashMovement} row with an empty tender = cash); an
-     * unknown type is refused ({@code TYPE DE MOUVEMENT INVALIDE}, no row); in
-     * training it is refused ({@code INDISPONIBLE EN FORMATION}); above the
-     * administered threshold it is parked into a manager endorsement and recorded
-     * only once granted.
+     * The generic screen now offers only EXPENSE, CUSTOMER_DEPOSIT and DECLARATION
+     * (apport/prélèvement/transfert moved to their own screens). A below-threshold
+     * customer down-payment records directly ({@code MOUVEMENT ENREGISTRÉ}, a
+     * {@link CashMovement} row with no tender = cash, crediting the drawer cash the
+     * Q3 transfer draws on); an unknown type is refused ({@code TYPE DE MOUVEMENT
+     * INVALIDE}, no row); in training it is refused ({@code INDISPONIBLE EN
+     * FORMATION}); above the administered threshold it is parked into a manager
+     * endorsement and recorded only once granted.
      */
     @Test
     void q1_mouvement_generique() {
         ensureOpenSession();
-        // --- Nominal cash deposit below threshold (a deposit adds drawer cash,
-        //     which the shared-session transfer in Q3 later draws on) ---
+        // --- Nominal below-threshold customer down-payment (CUSTOMER_DEPOSIT is the
+        //     generic-screen type that credits the drawer cash — cashImpact adds its
+        //     amount — which the shared-session transfer in Q3 later draws on). Its
+        //     order reference is mandatory, keyed on the alpha keyboard. ---
         long before = movementCount();
         Page page = login();
         page.navigate(base.toString() + "cash-movement");
-        page.locator("#type").selectOption("DEPOSIT");
+        page.locator("#type").selectOption("CUSTOMER_DEPOSIT");
         enterAmount(page, "#amountKbArea", "10,00");
+        enterReference(page, "REF");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("ENREGISTRER LE MOUVEMENT").setExact(true)).click();
         page.getByText("MOUVEMENT ENREGISTRÉ").waitFor();
         Assertions.assertEquals(before + 1, movementCount(), "a below-threshold movement must record exactly one row");
-        Assertions.assertNull(lastMovementTender(), "an empty tender must record as cash (null)");
+        Assertions.assertNull(lastMovementTender(), "a customer down-payment records against cash (null tender)");
         closeDrawer();
         page.close();
         // --- Unknown type: refused directly (the select cannot hold it, so post it) ---
@@ -125,8 +130,10 @@ public class GroupQIT {
         try {
             long beforeT = movementCount();
             t.navigate(base.toString() + "cash-movement");
-            t.locator("#type").selectOption("DEPOSIT");
+            t.locator("#type").selectOption("CUSTOMER_DEPOSIT");
             enterAmount(t, "#amountKbArea", "10,00");
+            // No reference needed: the training guard is the first check in record(),
+            // short-circuiting before the per-type field validation (rejectionOf).
             t.getByRole(AriaRole.BUTTON,
                     new Page.GetByRoleOptions().setName("ENREGISTRER LE MOUVEMENT").setExact(true)).click();
             t.getByText("INDISPONIBLE EN FORMATION").waitFor();
@@ -139,8 +146,12 @@ public class GroupQIT {
         long beforeHigh = movementCount();
         Page h = login();
         h.navigate(base.toString() + "cash-movement");
-        h.locator("#type").selectOption("DEPOSIT");
+        h.locator("#type").selectOption("CUSTOMER_DEPOSIT");
         enterAmount(h, "#amountKbArea", "200,00");
+        // The reference is mandatory even above the threshold: rejectionOf runs
+        // before the endorsement park, so a blank reference would refuse the line
+        // with "reference" instead of parking a manager endorsement.
+        enterReference(h, "REF");
         h.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("ENREGISTRER LE MOUVEMENT").setExact(true)).click();
         Assertions.assertTrue(posState.endorsement.active,
@@ -338,7 +349,7 @@ public class GroupQIT {
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
         page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
-        tapDigits(page.locator("#payNumpadZone"), "6");
+        tapDigits(page.locator("#payNumpadZone"), "600");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER ESPÈCES").setExact(true)).click();
         page.getByText("TRANSACTION TERMINÉE").waitFor();
@@ -373,6 +384,27 @@ public class GroupQIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
+    /**
+     * Keys a customer down-payment order reference on the shared pad. Touching the
+     * reference display repoints PosInput onto the alpha keyboard (letters only, no
+     * digits) rendered in the same {@code #amountKbArea} container, keeping the
+     * amount already typed in its own hidden field; each letter is then tapped.
+     *
+     * @param page the Playwright page
+     * @param reference the order reference to key (letters only)
+     */
+    private void enterReference(Page page, String reference) {
+        page.locator("#referenceDisplay").click();
+        Locator keypad = page.locator("#amountKbArea");
+        for (char key : reference.toCharArray()) {
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

@@ -85,6 +85,8 @@ public class CashMovementResource {
     @Inject CashSessionService cashSessionService;
     @Inject CashMovementService cashMovementService;
     @Inject PosSettingsService posSettingsService;
+    /** The administered lists: expense justifications (BO-04-03-12). */
+    @Inject com.intermarche.pos.service.PosListService posListService;
     @Inject EndorsementService endorsementService;
     @Inject com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
     @Inject com.intermarche.pos.service.TicketNumberService ticketNumberService;
@@ -125,7 +127,8 @@ public class CashMovementResource {
         LOGGER.info("Exiting method cashMovementPage");
         return cashMovement
                 .data("state", state)
-                .data("reasons", posSettingsService.cashMovementReasons())
+                .data("reasons", posListService.justifications(
+                        com.intermarche.pos.service.PosListService.FUNCTION_EXPENSE))
                 .data("tenders", posSettingsService.cashMovementTenders())
                 .data("threshold", posSettingsService.cashMovementEndorsementThreshold().toPlainString())
                 .data("saved", ok != null)

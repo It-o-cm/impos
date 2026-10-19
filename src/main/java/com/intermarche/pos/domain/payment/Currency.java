@@ -56,6 +56,22 @@ public class Currency extends PanacheEntity {
     public int displayOrder = 0;
 
     /**
+     * The tender the CHANGE of a settlement in this currency is given in
+     * (BO-03-02-39); null to give it in euros.
+     *
+     * <p>A frontier store takes francs and hands back euros, or takes francs
+     * and hands back francs: the questionnaire calls that choice the "monnaie
+     * d'échange" and it belongs to the currency accepted, not to the store —
+     * one store may accept two currencies and answer them differently.
+     *
+     * <p>A tender CODE and not a currency code, because the change leaves the
+     * drawer as a settlement does: giving change in francs means the drawer
+     * holds a franc tender, and naming the tender says which.
+     */
+    @Column(name = "change_tender_code", length = 20)
+    public String changeTenderCode;
+
+    /**
      * Lists the currencies the till offers, in administered order.
      *
      * @return the active currencies, empty when the shop takes none

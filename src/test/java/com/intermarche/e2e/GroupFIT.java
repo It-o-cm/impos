@@ -192,7 +192,7 @@ public class GroupFIT {
         // --- Exact: 6,00 € tendered on a 6,00 € ticket -> complete, no change ---
         Page exact = freshSaleWithHuile();
         goPay(exact);
-        payThroughScreen(exact, "ESPÈCES", "cashForm", "6", false);
+        payThroughScreen(exact, "ESPÈCES", "cashForm", "600", false);
         exact.getByText("TRANSACTION TERMINÉE").waitFor();
         Assertions.assertTrue(posState.payment.transactionComplete, "exact cash must complete the transaction");
         Assertions.assertEquals(0, posState.payment.lastChangeAmount.compareTo(BigDecimal.ZERO),
@@ -205,7 +205,7 @@ public class GroupFIT {
         // --- Overpaid: 10,00 € tendered on a 6,00 € ticket -> 4,00 € change ---
         Page over = freshSaleWithHuile();
         goPay(over);
-        payThroughScreen(over, "ESPÈCES", "cashForm", "10", false);
+        payThroughScreen(over, "ESPÈCES", "cashForm", "1000", false);
         // Cash OPENS the drawer, so the page that came back may be the drawer
         // interstitial: the settlement is a SERVER fact, and the modal is
         // only reachable once the drawer is shut and /pay re-rendered.
@@ -241,7 +241,7 @@ public class GroupFIT {
         Page page = freshSaleWithHuile();
         goPay(page);
         // Card 4,00 €: parked on the virtual terminal, accepted by the simulator.
-        payThroughScreen(page, "CARTE BANCAIRE", "cardForm", "4", true);
+        payThroughScreen(page, "CARTE BANCAIRE", "cardForm", "400", true);
         page.getByText("PAIEMENT CARTE EN COURS").waitFor();
         Assertions.assertEquals(0, posState.payment.pendingCardAmount.compareTo(new BigDecimal("4.00")),
                 "the parked card request must carry the 4,00 € partial amount");
@@ -255,7 +255,7 @@ public class GroupFIT {
         Assertions.assertEquals(0, posState.getRemaining().compareTo(new BigDecimal("2.00")),
                 "6,00 € minus a 4,00 € card must leave 2,00 € due");
         // Cash 2,00 €: clears the balance.
-        payThroughScreen(page, "ESPÈCES", "cashForm", "2", false);
+        payThroughScreen(page, "ESPÈCES", "cashForm", "200", false);
         page.getByText("TRANSACTION TERMINÉE").waitFor();
         Assertions.assertEquals(2, posState.payment.payments.size(), "two tenders must yield two entries");
         Assertions.assertEquals("CASH", posState.payment.payments.get(1).method,
@@ -358,7 +358,7 @@ public class GroupFIT {
         goPay(catalina);
         scan(CATALINA_NUMBER);
         catalina.getByText("saisir le montant").waitFor();
-        enterVoucherAmount(catalina, "3");
+        enterVoucherAmount(catalina, "300");
         catalina.getByText("RESTE :").waitFor();
         PaymentEntryView v2 = lastPayment();
         Assertions.assertEquals("Catalina", v2.method, "the Catalina entry must carry its label");
@@ -372,7 +372,7 @@ public class GroupFIT {
         goPay(generic);
         selectVoucherType(generic, "GENERIC");
         generic.getByText("saisir le montant").waitFor();
-        enterVoucherAmount(generic, "2");
+        enterVoucherAmount(generic, "200");
         generic.getByText("RESTE :").waitFor();
         PaymentEntryView v3 = lastPayment();
         Assertions.assertEquals("Bon générique", v3.method, "the generic entry must carry its label");
@@ -447,7 +447,7 @@ public class GroupFIT {
                         + ", assiette " + mealBase);
         BigDecimal chequeAmount = total.subtract(trAmount);
         // Cheque first (its form prefills the full remaining, hence the clear).
-        payThroughScreen(page, "CHÈQUE", "chequeForm", chequeAmount.toPlainString(), true);
+        payThroughScreen(page, "CHÈQUE", "chequeForm", chequeAmount.movePointRight(2).toBigInteger().toString(), true);
         // The cheque is READ on a follower thread and only registered once read;
         // wait on the settled server state (remaining drops to the TR balance),
         // NOT on the drawer pulse, which races that asynchronous read.
@@ -458,7 +458,7 @@ public class GroupFIT {
         // is done); the next payment POST is drawer-guarded, so push it shut.
         waitForDrawer("OPEN");
         closeDrawer();
-        payThroughScreen(page, "TICKET RESTO", "trForm", trAmount.toPlainString(), false);
+        payThroughScreen(page, "TICKET RESTO", "trForm", trAmount.movePointRight(2).toBigInteger().toString(), false);
         Assertions.assertTrue(posState.payment.payments.stream()
                         .anyMatch(p -> "TR".equals(p.method)),
                 "le paiement TR doit s'enregistrer — assiette TR = " + mealBase
@@ -536,7 +536,7 @@ public class GroupFIT {
         // --- Sale 1: settle, print the still-OPEN draft, then close it ---
         Page s1 = freshSaleWithHuile();
         goPay(s1);
-        payThroughScreen(s1, "ESPÈCES", "cashForm", "6", false);
+        payThroughScreen(s1, "ESPÈCES", "cashForm", "600", false);
         s1.getByText("TRANSACTION TERMINÉE").waitFor();
         Long id1 = posState.payment.ticketDbId;
         Assertions.assertNotNull(id1, "the settled sale must carry a persisted draft");
@@ -558,7 +558,7 @@ public class GroupFIT {
         // --- Sale 2: settle and close ---
         Page s2 = freshSaleWithBaguette();
         goPay(s2);
-        payThroughScreen(s2, "ESPÈCES", "cashForm", "1", false);
+        payThroughScreen(s2, "ESPÈCES", "cashForm", "100", false);
         s2.getByText("TRANSACTION TERMINÉE").waitFor();
         Long id2 = posState.payment.ticketDbId;
         Assertions.assertNotNull(id2, "the second settled sale must carry a persisted draft");
@@ -982,7 +982,7 @@ public class GroupFIT {
             Page page = freshSaleWithHuile();
             goPay(page);
             long notesBefore = countCreditNotes();
-            payThroughScreen(page, "ESPÈCES", "cashForm", "10", true);
+            payThroughScreen(page, "ESPÈCES", "cashForm", "1000", true);
             waitForSettlement();
             // The RENDU EN AVOIR message rides the customer display (overwritten by
             // later polls), so the credit-note routing is asserted on the durable
@@ -1575,6 +1575,9 @@ public class GroupFIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

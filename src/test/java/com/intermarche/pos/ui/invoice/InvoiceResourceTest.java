@@ -23,6 +23,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.MockedStatic;
+import static org.mockito.Mockito.mockStatic;
 
 /**
  * Unit tests for {@link InvoiceResource}.
@@ -47,6 +53,38 @@ import static org.mockito.Mockito.when;
  * document).
  */
 class InvoiceResourceTest {
+    /** The static mock silencing the catalog for every test, closed after each. */
+    private MockedStatic<PanacheEntityBase> panache;
+
+    /**
+     * The document funnels of this class read the VAT referential (the legal
+     * mentions, {@code VatRate.findByRate}) and, in places, the administered
+     * document names — plain unit tests have no persistence context to
+     * answer either with, so the catalog is silent for every test: no rate
+     * resolves to a regime, so no mention prints, and every layout falls
+     * back to the register's own wording.
+     */
+    @BeforeEach
+    void silenceTheCatalog() {
+        panache = mockStatic(PanacheEntityBase.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Object> nothing = mock(PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(anyString(), any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(anyString(), any(Object[].class)))
+                .thenReturn(java.util.List.of());
+    }
+
+    /**
+     * Closes the static mock the {@code @BeforeEach} opened, on the same
+     * thread Mockito requires.
+     */
+    @AfterEach
+    void closeTheCatalog() {
+        panache.close();
+    }
+
 
     /**
      * Builds an {@link InvoiceResource} whose collaborators are fresh mocks wired onto

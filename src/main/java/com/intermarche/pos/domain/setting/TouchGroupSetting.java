@@ -44,6 +44,52 @@ public class TouchGroupSetting extends BaseEntity {
     /** The default touch size, applied to any group with no administered row. */
     public static final String DEFAULT_BUTTON_SIZE = "NORMAL";
 
+    /**
+     * The ISLANDS this group is drawn on (BO-03-01-21), codes separated by
+     * {@code ;}, or null/empty for EVERY island.
+     *
+     * <p>Empty means every island and not none: a group nobody scoped is a
+     * group every register shows, which is how the grid behaved before the
+     * column existed. The same doctrine as the tender and document
+     * referentials — an unadministered key keeps the register's behaviour.
+     *
+     * <p>The link is by CODE, like every other link of the store model.
+     */
+    @Column(name = "island_codes", length = 500)
+    public String islandCodes;
+
+    /**
+     * The REGISTERS this group is drawn on (BO-03-01-22), terminal identifiers
+     * separated by {@code ;}, or null/empty for every register.
+     */
+    @Column(name = "terminal_ids", length = 500)
+    public String terminalIds;
+
+    /**
+     * The KINDS of point of contact this group is drawn on (BO-03-01-23),
+     * {@code TpvType} names separated by {@code ;}, or null/empty for every
+     * kind.
+     *
+     * <p>A kind and not a list of registers: "every self-service point" is a
+     * rule that must survive the opening of the next one, which a list of
+     * terminals does not.
+     */
+    @Column(name = "tpv_types", length = 200)
+    public String tpvTypes;
+
+    /**
+     * The group's label in other languages, as {@code lang=libellé} pairs
+     * separated by semicolons (BO-03-01-19), or null when the group is named in
+     * one language only.
+     *
+     * <p>Held on the TOUCH configuration and not on the nomenclature, for the
+     * reason this whole row exists: the nomenclature comes from the gestion
+     * commerciale and is replaced whole at every integration, while a wording
+     * a store typed for its Dutch-speaking customers must survive that.
+     */
+    @Column(name = "labels", length = 500)
+    public String labels;
+
     /** The code of the article group this row configures (upsert key). */
     @Column(name = "family_code", nullable = false, length = 50, unique = true)
     @NotBlank(message = "Family code is mandatory")
@@ -87,6 +133,84 @@ public class TouchGroupSetting extends BaseEntity {
      * Default constructor for JPA.
      */
     public TouchGroupSetting() {
+    }
+
+    /**
+     * The group's label in a given language (BO-03-01-19), or null when the
+     * configuration carries none for it.
+     *
+     * <p>Same syntax as the article labels, for the same reason a store should
+     * only have to learn one: {@code nl=Zuivel;pt=Lacteos}. A tag nobody
+     * administered, a pair with no language, a pair with no wording and an
+     * empty wording all answer null, so the caller falls back to the group's
+     * own description rather than drawing a blank touch.
+     *
+     * @param language the language tag (fr, nl, pt), or null
+     * @return the translated label, or null when none is administered
+     */
+    public String translatedLabel(String language) {
+        if (language == null || language.isBlank() || labels == null || labels.isBlank()) {
+            return null;
+        }
+        String wanted = language.trim().toLowerCase();
+        for (String entry : labels.split(";")) {
+            int equals = entry.indexOf('=');
+            if (equals <= 0 || equals == entry.length() - 1) {
+                continue;
+            }
+            String tag = entry.substring(0, equals).trim().toLowerCase();
+            String label = entry.substring(equals + 1).trim();
+            if (tag.equals(wanted) && !label.isEmpty()) {
+                return label;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Indicates whether this group is drawn on the register described by the
+     * three values (BO-03-01-21, -22 and -23).
+     *
+     * <p>The three scopes are INDEPENDENT and cumulative: a group scoped to an
+     * island and to a kind is drawn on the registers that are in that island
+     * AND of that kind. Each scope left empty does not restrict anything, so a
+     * group with no scope at all is drawn everywhere.
+     *
+     * @param terminalId the register's identifier, or null when unknown
+     * @param islandCode the code of the island it belongs to, or null
+     * @param tpvType the name of its kind, or null
+     * @return true when this group is drawn there
+     */
+    public boolean isDrawnOn(String terminalId, String islandCode, String tpvType) {
+        return allows(terminalIds, terminalId)
+                && allows(islandCodes, islandCode)
+                && allows(tpvTypes, tpvType);
+    }
+
+    /**
+     * Whether a semicolon-separated scope allows a value.
+     *
+     * <p>A blank scope allows everything. A scope that names something and a
+     * register that cannot say what it is do not match: a group restricted to
+     * one island must not appear on a register attached to none.
+     *
+     * @param scope the administered list, possibly null or blank
+     * @param value the register's value, possibly null
+     * @return true when the scope does not restrict, or names the value
+     */
+    private static boolean allows(String scope, String value) {
+        if (scope == null || scope.isBlank()) {
+            return true;
+        }
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        for (String allowed : scope.split(";", -1)) {
+            if (allowed.trim().equals(value.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -166,10 +290,15 @@ public class TouchGroupSetting extends BaseEntity {
     /**
      * The fingerprint input of this row for the referential export.
      *
-     * @return a hash of the code and the four administered values
+     * <p>The SCOPE is folded in too (BO-03-01-21/-22/-23): a group moved from
+     * one island to another is drawn somewhere else, and a referential that
+     * does not notice would leave the registers showing yesterday's grid.
+     *
+     * @return a hash of the code, the four administered values and the scope
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(familyCode, pinned, buttonSize, displayOrder, salesVolume);
+        return Objects.hash(familyCode, pinned, buttonSize, displayOrder, salesVolume,
+                islandCodes, terminalIds, tpvTypes, labels);
     }
 }

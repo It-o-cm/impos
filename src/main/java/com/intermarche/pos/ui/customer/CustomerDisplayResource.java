@@ -106,6 +106,12 @@ public class CustomerDisplayResource {
         // rounds — what the sale owes, and what the customer hands over.
         result.put("roundedRemaining", state.getCashRoundedRemainingFormatted());
         result.put("rounding", state.isCashRoundingVisible());
+        // BO-10-03-03: the holder's name on the CUSTOMER display, where the
+        // shop asks for it — a separate decision from the cashier screen's,
+        // because this one faces the queue.
+        result.put("fidelityHolder",
+                posSettingsService.fidelityShowHolderNameOnCustomerDisplay()
+                        ? state.fidelity.getHolderName() : "");
         result.put("paying", state.payment.paymentInProgress);
         result.put("complete", state.payment.transactionComplete);
         result.put("change", state.payment.lastChangeAmount != null

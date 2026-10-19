@@ -200,6 +200,14 @@ public class FidelityState implements Serializable {
     /** The criterion typed for the last lookup, echoed back to the page. */
     public String lastLookupValue = "";
 
+    /**
+     * The FIRST-NAME criterion typed for the last name lookup, echoed back to
+     * the page (LC-03-04-17): the two criteria are two fields, so the echo of
+     * the second is a field too — a compound last name searched without a
+     * first name must not come back with one.
+     */
+    public String lastLookupFirstName = "";
+
     /** Matches shown per lookup page — sized so the fidelity page chrome plus
      * one page and its pager always fit the 600px screen. */
     private static final int LOOKUP_PAGE_SIZE = 4;
@@ -266,6 +274,9 @@ public class FidelityState implements Serializable {
         return (lastLookup.matches.size() - 1) / LOOKUP_PAGE_SIZE + 1;
     }
 
+    /** The reassignment proposal: the card waiting for the operator's word, or null. */
+    public volatile String pendingReplacementCard = null;
+
     /**
      * Attaches a card; silently ignores null or too-short values (a guard
      * against empty submits, not a format check — the format check lives in
@@ -299,6 +310,7 @@ public class FidelityState implements Serializable {
         lastLookup = null;
         lastLookupMode = "card";
         lastLookupValue = "";
+        lastLookupFirstName = "";
         lastLookupPage = 0;
     }
 
@@ -314,7 +326,28 @@ public class FidelityState implements Serializable {
         accountStatus = null;
         availableBalance = null;
         balanceAfter = null;
+        pendingReplacementCard = null;
         clearLookup();
+    }
+
+    /**
+     * The HOLDER'S NAME alone, upper-cased surname then first name, for a
+     * screen that states the identity and nothing else (BO-10-03-03).
+     *
+     * <p>Empty when no card is attached or when no lookup brought a name back:
+     * a scanned card carries a number and not an identity, and a display must
+     * not invent one.
+     *
+     * @return the holder's name, empty when there is none to state
+     */
+    public String getHolderName() {
+        if (!active || holderLastName == null || holderLastName.isBlank()) {
+            return "";
+        }
+        if (holderFirstName == null || holderFirstName.isBlank()) {
+            return holderLastName.toUpperCase();
+        }
+        return holderLastName.toUpperCase() + " " + holderFirstName;
     }
 
     /**

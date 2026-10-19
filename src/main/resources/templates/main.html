@@ -35,6 +35,12 @@
         /* Header */
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        /* LC-01-07-03/-04, LC-01-08-04 : les indicateurs de la caisse. Trois
+           chips cliquables dans la barre du haut, jamais sur la visu client. */
+        .top-bar .ind-chip { text-decoration: none; font-weight: bold; padding: 2px 12px; border-radius: 12px; }
+        .ind-request { background: var(--warning); color: #000; }
+        .ind-ack { background: var(--success); color: #fff; }
+        .ind-message { background: var(--primary); color: #fff; }
 
         /* Layout Principal */
         /* minmax(0, …) on both tracks: a bare 1fr means minmax(auto, 1fr) and
@@ -179,18 +185,76 @@
     {#if state.returnMode}<div class="overlay-banner overlay-monetics" style="background:var(--danger);color:#fff;">{inject:i18n.get('main.modeRetourArticlesRepris')} <a href="/action/return-mode" style="color:#fff;text-decoration:underline;">{inject:i18n.get('main.finModeRetour')}</a></div>{/if}
     {! EXP-20 : message du back-office, non perturbant, écran caissier seul (absent
      ! de la visu client). EXP-89 : s'il porte une question, c'est un sondage auquel
-     ! le caissier répond par un bouton, la réponse remontant au nœud. !}
+     ! le caissier répond, la réponse remontant au nœud. LC-03-07-06 à -10 : le
+     ! sondage est TYPÉ — options, nombre saisi, code postal contrôlé, libellé
+     ! informatif à valider — et facultatif quand le BackOffice l'a déclaré tel. !}
     {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty()}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">✉ {state.backOfficeMessage}</div>{/if}
     {#if state.backOfficeSurvey??}
     <div class="overlay-banner overlay-monetics" style="background:var(--accent,#3a3a6a);color:#fff;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;">
         <span>❓ {state.backOfficeSurvey.question}</span>
+        {#if state.backOfficeSurvey.optionsType}
         {#for opt in state.backOfficeSurvey.options}
         <form method="post" action="/action/survey-answer" style="display:inline;"><input type="hidden" name="answer" value="{opt}"><button type="submit" class="btn btn-warning" style="color:#000;height:2rem;">{opt}</button></form>
         {/for}
+        {#else if state.backOfficeSurvey.informative}
+        <!-- LC-03-07-09 : informatif DÉCLARÉ, pas une option unique par
+             convention — on valide le libellé, rien ne se saisit. -->
+        <form method="post" action="/action/survey-answer" style="display:inline;"><input type="hidden" name="answer" value="VU"><button type="submit" class="btn btn-warning" style="color:#000;height:2rem;">{inject:i18n.get('common.validate')}</button></form>
+        {#else}
+        <!-- LC-03-07-06 / -07 : la réponse se TAPE au pavé, le contrôle
+             (chiffres, format du code postal, liste des codes valides) est
+             serveur et le sondage reste affiché tant qu'il échoue. -->
+        <form method="post" action="/action/survey-answer" id="surveyTypedForm" style="display:flex;gap:8px;align-items:center;">
+            <div id="surveyDisplay" class="pad-display" style="min-width:9rem;padding:6px;border:2px solid #fff;border-radius:6px;font-weight:bold;"></div>
+            <input type="hidden" name="answer" id="surveyHidden" value="">
+            <button type="submit" class="btn btn-warning" style="color:#000;height:2rem;">{inject:i18n.get('common.validate')}</button>
+        </form>
+        {/if}
+        {#if !state.backOfficeSurvey.required}
+        <!-- LC-03-07-10 : facultatif — le passe-droit est un geste déclaré,
+             pas l'attente de la disparition du bandeau. -->
+        <form method="post" action="/action/survey-skip" style="display:inline;"><button type="submit" class="btn btn-muted" style="height:2rem;">{inject:i18n.get('fidelity.passer')}</button></form>
+        {/if}
     </div>
+    {#if !state.backOfficeSurvey.optionsType && !state.backOfficeSurvey.informative}
+    <!-- LC-03-07-06 / -07 : le pavé de saisie de la réponse typée, posé
+         flottant sous le bandeau le temps du sondage. -->
+    <div id="surveyKeyboardArea" class="pos-kb-compact" style="position:absolute;top:6.5rem;right:8px;z-index:25;width:14rem;"></div>
+    <script>
+        (function() {
+            if (!document.getElementById('surveyTypedForm')) return;
+            PosInput.setup({
+                displayId: 'surveyDisplay',
+                hiddenId: 'surveyHidden',
+                containerId: 'surveyKeyboardArea',
+                keyboardType: 'numpad',
+                mode: 'text',
+                maxLength: 10,
+                initialValue: ''
+            });
+        })();
+    </script>
+    {/if}
     {/if}
     <div class="top-bar">
         <span class="store-name">{inject:i18n.get('common.store')}</span>
+        {! ZONE D'INDICATEURS (LC-01-07-03/-04, LC-01-08-04) — écran caissier
+         ! seul, la visu client est une autre page qui ne rend rien de tout
+         ! cela (LC-01-08-02). Le marqueur porte l'état rendu : le poll le
+         ! compare à l'état du serveur et recharge la page une fois quand
+         ! l'indicateur doit apparaître ou disparaître — même règle que la
+         ! modale de contrôle d'âge. !}
+        <span id="indicatorZone" data-request="{state.serviceRequest.name()}" data-arrived="{state.boMessageArrived}" style="display:flex; gap:10px; align-items:center;">
+            {#if state.serviceRequest.name() == 'PENDING'}
+            <a href="/supervisor" class="ind-chip ind-request">{inject:i18n.get('supervisor.demandeEnCours')}{#if state.serviceRequestReason} : {state.serviceRequestReason}{/if}</a>
+            {/if}
+            {#if state.serviceRequest.name() == 'ACKED'}
+            <a href="/supervisor" class="ind-chip ind-ack">{inject:i18n.get('supervisor.demandeAcquittee')}</a>
+            {/if}
+            {#if state.boMessageArrived}
+            <a href="/bo-message" class="ind-chip ind-message">{inject:i18n.get('supervisor.messageBo')}</a>
+            {/if}
+        </span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
@@ -227,6 +291,16 @@
                        class="btn {#if state.cancelByScanArmed}btn-warning{#else}btn-muted{/if}"
                        {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}ANNULER : SCANNEZ{#else}ANNULER PAR SCAN{/if}</a>
                     <a href="/action/price-mod/quantity" data-prefill class="btn btn-muted">{inject:i18n.get('main.quantite')}</a>
+                    <!-- LC-02-02-03 : le poids BRUT se tape AVANT l'article, sur son
+                         ecran, puis l'article est nomme. La touche montre qu'un poids
+                         est arme — comme ANNULER PAR SCAN et A ENLEVER montrent le
+                         leur — et un second appui desarme : un chiffre arme que l'on
+                         ne voit pas se retrouve sur l'article suivant. Le poids lui
+                         meme est rappele par le bandeau, qui le porte en toutes
+                         lettres. -->
+                    <a href="{#if state.pendingManualWeightKg}/action/manual-weight/cancel{#else}/manual-weight{/if}"
+                       class="btn {#if state.pendingManualWeightKg}btn-warning{#else}btn-muted{/if}"
+                       {#if state.pendingManualWeightKg}style="color:black;"{/if}>{#if state.pendingManualWeightKg}{inject:i18n.get('main.poidsArme')}{#else}{inject:i18n.get('main.poidsManuel')}{/if}</a>
                     <!-- LC-02-08-01 : une seule touche pour les deux gestes. -->
                     <a href="/action/collect"
                        class="btn {#if state.collectArmed}btn-warning{#else}btn-muted{/if}"
@@ -301,6 +375,14 @@
                     <!-- EXP-90/91/92 : rappel par code d'un devis, commande, bon de vente
                          ou panier click&collect remis par le back-office. -->
                     <a href="/recall" class="btn btn-muted">{inject:i18n.get('main.rappelCode')}</a>
+                    <!-- LC-01-08-04 : la touche de consultation du message
+                         back-office — l'indicateur de la barre du haut y mène
+                         aussi, l'exigence offre les deux chemins. -->
+                    <a href="/bo-message" class="btn btn-primary">{inject:i18n.get('supervisor.messageBo')}</a>
+                    <!-- LC-06-03 : creation d'une commande en caisse — le panier
+                         enregistre devient une commande, l'acompte est percu et
+                         le ticket d'acompte porte le code-barres de reprise. -->
+                    <a href="/order" class="btn btn-success">{inject:i18n.get('main.commande')}</a>
                     <a href="/badge-print" class="btn btn-muted">{inject:i18n.get('main.badgeOperateur')}</a>
                     <a href="/pin-change" class="btn btn-muted">{inject:i18n.get('main.changerCodePin')}</a>
                     <a href="/theme-select" class="btn btn-muted">{inject:i18n.get('common.theme')}</a>
@@ -357,6 +439,25 @@
             <div style="display:flex; gap:12px; justify-content:center;">
                 <a href="/action/age-check/refuse" class="btn btn-danger" style="min-width:9.375rem; text-align:center;">{inject:i18n.get('main.refuser')}</a>
                 <a href="/action/age-check/confirm" class="btn btn-success" style="min-width:9.375rem; text-align:center;">{inject:i18n.get('main.clientMajeur')}</a>
+            </div>
+        </div>
+    </div>
+    {/if}
+    {#if state.fidelity.pendingReplacementCard??}
+    <!-- LC-03-04-08 : LA SUBSTITUTION SE PROPOSE, elle ne se fait pas en silence.
+         Une seconde carte différente arrive sur un ticket qui en porte déjà une :
+         remplacer change le porteur, ses avantages et sa cagnotte — l'opérateur
+         confirme l'échange avant qu'il arrive. -->
+    <div class="price-modal active" id="fidelityReplaceModal">
+        <div class="price-box">
+            <div class="price-title">{inject:i18n.get('fidelity.remplacerCarte')}</div>
+            <div style="text-align:center; font-weight:bold; margin:8px 0;">{state.fidelity.pendingReplacementCard}</div>
+            <div style="text-align:center; color: var(--text-muted); margin-bottom:14px;">
+                {inject:i18n.get('fidelity.carteAttachee')} {state.fidelity.label}
+            </div>
+            <div style="display:flex; gap:12px; justify-content:center;">
+                <a href="/action/fidelity-replace/keep" class="btn btn-danger" style="min-width:9.375rem; text-align:center;">{inject:i18n.get('fidelity.garderCarte')}</a>
+                <a href="/action/fidelity-replace/confirm" class="btn btn-success" style="min-width:9.375rem; text-align:center;">{inject:i18n.get('fidelity.remplacer')}</a>
             </div>
         </div>
     </div>
@@ -428,6 +529,21 @@
                         <a href="/action/price-mod/force_price"
                            class="btn {state.priceModState.typeName == 'FORCE_PRICE' ? 'btn-primary' : 'btn-muted'}">{inject:i18n.get('main.prixForce')}</a>
                     </div>
+                    <!-- LC-03-02-02 / -04 : LES TOUCHES PRÉPROGRAMMÉES. Les gestes
+                         libres se tapent ci-dessous ; la touche administrée
+                         épargne le pavé et porte le chiffre que le BackOffice a
+                         posé. Chacune POSTE son libellé — refus nommé à la clé
+                         si la touche ne s'applique pas (BO-03-07-03 et -06). -->
+                    {#if discountPresets && !discountPresets.isEmpty()}
+                    <div class="price-modes" style="flex-wrap:wrap; gap:6px;">
+                        {#for p in discountPresets}
+                        <form method="post" action="/action/price-mod/preset" style="display:inline;">
+                            <input type="hidden" name="label" value="{p.label}">
+                            <button type="submit" class="btn btn-muted" style="height:2.5rem;">{p.label}</button>
+                        </form>
+                        {/for}
+                    </div>
+                    {/if}
                 {/if}
                 <form action="/action/price-mod/submit" method="POST" id="priceForm">
                     <input type="hidden" name="type" value="{state.priceModState.typeName}">
@@ -476,7 +592,14 @@
         containerId: 'prefillPad',
         maxLength: 13,
         onEnter: function(code) {
-            if (!code) return;
+            // BO-10-02-13 : rien de tapé et la touche entrée vaut TOTAL, elle
+            // ouvre le règlement. Paramètre à faux — le défaut — elle ne fait
+            // rien, exactement comme avant. Un code tapé est validé dans les
+            // deux cas : la règle ne porte que sur la frappe à vide.
+            if (!code) {
+                if ({enterAsTotal}) window.location.href = '/pay';
+                return;
+            }
             PosPrefill.clear();
             // Le code tapé entre par l'ADMISSION DU SCAN et non par l'ajout au
             // PLU : c'est le seul chemin qui connaît les EAN, les GS1, les bons
@@ -556,6 +679,16 @@
                 // menu now that the key leads straight to the payment screen.
                 var payBtn = document.getElementById('payBtn');
                 if (payBtn && data.payable !== (payBtn.tagName === 'A')) {
+                    window.location.reload();
+                    return;
+                }
+                // LC-01-07-03/-04, LC-01-08-04 : la zone d'indicateurs est
+                // rendue hors fragment — même règle que la modale de contrôle
+                // d'âge, recharger une fois quand l'état rendu n'est plus
+                // celui du serveur.
+                var zone = document.getElementById('indicatorZone');
+                if (zone && (data.serviceRequest !== zone.dataset.request
+                        || data.boArrived !== (zone.dataset.arrived === 'true'))) {
                     window.location.reload();
                     return;
                 }

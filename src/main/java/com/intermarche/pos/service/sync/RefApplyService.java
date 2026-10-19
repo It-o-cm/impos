@@ -138,6 +138,14 @@ public class RefApplyService {
                     ? TouchGroupSetting.DEFAULT_BUTTON_SIZE : dto.buttonSize;
             setting.displayOrder = dto.displayOrder;
             setting.salesVolume = dto.salesVolume;
+            // BO-03-01-21/-22/-23: the scope of the group. A snapshot naming
+            // nothing leaves it drawn everywhere, which is what every group did
+            // before the columns existed.
+            setting.islandCodes = dto.islandCodes;
+            setting.terminalIds = dto.terminalIds;
+            setting.tpvTypes = dto.tpvTypes;
+            // BO-03-01-19: the translated wordings descend with the row.
+            setting.labels = dto.labels;
             setting.persist();
             seen.add(dto.familyCode);
         }
@@ -179,6 +187,7 @@ public class RefApplyService {
             product.forbiddenToSale = dto.forbiddenToSale;
             product.ageRestriction = dto.ageRestriction;
             product.checkoutLabel = dto.checkoutLabel;
+            product.infoMessage = dto.infoMessage;
             product.internalCode = dto.internalCode;
             product.variableWeight = dto.variableWeight;
             product.attributes = dto.attributes != null
@@ -213,6 +222,8 @@ public class RefApplyService {
             rate.number = dto.number;
             rate.rate = dto.rate;
             rate.label = dto.label;
+            rate.country = dto.country;
+            rate.legalMention = dto.legalMention;
             rate.persist();
         }
         LOGGER.infof("Référentiel TVA remplacé: %d régime(s)", dtos.size());
@@ -358,6 +369,11 @@ public class RefApplyService {
             employee.email = dto.email;
             employee.role = Employee.EmployeeRole.valueOf(dto.role);
             employee.badgeId = dto.badgeId;
+            // BO-01-01-04 / BO-01-02-12: the operator's language and the age of
+            // their secret come from the node like the secret itself.
+            employee.language = dto.language;
+            employee.passwordChangedAt = dto.passwordChangedAt == null
+                    ? null : java.time.LocalDateTime.parse(dto.passwordChangedAt);
             // A theme chosen AT THE REGISTER wins over the pulled one: the
             // register-side selector must not be mysteriously undone by the
             // next referential pull. The store's value only seeds employees
@@ -429,6 +445,53 @@ public class RefApplyService {
     }
 
     /**
+     * Applies the PROVIDER MESSAGE substitutions of the snapshot
+     * (BO-03-08-06 and -07).
+     *
+     * <p>Upsert on the pair provider plus code, and a row the snapshot no
+     * longer carries is DELETED rather than deactivated: unlike a document or
+     * a tender, a substitution nobody declares any more has no history to
+     * keep, and leaving it inactive in the register's base would make the next
+     * shop that reuses the code inherit someone else's sentence.
+     *
+     * @param dtos the substitutions the node published
+     */
+    @Transactional
+    public void applyProviderMessages(List<RefPayloads.ProviderMessageDto> dtos) {
+        LOGGER.info("Entering method applyProviderMessages with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.ProviderMessageDto dto : dtos) {
+            com.intermarche.pos.domain.setting.ProviderMessage message =
+                    com.intermarche.pos.domain.setting.ProviderMessage
+                            .find("providerCode = ?1 and messageCode = ?2",
+                                    dto.providerCode, dto.messageCode)
+                            .firstResult();
+            if (message == null) {
+                message = new com.intermarche.pos.domain.setting.ProviderMessage();
+                message.providerCode = dto.providerCode;
+                message.messageCode = dto.messageCode;
+            }
+            message.screenText = dto.screenText;
+            message.ticketText = dto.ticketText;
+            message.active = dto.active;
+            message.persist();
+            seen.add(dto.providerCode + "|" + dto.messageCode);
+        }
+        long removed = 0;
+        for (com.intermarche.pos.domain.setting.ProviderMessage message
+                : com.intermarche.pos.domain.setting.ProviderMessage
+                        .<com.intermarche.pos.domain.setting.ProviderMessage>listAll()) {
+            if (!seen.contains(message.providerCode + "|" + message.messageCode)) {
+                message.delete();
+                removed++;
+            }
+        }
+        LOGGER.infof("Référentiel messages fournisseur appliqué: %d ligne(s), %d retirée(s)",
+                dtos.size(), removed);
+        LOGGER.info("Exiting method applyProviderMessages");
+    }
+
+    /**
      * Applies a DOCUMENT TEMPLATE snapshot: upsert by code, absents deactivated
      * (BO-03-03).
      *
@@ -460,6 +523,10 @@ public class RefApplyService {
             template.width = dto.width;
             template.copies = dto.copies;
             template.source = dto.source;
+            template.title = dto.title;
+            template.duplicateTitle = dto.duplicateTitle;
+            template.numberPrefix = dto.numberPrefix;
+            template.copyTitles = dto.copyTitles;
             template.persist();
             seen.add(dto.code);
         }
@@ -523,6 +590,8 @@ public class RefApplyService {
             }
             tender.functionalId = dto.functionalId;
             tender.label = dto.label;
+            tender.groupCode = dto.groupCode;
+            tender.groupLabel = dto.groupLabel;
             tender.active = dto.active;
             tender.displayOrder = dto.displayOrder;
             tender.maxAmount = decimal(dto.maxAmount);
@@ -538,6 +607,13 @@ public class RefApplyService {
             tender.refundAllowed = dto.refundAllowed;
             tender.changeAllowed = dto.changeAllowed;
             tender.changeTenderCode = dto.changeTenderCode;
+            // BO-03-09-30: a snapshot from a node that does not know the column
+            // names no product code, which is what every tender named before it.
+            tender.vicProductCode = dto.vicProductCode;
+            // BO-03-02-27/-29: what a self-service lane may settle with, and
+            // what it calls the hostess for.
+            tender.selfServiceAllowed = dto.selfServiceAllowed;
+            tender.selfServiceSupervision = dto.selfServiceSupervision;
             tender.cashierDeclaration = dto.cashierDeclaration;
             tender.automaticWithdrawal = dto.automaticWithdrawal;
             tender.drawerOpening = drawer(dto.drawerOpening);
@@ -547,6 +623,13 @@ public class RefApplyService {
             tender.defaultsToTotal = dto.defaultsToTotal;
             tender.withdrawalReportDetail = dto.withdrawalReportDetail;
             tender.fidelityReported = dto.fidelityReported;
+            tender.documentTemplateCode = dto.documentTemplateCode;
+            // A count nobody administered is ONE: a tender printing a slip
+            // prints it, and a zero arriving from an older node must not make
+            // the register stop printing cheque slips.
+            tender.printCount = Math.max(1, dto.printCount);
+            tender.printDuplicate = dto.printDuplicate;
+            tender.printForced = dto.printForced;
             tender.persist();
             seen.add(dto.code);
         }
@@ -699,6 +782,24 @@ public class RefApplyService {
             point.customerDisplayType =
                     com.intermarche.pos.domain.store.DisplayType.fromName(dto.customerDisplayType);
             point.customerDisplayResolution = dto.customerDisplayResolution;
+            // BO-03-09-15/-24/-25/-26: the peripherals of this register, as the
+            // store administered them. A snapshot naming no protocol leaves the
+            // register with NONE, which is what it had before the column existed.
+            point.scaleProtocol = com.intermarche.pos.domain.store.ScaleProtocol
+                    .fromName(dto.scaleProtocol);
+            if (point.scaleProtocol == null) {
+                point.scaleProtocol = com.intermarche.pos.domain.store.ScaleProtocol.NONE;
+            }
+            point.scaleAddress = dto.scaleAddress;
+            point.scalePort = dto.scalePort;
+            point.coinMachineProtocol = com.intermarche.pos.domain.store.CoinMachineProtocol
+                    .fromName(dto.coinMachineProtocol);
+            if (point.coinMachineProtocol == null) {
+                point.coinMachineProtocol =
+                        com.intermarche.pos.domain.store.CoinMachineProtocol.NONE;
+            }
+            point.coinMachineAddress = dto.coinMachineAddress;
+            point.coinMachinePort = dto.coinMachinePort;
             point.menuTemplateCode = dto.menuTemplateCode;
             point.persist();
             seen.add(point.terminalId);
@@ -795,6 +896,19 @@ public class RefApplyService {
                     : CouponField.PriceCurrency.valueOf(dto.currency);
             range.checkDigit = dto.checkDigit;
             range.matchPattern = dto.matchPattern;
+            // BO-03-06-56/-60/-61: a snapshot from a node that does not know the
+            // column yet leaves every range an ARTICLE range, which is what they
+            // all were before it existed.
+            range.purpose = dto.purpose == null
+                    ? com.intermarche.pos.domain.barcode.ArticleBarcodeRange.Purpose.ARTICLE
+                    : com.intermarche.pos.domain.barcode.ArticleBarcodeRange.Purpose
+                            .valueOf(dto.purpose);
+            // BO-03-06-43: a snapshot from a node that does not know the column
+            // names no promotion, which is what every range named before it.
+            range.promotionCode = dto.promotionCode;
+            // BO-03-06-41: likewise, a node that does not know the column asks
+            // nobody, which is what every range did before it existed.
+            range.lookupUrl = dto.lookupUrl;
             range.persist();
             seen.add(dto.code);
         }
@@ -903,6 +1017,7 @@ public class RefApplyService {
             currency.euroPerUnit = rate == null ? java.math.BigDecimal.ONE : rate;
             currency.active = dto.active;
             currency.displayOrder = dto.displayOrder;
+            currency.changeTenderCode = dto.changeTenderCode;
             currency.persist();
             seen.add(dto.code);
         }
@@ -956,6 +1071,170 @@ public class RefApplyService {
         }
         LOGGER.infof("Référentiel codes postaux appliqué: %d ligne(s)", dtos.size());
         LOGGER.info("Exiting method applyPostalCodes");
+    }
+
+    /**
+     * Applies the administered-list snapshot ({@code BO-04-02-07},
+     * {@code BO-04-03-12}): upsert by list code, the entries replaced whole.
+     *
+     * <p>THE ENTRIES ARE REPLACED, NOT MERGED. An entry carries no history —
+     * it is a key the cashier taps — so the shortest correct apply is to drop
+     * what the list held and write what the node sent. Merging would have
+     * needed an upsert key inside the list and would have kept, at the first
+     * renaming, a key nobody administers any more.
+     *
+     * <p>A list the snapshot no longer names is deleted, like every other
+     * referential domain: the back office is the authority on which lists
+     * exist.
+     *
+     * @param dtos the full administered-list snapshot
+     */
+    @Transactional
+    public void applyPosLists(List<RefPayloads.PosListDto> dtos) {
+        LOGGER.info("Entering method applyPosLists with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.PosListDto dto : dtos) {
+            com.intermarche.pos.domain.setting.PosList row =
+                    com.intermarche.pos.domain.setting.PosList.findByCode(dto.code);
+            if (row == null) {
+                row = new com.intermarche.pos.domain.setting.PosList();
+                row.code = dto.code;
+            }
+            row.label = dto.label;
+            row.kind = kindOf(dto.kind);
+            row.functions = dto.functions;
+            row.active = dto.active;
+            row.items.clear();
+            if (dto.items != null) {
+                for (RefPayloads.PosListItemDto itemDto : dto.items) {
+                    com.intermarche.pos.domain.setting.PosListItem item =
+                            new com.intermarche.pos.domain.setting.PosListItem();
+                    item.posList = row;
+                    item.code = itemDto.code;
+                    item.label = itemDto.label;
+                    item.displayOrder = itemDto.displayOrder;
+                    item.severity = itemDto.severity;
+                    item.numericValue = weightOf(itemDto.numericValue);
+                    item.options = itemDto.options;
+                    item.active = itemDto.active;
+                    row.items.add(item);
+                }
+            }
+            row.persist();
+            seen.add(dto.code);
+        }
+        for (com.intermarche.pos.domain.setting.PosList row
+                : com.intermarche.pos.domain.setting.PosList
+                        .<com.intermarche.pos.domain.setting.PosList>listAll()) {
+            if (!seen.contains(row.code)) {
+                row.delete();
+            }
+        }
+        LOGGER.infof("Référentiel listes administrées appliqué: %d liste(s)", dtos.size());
+        LOGGER.info("Exiting method applyPosLists");
+    }
+
+    /**
+     * Applies the image snapshot ({@code BO-03-03-15}, {@code BO-10-03-09}):
+     * upsert by image code, an image the snapshot no longer names deleted.
+     *
+     * <p>What arrives is ALREADY RESOLVED: the node sent the logo its echelon
+     * chain answers and one visual per advantage, so there is nothing to
+     * choose here. An image whose picture is empty is still applied — the
+     * back office may be in the middle of replacing it, and the printer
+     * simply falls back on what it printed before.
+     *
+     * @param dtos the full image snapshot
+     */
+    @Transactional
+    public void applyStoreImages(List<RefPayloads.StoreImageDto> dtos) {
+        LOGGER.info("Entering method applyStoreImages with " + dtos.size() + " image(s)");
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.StoreImageDto dto : dtos) {
+            com.intermarche.pos.domain.setting.StoreImage row =
+                    com.intermarche.pos.domain.setting.StoreImage.findByCode(dto.code);
+            if (row == null) {
+                row = new com.intermarche.pos.domain.setting.StoreImage();
+                row.code = dto.code;
+            }
+            row.label = dto.label;
+            row.usage = usageOf(dto.usage);
+            row.advantageCode = dto.advantageCode;
+            row.imageData = dto.imageData;
+            row.active = dto.active;
+            row.persist();
+            seen.add(dto.code);
+        }
+        for (com.intermarche.pos.domain.setting.StoreImage row
+                : com.intermarche.pos.domain.setting.StoreImage
+                        .<com.intermarche.pos.domain.setting.StoreImage>listAll()) {
+            if (!seen.contains(row.code)) {
+                row.delete();
+            }
+        }
+        LOGGER.infof("Référentiel images appliqué: %d image(s)", dtos.size());
+        LOGGER.info("Exiting method applyStoreImages");
+    }
+
+    /**
+     * Reads the usage of an image off the wire, an unknown or absent one
+     * answering the loyalty visual — the usage that illustrates and never
+     * replaces, so an image this register does not understand cannot take
+     * the place of its logo.
+     *
+     * @param raw the transported name, possibly null
+     * @return the usage, never null
+     */
+    private static com.intermarche.pos.domain.setting.StoreImage.Usage usageOf(String raw) {
+        if (raw != null && !raw.isBlank()) {
+            for (com.intermarche.pos.domain.setting.StoreImage.Usage candidate
+                    : com.intermarche.pos.domain.setting.StoreImage.Usage.values()) {
+                if (candidate.name().equalsIgnoreCase(raw.trim())) {
+                    return candidate;
+                }
+            }
+        }
+        return com.intermarche.pos.domain.setting.StoreImage.Usage.LOYALTY_ADVANTAGE;
+    }
+
+    /**
+     * Reads the kind of an administered list off the wire, an unknown or
+     * absent one answering JUSTIFICATION — the kind that drives nothing by
+     * itself, so a list the register does not understand offers no key rather
+     * than refusing the whole pull.
+     *
+     * @param raw the transported name, possibly null
+     * @return the kind, never null
+     */
+    private static com.intermarche.pos.domain.setting.PosList.Kind kindOf(String raw) {
+        if (raw != null && !raw.isBlank()) {
+            for (com.intermarche.pos.domain.setting.PosList.Kind candidate
+                    : com.intermarche.pos.domain.setting.PosList.Kind.values()) {
+                if (candidate.name().equalsIgnoreCase(raw.trim())) {
+                    return candidate;
+                }
+            }
+        }
+        return com.intermarche.pos.domain.setting.PosList.Kind.JUSTIFICATION;
+    }
+
+    /**
+     * Reads the weight of a tare container off the wire; an absent or
+     * unreadable one answers null, the entry then carrying no weight rather
+     * than a wrong one.
+     *
+     * @param raw the transported weight, possibly null
+     * @return the weight, or null
+     */
+    private static java.math.BigDecimal weightOf(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(raw.trim().replace(',', '.'));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**

@@ -103,6 +103,16 @@ public class LockCheckFilter implements ContainerRequestFilter {
      * @param requestContext the JAX-RS request context
      * @throws IOException never in practice (filter contract)
      */
+    /**
+     * The administered idle action, trimmed and never null (BO-10-02-28).
+     *
+     * @return the action as the shop wrote it, blank when nothing is stored
+     */
+    private String trimmedAction() {
+        String action = posSettingsService.idleAction();
+        return action == null ? "" : action.trim();
+    }
+
     @Override
     public void filter(ContainerRequestContext requestContext) throws IOException {
         String raw = requestContext.getUriInfo().getPath();
@@ -117,10 +127,18 @@ public class LockCheckFilter implements ContainerRequestFilter {
                 String pausedBadge = state.auth.operatorBadgeId;
                 technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
                         null, pausedBadge);
-                // VERROUILLAGE, not fermeture (EXP-12): the idle pause keeps the
-                // operator identity aside and the in-memory ticket, so the same
-                // cashier resumes their sale by keying only their PIN.
-                state.auth.pause();
+                // VERROUILLAGE or FERMETURE, as the shop administers it
+                // (BO-10-02-28). The pause (EXP-12) keeps the operator identity
+                // aside and the in-memory ticket, so the same cashier resumes
+                // their sale by keying only their PIN; the close drops the
+                // identity altogether and the next person takes the post from
+                // the beginning. Anything but CLOSE is the pause, which is what
+                // every register did before the parameter existed.
+                if ("CLOSE".equalsIgnoreCase(trimmedAction())) {
+                    state.auth.logout();
+                } else {
+                    state.auth.pause();
+                }
                 state.touch();
             }
         }

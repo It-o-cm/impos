@@ -70,6 +70,7 @@ class RefundServiceTest {
         s.endorsementService = mock(EndorsementService.class);
         s.ticketPrinterService = mock(TicketPrinterService.class);
         s.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        s.posListService = mock(com.intermarche.pos.service.PosListService.class);
         s.cashSessionService = mock(CashSessionService.class);
         s.ticketNumberService = mock(TicketNumberService.class);
         s.technicalEventService = mock(TechnicalEventService.class);
@@ -386,38 +387,40 @@ class RefundServiceTest {
     // --- selectReason (LC-05-05-01) ---
 
     /**
-     * {@code selectReason} keeps a reason belonging to the administered list
-     * (all three arms of the guard true: non-null, non-blank, in-list).
+     * {@code selectReason} keeps a reason the referential names, and records
+     * its CODE beside the label (BO-06-06-05).
      */
     @Test
     void selectReasonKeepsAdministeredReason() {
         RefundService s = newService();
         PosState state = new PosState();
-        when(s.posSettingsService.returnReasons())
-                .thenReturn(List.of("Erreur de caisse", "Article périmé"));
+        when(s.posListService.returnReason("Article périmé"))
+                .thenReturn(new com.intermarche.pos.service.PosListService.ListChoice("PERIME", "Article périmé"));
         s.selectReason(state, "Article périmé");
         assertEquals("Article périmé", state.refund.returnReason);
+        assertEquals("PERIME", state.refund.returnReasonCode);
         assertEquals(1L, state.version);
     }
 
     /**
-     * {@code selectReason} clears an off-list reason (non-null, non-blank, but the
-     * in-list arm is false), so the screen cannot smuggle a reason the store
-     * does not administer.
+     * {@code selectReason} clears an off-list reason (the referential names
+     * nothing under that label), so the screen cannot smuggle a reason the
+     * store does not administer — nor leave a code behind.
      */
     @Test
     void selectReasonClearsOffListReason() {
         RefundService s = newService();
         PosState state = new PosState();
         state.refund.returnReason = "Article périmé";
-        when(s.posSettingsService.returnReasons()).thenReturn(List.of("Erreur de caisse"));
+        state.refund.returnReasonCode = "PERIME";
         s.selectReason(state, "Motif inventé");
         assertNull(state.refund.returnReason);
+        assertNull(state.refund.returnReasonCode);
     }
 
     /**
-     * {@code selectReason} clears the reason on a blank input (second arm of the
-     * guard false), without ever consulting the administered list.
+     * {@code selectReason} clears the reason and its code on a blank input:
+     * the resolver answers nothing for a blank label.
      */
     @Test
     void selectReasonClearsOnBlank() {
@@ -426,12 +429,12 @@ class RefundServiceTest {
         state.refund.returnReason = "Erreur de caisse";
         s.selectReason(state, "   ");
         assertNull(state.refund.returnReason);
-        verify(s.posSettingsService, never()).returnReasons();
+        assertNull(state.refund.returnReasonCode);
     }
 
     /**
-     * {@code selectReason} clears the reason on a null input (first arm of the
-     * guard false), without ever consulting the administered list.
+     * {@code selectReason} clears the reason and its code on a null input:
+     * the resolver answers nothing for a null label.
      */
     @Test
     void selectReasonClearsOnNull() {
@@ -440,7 +443,7 @@ class RefundServiceTest {
         state.refund.returnReason = "Erreur de caisse";
         s.selectReason(state, null);
         assertNull(state.refund.returnReason);
-        verify(s.posSettingsService, never()).returnReasons();
+        assertNull(state.refund.returnReasonCode);
     }
 
     /**

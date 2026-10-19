@@ -85,6 +85,18 @@ public class PosSettingsService {
                 "Remise ticket : % maximum",
                 "Pourcentage maximal d'une remise ticket (LC-03-02-13).",
                 "100", null),
+        new Def("discount.presets", Type.TEXT, "GESTES DE PRIX",
+                "Remises et rabais prédéfinis",
+                "Touches de remise prêtes à l'emploi, séparées par « ; ». Une entrée est un libellé, puis « > », puis PERCENT ou AMOUNT, « : » et la valeur ; ajouter « ,CUMUL » autorise cette remise sur un article déjà remisé ou en promotion. Exemple : « -20%>PERCENT:20 ; 2€ de moins>AMOUNT:2,CUMUL ». Vide : aucune touche prédéfinie, seule la saisie libre (BO-03-07-03, BO-03-07-06, BO-03-07-11).",
+                "", null),
+        new Def("discount.cumulative-on-discounted", Type.BOOL, "GESTES DE PRIX",
+                "Cumul sur un article déjà remisé",
+                "Une remise ou un rabais saisi librement s'applique sur un article qui porte déjà une remise manuelle ou une promotion automatique. Désactivé : le geste est refusé sur cette ligne. Une touche prédéfinie portant CUMUL passe outre ce défaut (BO-03-07-11).",
+                "true", null),
+        new Def("discount.global-on-discounted", Type.BOOL, "GESTES DE PRIX",
+                "Remise globale sur les articles déjà remisés",
+                "La remise ou le rabais posé sur le total du ticket porte aussi sur les lignes qui portent déjà une remise manuelle ou une promotion automatique. Désactivé : ces lignes sortent de la base ET de la répartition — la remise globale coûte alors exactement ce qu'elle annonce sur les lignes restantes (BO-03-07-12).",
+                "true", null),
         new Def("discount.enabled", Type.BOOL, "GESTES DE PRIX",
                 "Remises et rabais actifs",
                 "Active les gestes remise et rabais en caisse. Désactivé : le caissier ne peut appliquer ni remise ni rabais, ni à la ligne ni au ticket (BO-03-07-01).",
@@ -117,10 +129,50 @@ public class PosSettingsService {
                 "Adresse du client fidélisé modifiable",
                 "L'adresse email récupérée du référentiel client peut être corrigée en caisse avant l'envoi. Désactivé : elle est envoyée telle quelle et seul un client sans adresse connue en fait saisir une (LC-08-02-10).",
                 "true", null),
+        new Def("currency.symbol", Type.TEXT, "DEVISE",
+                "Symbole monétaire",
+                "Symbole accolé aux montants imprimés sur les documents de caisse — E, EUR, € selon ce que l'imprimante sait sortir. Vide : les montants sont imprimés nus (BO-10-07-05).",
+                "E", null),
+        new Def("currency.symbol-print", Type.BOOL, "DEVISE",
+                "Imprimer le symbole monétaire",
+                "Les montants des documents de caisse portent le symbole monétaire. Désactivé : ils sont imprimés nus, ce que demandent les magasins dont le papier est déjà libellé (BO-10-07-04).",
+                "true", null),
+        new Def("currency.symbol-position", Type.TEXT, "DEVISE",
+                "Position du symbole monétaire",
+                "Côté du montant où le symbole est imprimé : RIGHT (après le montant, défaut) ou LEFT (avant). Une valeur inconnue retombe sur RIGHT (BO-10-07-06).",
+                "RIGHT", null),
         new Def("ticket.line-order", Type.TEXT, "TICKETS",
                 "Ordre des articles sur le ticket",
                 "Ordre d'impression des articles sur le ticket de caisse : ENTRY (ordre d'enregistrement, défaut), LABEL (alphabétique par libellé) ou FAMILY (regroupés sous le libellé de leur famille). Une valeur inconnue retombe sur ENTRY (LC-08-01-07).",
                 "ENTRY", null),
+        new Def("retention.barcodes-expired-unused-days", Type.INT, "RÉTENTION DES CODES-BARRES",
+                "Jours de conservation des codes-barres expirés non utilisés",
+                "Nombre de jours pendant lesquels un bon, un avoir ou une carte cadeau dont la validité est passée SANS avoir jamais été utilisé reste en base avant suppression, compté depuis sa date de validité. 0 : conservation illimitée (BO-10-08-13).",
+                "0", null),
+        new Def("retention.barcodes-expired-used-days", Type.INT, "RÉTENTION DES CODES-BARRES",
+                "Jours de conservation des codes-barres expirés utilisés",
+                "Nombre de jours pendant lesquels un instrument daté et épuisé reste en base après son épuisement, avant suppression. 0 : conservation illimitée (BO-10-08-14).",
+                "0", null),
+        new Def("retention.barcodes-undated-days", Type.INT, "RÉTENTION DES CODES-BARRES",
+                "Jours de conservation des codes-barres sans date de validité",
+                "Nombre de jours pendant lesquels un instrument SANS date de validité reste en base après son émission, avant suppression. 0 : conservation illimitée (BO-10-08-15).",
+                "0", null),
+        new Def("ticket.search-days", Type.INT, "TICKETS",
+                "Profondeur de recherche d'un ticket (jours)",
+                "Nombre de jours en arrière sur lesquels la caisse cherche un ticket clôturé — réimpression, échange, remboursement — avant d'abandonner la recherche. 0 ou valeur négative : la profondeur intégrée de 30 jours (BO-10-07-16).",
+                "30", null),
+        new Def("ticket.item-count-print", Type.TEXT, "TICKETS",
+                "Impression du nombre d'articles",
+                "Où le nombre d'articles de la vente est imprimé : NONE (nulle part, défaut), TOTAL_LINE (entre parenthèses sur la ligne du total à payer) ou OWN_LINE (sur une ligne à lui, sous le total). Une valeur inconnue retombe sur NONE (BO-10-07-10).",
+                "NONE", null),
+        new Def("ticket.unknown-article-barcode", Type.BOOL, "TICKETS",
+                "Code-barres sur le ticket article inconnu",
+                "Le ticket d'article inconnu porte le code lu en CODE-BARRES sous sa transcription, pour que le rayon le rescanne au lieu de le ressaisir. Désactivé : le code n'est écrit qu'en clair (BO-10-07-11).",
+                "false", null),
+        new Def("ticket.second-code-print", Type.BOOL, "TICKETS",
+                "Imprimer le second code de l'article",
+                "Le code interne rattaché à l'EAN13 est imprimé sous la ligne de l'article qui en porte un — ce que demandent les produits dématérialisés. Désactivé : seule la ligne article est imprimée (BO-10-02-20).",
+                "false", null),
         new Def("ticket.family-alphabetical", Type.BOOL, "TICKETS",
                 "Familles triées alphabétiquement",
                 "Quand les articles sont regroupés par famille (ordre FAMILY), les intitulés de famille sortent dans l'ordre alphabétique, qui est le comportement par défaut. Désactivé : les familles sortent dans l'ordre d'apparition de leur premier article (BO-03-03-17).",
@@ -133,6 +185,26 @@ public class PosSettingsService {
                 "Isolement des lignes portant l'attribut",
                 "Où sortent les lignes portant l'attribut de tri : NONE (tri seul, défaut), START (isolées en début de ticket) ou END (isolées en fin). Une valeur inconnue retombe sur NONE (BO-03-03-18).",
                 "NONE", null),
+        new Def("ticket.barcode-prefix", Type.TEXT, "TICKETS",
+                "Préfixe du code-barres imprimé sur le ticket",
+                "Préfixe ajouté devant le numéro de ticket dans le code-barres imprimé en pied de ticket, pour que les portiques ou les bornes de jeux reconnaissent la plage qui leur est réservée. Vide : le code-barres porte le numéro de ticket seul, comme aujourd'hui (BO-03-06-55).",
+                "", null),
+        new Def("ticket.vat-code", Type.BOOL, "TICKETS",
+                "Imprimer le code du taux de TVA sur la ligne",
+                "Le numéro du régime de TVA de l'article sort sur sa ligne, à côté du libellé. Désactivé : la ligne ne porte que son prix, et le détail de TVA reste dans le tableau des totaux. Activé en France, désactivé en Belgique (BO-03-03-37).",
+                "false", null),
+        new Def("ticket.exit-ticket", Type.BOOL, "TICKETS",
+                "Ticket de sortie à la place du ticket",
+                "Un ticket de sortie — titre, code-barres, total TTC, nombre d'articles et les articles les plus chers — est imprimé À LA PLACE du ticket de caisse. Désactivé : le ticket de caisse sort normalement (BO-03-03-36).",
+                "false", null),
+        new Def("ticket.exit-ticket-articles", Type.INT, "TICKETS",
+                "Articles les plus chers sur le ticket de sortie",
+                "Combien d'articles, du plus cher au moins cher, sont nommés sur le ticket de sortie. Hors de la plage 1 à 20, la valeur retombe sur 3 (BO-03-03-36).",
+                "3", null),
+        new Def("parking.print-resume", Type.BOOL, "TICKETS",
+                "Imprimer le ticket de reprise",
+                "Un ticket de reprise — date, numéro du ticket et numéro du ticket d'origine — sort à chaque reprise d'un ticket mis en attente. Désactivé : la reprise n'imprime rien (BO-03-03-07).",
+                "false", null),
         new Def("ticket.line-discount-print", Type.BOOL, "TICKETS",
                 "Imprimer les remises de ligne",
                 "La remise, le rabais ou le prix forcé d'une ligne sort sous l'article concerné. Désactivé : seule la remise ticket sort sous les totaux (BO-03-03-22).",
@@ -155,7 +227,7 @@ public class PosSettingsService {
                 "false", null),
         new Def("print.forced-documents", Type.TEXT, "IMPRESSION CONDITIONNELLE",
                 "Documents toujours imprimés",
-                "Documents imprimés d'office quel que soit le choix du caissier, séparés par des points-virgules : TICKET, CARTE, BON. Vide : le choix du caissier s'applique seul (LC-08-03-07).",
+                "Documents imprimés d'office quel que soit le choix du caissier, séparés par des points-virgules : TICKET, CARTE, BON, AVOIR, FID, ENLEVEMENT. Les trois premiers complètent le choix du caissier ; les trois derniers ne sont pas proposables à l'écran et ne sortent QUE s'ils sont nommés ici. Vide : le choix du caissier s'applique seul et aucun document associé ne sort (LC-08-03-07, BO-03-03-01).",
                 "", null),
         new Def("print.force-ticket-glc", Type.BOOL, "IMPRESSION CONDITIONNELLE",
                 "Forcer le ticket comportant un article sous GLC",
@@ -185,6 +257,14 @@ public class PosSettingsService {
                 "Durée du mode dégradé forcé (minutes)",
                 "Au bout de ce délai, le mode dégradé monétique forcé se lève tout seul : l'opérateur qui l'a activé ne sera pas celui qui sera encore là trois heures plus tard (LC-07-08-04).",
                 "60", null),
+        new Def("terminal.pdv-label-enabled", Type.BOOL, "MONÉTIQUE",
+                "Ajouter le Label Point De Vente à la requête monétique",
+                "Le Label Point De Vente administré ci-dessous est ajouté à chaque requête envoyée au client monétique. Désactivé : la requête ne le porte pas (BO-03-09-31).",
+                "false", null),
+        new Def("terminal.pdv-label", Type.TEXT, "MONÉTIQUE",
+                "Label Point De Vente",
+                "Le Label Point De Vente tel que l'acquéreur l'a écrit, sous la forme {TAG}valeur : la caisse l'émet verbatim, elle ne compose ni le tag ni la valeur. Vide : rien n'est ajouté, même si l'ajout est activé (BO-03-09-31).",
+                "", null),
         new Def("ticket.header-message", Type.TEXT, "MESSAGES TICKET",
                 "Message en début de ticket",
                 "Texte imprimé en tête du ticket, sous l'adresse du magasin. Vide : aucun message (BO-03-08-03).",
@@ -193,6 +273,14 @@ public class PosSettingsService {
                 "Message en fin de ticket",
                 "Texte imprimé en pied du ticket, après la formule de politesse. Vide : aucun message (BO-03-08-03, BO-03-08-05).",
                 "", null),
+        new Def("ticket.footer-url", Type.TEXT, "MESSAGES TICKET",
+                "Adresse imprimée en pied de ticket",
+                "Adresse web imprimée en pied de ticket, sous le message de fin — questionnaire de satisfaction, programme de fidélité, mentions en ligne. Vide : rien n'est imprimé (BO-03-05-08).",
+                "", null),
+        new Def("ticket.footer-url-format", Type.TEXT, "MESSAGES TICKET",
+                "Format de l'adresse en pied de ticket",
+                "Comment l'adresse ci-dessus est rendue : QR (code QR, défaut), BARCODE (code-barres), TEXTE (l'adresse écrite en clair) ou AUCUN (rien n'est imprimé, même si une adresse est saisie). Une valeur inconnue retombe sur QR (BO-03-05-08).",
+                "QR", null),
         new Def("drawer.open-on-payment", Type.BOOL, "TIROIR",
                 "Ouverture du tiroir au paiement",
                 "Le tiroir s'ouvre sur les règlements physiques (espèces, chèque, titres-restaurant). Désactivé : le tiroir reste fermé au paiement (BO-10-02-12).",
@@ -301,6 +389,14 @@ public class PosSettingsService {
                 "Contrôle du checkdigit EAN13",
                 "Au scan d'un EAN13, la clé de contrôle est vérifiée et un code invalide est refusé. Désactivé : aucun contrôle de clé (BO-10-02-21).",
                 "false", null),
+        new Def("scan.supervisor-prefix", Type.TEXT, "SCAN",
+                "Préfixe du code-barres superviseur",
+                "Préfixe imprimé devant le code superviseur sur son code-barres. Tant qu'il est posé, une identification superviseur n'est acceptée QUE d'un code préfixé : le code seul, qui se tape, ne vaut plus identification. Vide : le code superviseur suffit, comme avant (BO-10-02-32).",
+                "", null),
+        new Def("sale.allow-during-payment", Type.BOOL, "SCAN",
+                "Vente d'un article pendant le règlement",
+                "Un article scanné alors qu'un règlement est en cours est enregistré sur la vente. Désactivé — le défaut — il est refusé et le caissier en est averti : un panier qui grossit pendant qu'on encaisse est un panier dont le total ne vaut plus (BO-10-02-15).",
+                "false", null),
         new Def("dashboard.alerts-enabled", Type.BOOL, "SUPERVISION",
                 "Alertes caisses sur le back-office",
                 "Les appels superviseur des caisses s'affichent sur le tableau de bord du back-office. Désactivé : aucune alerte n'est remontée à l'écran (BO-10-08-01).",
@@ -349,6 +445,26 @@ public class PosSettingsService {
                 "Imprimante par type de document",
                 "Imprimante de chaque type de document, séparés par des points-virgules, sous la forme TYPE:IMPRIMANTE — imprimantes : TICKET (rouleau de caisse), FACTURETTE (station à insertion), A4 (imprimante réseau). Exemple : FACTURE:A4;BON_LIVRAISON:TICKET. Un type non nommé sort sur le rouleau (LC-08-04-11).",
                 "", null),
+        new Def("invoice.decimals-unit-ht", Type.INT, "FACTURE",
+                "Décimales du prix unitaire HT",
+                "Nombre de décimales du prix unitaire hors taxe sur la facture et le bon de livraison : 2 ou 3. Une autre valeur retombe sur 2 (BO-10-02-19).",
+                "2", null),
+        new Def("invoice.decimals-vat-base", Type.INT, "FACTURE",
+                "Décimales de la base HT du tableau de TVA",
+                "Nombre de décimales de la base hors taxe de chaque ligne du tableau de TVA : 2 ou 3. Une autre valeur retombe sur 2 (BO-10-02-19).",
+                "2", null),
+        new Def("invoice.decimals-vat-amount", Type.INT, "FACTURE",
+                "Décimales du montant de TVA",
+                "Nombre de décimales du montant de taxe de chaque ligne du tableau de TVA : 2 ou 3. Une autre valeur retombe sur 2 (BO-10-02-19).",
+                "2", null),
+        new Def("invoice.decimals-total-ht", Type.INT, "FACTURE",
+                "Décimales du total HT",
+                "Nombre de décimales du total hors taxe du pied de document : 2 ou 3. Une autre valeur retombe sur 2 (BO-10-02-19).",
+                "2", null),
+        new Def("invoice.decimals-total-ttc", Type.INT, "FACTURE",
+                "Décimales du total TTC",
+                "Nombre de décimales du total toutes taxes du pied de document : 2 ou 3. Une autre valeur retombe sur 2 (BO-10-02-19).",
+                "2", null),
         new Def("invoice.slip-lines", Type.INT, "FACTURE",
                 "Lignes par facturette",
                 "Nombre de lignes imprimées sur une facturette avant de demander la feuille suivante. En dessous de 1, la facturette est imprimée d'un seul tenant (LC-08-04-12/13).",
@@ -461,6 +577,18 @@ public class PosSettingsService {
                 "Déclaration automatique de fin de période",
                 "À la clôture, l'hôtesse est dispensée du comptage : le montant déclaré est le théorique et le journal note que la déclaration était automatique. Désactivé : l'écran de comptage est présenté comme aujourd'hui (BO-03-10-10).",
                 "false", null),
+        new Def("island.unknown-article-ticket", Type.BOOL, "ILOT / TPV",
+                "Imprimer le ticket « article inconnu »",
+                "Au scan d'un code que rien ne reconnaît, un ticket est imprimé portant le code lu, la caisse et l'heure — le papier qu'un chef de rayon rapporte au référentiel. Désactivé : seul le message écran, comme aujourd'hui (BO-03-10-05).",
+                "false", null),
+        new Def("island.block-article-popups", Type.BOOL, "ILOT / TPV",
+                "Bloquer les messages liés à l'article",
+                "Les messages d'information liés à la vente d'un article — le message administré sur l'article, l'alerte de prix élevé — ne sont plus affichés sur les caisses de cet îlot. Les REFUS ne sont jamais tus : un geste interdit reste interdit et le dit (BO-03-10-13).",
+                "false", null),
+        new Def("island.block-payment-popups", Type.BOOL, "ILOT / TPV",
+                "Bloquer les messages liés au règlement",
+                "Les messages d'information liés à un moyen de paiement — les alertes non bloquantes des points de contrôle de règlement — ne sont plus affichés sur les caisses de cet îlot. Les refus et les demandes d'aval ne sont jamais tus (BO-03-10-14).",
+                "false", null),
         new Def("island.promotion-channel", Type.TEXT, "ILOT / TPV",
                 "Canal promotion de l'îlot",
                 "Canal remonté à la fidélité pour les ventes de cet îlot (point de vente, Web, autres). Vide : aucun canal n'est ajouté et la remontée reste identique à l'octet près (BO-03-10-08).",
@@ -469,6 +597,26 @@ public class PosSettingsService {
                 "Tare logicielle par défaut (kg)",
                 "Tare envoyée à la balance à chaque pesée, sauf tare article ou tare contenant qui la remplacent ponctuellement. La balance priorise cette tare et renvoie le poids net, enregistré tel quel. 0 : aucune tare par défaut (LC-14-01-03/06).",
                 "0", null),
+        new Def("fidelity.send-subfamily", Type.BOOL, "FIDÉLITÉ",
+                "Envoyer la famille et la sous-famille au moteur",
+                "Chaque ligne du panier transmis au moteur de promotion porte le code de la famille de l'article et celui de sa sous-famille, pour que des avantages puissent être déclenchés à ce niveau. Désactivé : la ligne ne porte que son code article (BO-10-03-19).",
+                "false", null),
+        new Def("ticket.ecotax-print", Type.TEXT, "TICKETS",
+                "Impression de l'éco-participation",
+                "Où l'éco-participation des articles qui en portent une est imprimée sur le ticket : NONE (nulle part, défaut), LINE (sous chaque article concerné) ou TOTAL (une seule ligne, sous la ventilation de TVA). Une valeur inconnue retombe sur NONE (BO-10-06-06).",
+                "NONE", null),
+        new Def("ticket.due-amount-large", Type.BOOL, "TICKETS",
+                "Montant dû en caractères agrandis",
+                "La ligne du total à payer est émise en caractères double hauteur et double largeur, par la même directive que la mise en gras. Désactivé : elle est imprimée dans la fonte courante (BO-10-07-14).",
+                "false", null),
+        new Def("fiscal.certificate-number", Type.TEXT, "FISCAL",
+                "N° de certification fiscale",
+                "Numéro de certification du logiciel délivré par l'administration fiscale, imprimé sur tous les documents de vente et de retour de la caisse. Vide : aucune mention n'est imprimée, ce qui est le cas de tout pays qui n'en exige pas. Posé à l'échelon PAYS, il descend à toutes les caisses de ce pays (BO-10-06-03).",
+                "", null),
+        new Def("balance.print-tare", Type.BOOL, "BALANCE",
+                "Imprimer la tare appliquée",
+                "La tare réellement appliquée à une pesée — contenant, article ou tare par défaut — est imprimée en kilogrammes sous la ligne de l'article pesé. Désactivé : le ticket n'énonce que le poids net, comme avant (BO-10-05-04).",
+                "false", null),
         new Def("balance.tare-containers", Type.TEXT, "BALANCE",
                 "Contenants de tare (code:libellé:poids)",
                 "Liste des contenants proposés au caissier pour une tare ponctuelle, séparés par des points-virgules, sous la forme CODE:LIBELLÉ:POIDS_KG (ex. SACPAP:Sac kraft:0.010;BQS:Barquette S:0.035). La tare contenant remplace ponctuellement la tare article ou par défaut et n'est pas persistante. Vide : aucun contenant proposé (LC-14-01-04/05).",
@@ -476,6 +624,26 @@ public class PosSettingsService {
         new Def("tender.restricted", Type.TEXT, "RÈGLEMENTS RESTREINTS",
                 "Règlements restreints affichés en caisse",
                 "Moyens de paiement restreints dont l'assiette éligible est affichée pendant la vente, séparés par des points-virgules, sous la forme CODE:ATTRIBUT:LIBELLÉ — attributs disponibles : MEAL_VOUCHER_ELIGIBLE, ECO_VOUCHER_ELIGIBLE, SOCIAL_CARD_ELIGIBLE. Vide : titre-restaurant, éco-chèque et carte achat sociale (LC-09-01-11 à -18).",
+                "", null),
+        new Def("customer.local-code-range", Type.TEXT, "CLIENT EN CAISSE",
+                "Plage des codes clients attribués en caisse",
+                "Plage de numéros que la caisse attribue aux clients qu'elle crée, sous la forme PRÉFIXE:PREMIER-DERNIER (ex. CLI:500000-599999). Le préfixe et les bornes sont ceux que le central réserve au point de vente, pour qu'un client créé en caisse ne collisionne jamais avec un client intégré. Vide : numérotation par caisse CAISSE-CLInnnnnn, celle d'avant ce paramètre (BO-03-06-53).",
+                "", null),
+        new Def("keyboard.enter-as-total", Type.BOOL, "TOUCHES CAISSE",
+                "Touche entrée valant TOTAL",
+                "Sur l'écran de vente, la touche entrée frappée SANS RIEN DE TAPÉ ouvre le règlement. Désactivé — le défaut — elle ne fait rien, ce qu'elle a toujours fait : un code tapé est validé par elle dans les deux cas (BO-10-02-13).",
+                "false", null),
+        new Def("touch.external-apps", Type.TEXT, "TOUCHES CAISSE",
+                "Applications tierces appelées depuis la caisse",
+                "Applications tierces atteignables depuis le poste, séparées par des points-virgules, sous la forme LIBELLÉ>URL (ex. Carte fidélité>https://fid.magasin/caisse). Une entrée mal formée est écartée. Vide : aucune application proposée (BO-03-09-27).",
+                "", null),
+        new Def("tender.local-range", Type.TEXT, "RÈGLEMENTS RESTREINTS",
+                "Plage d'identifiants modifiable par le point de vente",
+                "Identifiants fonctionnels de modes de règlement que le magasin peut modifier, sous la forme de bornes séparées par des virgules (ex. 500-599,900). Tout identifiant hors de cette plage est central et figé : le magasin ne garde que l'activation. Vide : le magasin modifie tous les modes de règlement (BO-03-02-06, BO-03-02-07).",
+                "", null),
+        new Def("cheque.endorsement-lines", Type.TEXT, "RÈGLEMENTS RESTREINTS",
+                "Endos imprimé au dos du chèque",
+                "Ce qui est imprimé au dos du chèque pendant que le lecteur le tient, une ligne par point-virgule. Jetons disponibles : {date}, {heure}, {montant}, {caisse}, {pdv}. Vide : la date et l'heure puis le montant, comme avant ce paramètre (BO-03-02-43).",
                 "", null),
         new Def("gs1.expiry-alert", Type.TEXT, "CODES GS1",
                 "Alerte date de péremption article",
@@ -505,6 +673,14 @@ public class PosSettingsService {
                 "Ordre des touches groupe",
                 "Ordre d'affichage des touches groupe sur l'ecran de saisie directe : ALPHA (alphabetique, defaut), CUSTOM (ordre personnalise de la fiche groupe) ou VOLUME (volume de vente decroissant). Une valeur inconnue retombe sur ALPHA (BO-03-01-10/11/13).",
                 "ALPHA", null),
+        new Def("auth.password-expiry-days", Type.INT, "SESSION CAISSE",
+                "Expiration du secret (jours)",
+                "Nombre de jours au bout desquels la caisse et le back-office invitent le titulaire à changer son code. 0 : aucune expiration, le code reste valable indéfiniment. Un secret jamais changé est considéré comme échu dès qu'un délai est posé (BO-01-02-12).",
+                "0", null),
+        new Def("auth.idle-action", Type.TEXT, "SESSION CAISSE",
+                "Sécurité sans activité",
+                "Ce que fait la caisse au bout du délai d'inactivité : LOCK (verrouillage — l'opérateur reste en poste et reprend sa vente avec son seul code, défaut) ou CLOSE (fermeture de la session de travail — l'opérateur est déconnecté et une prise de poste complète est nécessaire). Une valeur inconnue retombe sur LOCK (BO-10-02-28).",
+                "LOCK", null),
         new Def("auth.badge-scan-enabled", Type.BOOL, "SESSION CAISSE",
                 "Prise de poste au scan du badge",
                 "Le scan d'un badge deverrouille la caisse ou vise un avenant manager. Desactive : le badge scanne est ignore et l'operateur saisit son identifiant a la main (BO-10-02-29/30).",
@@ -541,6 +717,14 @@ public class PosSettingsService {
                 "Delai de fermeture avant la fin de periode (minutes)",
                 "Nombre de minutes avant la fin de periode a partir duquel les caisses encore ouvertes sont fermees. Une caisse en pleine vente n'est pas fermee : l'ordre reste en attente et la caisse le reprend des qu'elle est au repos (BO-09-03-07).",
                 "5", null),
+        new Def("period.reset-ticket-counter", Type.BOOL, "FIN DE PÉRIODE",
+                "Remettre le compteur de tickets à 1",
+                "Le compteur de transactions de la caisse repart à 1 à chaque fin de période. Désactivé — le défaut — il continue sans discontinuer. Seul le numéro de ticket repart : la numérotation fiscale, elle, ne compte jamais à rebours et n'est pas touchée (BO-09-03-04).",
+                "false", null),
+        new Def("period.pdv-actions", Type.TEXT, "FIN DE PÉRIODE",
+                "Actions de la fin de période du point de vente",
+                "Ce que la fin de période du POINT DE VENTE enchaîne, noms séparés par des points-virgules et dans l'ordre : CLOSE_REGISTERS (fermer les caisses restées ouvertes), SAFE_COUNT (comptage du coffre), Z_REPORT (état Z consolidé), BANK_DEPOSIT (remise en banque). Un nom inconnu est ignoré. Vide : la fin de période ne fait que ce que les clés ci-dessus décrivent, caisse par caisse (BO-03-12-02).",
+                "", null),
         new Def("cash.default-opening-float", Type.TEXT, "SESSION CAISSE",
                 "Fond de caisse par defaut",
                 "Montant pre-rempli du fond de caisse a l'ouverture de session, que le caissier peut corriger. Administre par magasin et herite par echelon (BO-03-02-41).",
@@ -585,6 +769,10 @@ public class PosSettingsService {
                 "Plafond de remise ticket (€)",
                 "Montant maximum d'une remise ticket en euros. Une remise à ce montant passe, au-delà elle est refusée. 0 = pas de plafond en euros (BO-03-07-04).",
                 "0.00", null),
+        new Def("fidelity.show-holder-name-customer", Type.BOOL, "FIDÉLITÉ",
+                "Afficher le nom du porteur sur le viseur client",
+                "Le nom et le prénom du porteur, quand une recherche les a trouvés, sont affichés sur le VISEUR CLIENT au rattachement de la carte. Désactivé — le défaut — le viseur client n'affiche aucune identité : il est tourné vers la salle, et le client qui suit lit l'écran du client devant lui (BO-10-03-03).",
+                "false", null),
         new Def("fidelity.show-holder-name", Type.BOOL, "FIDÉLITÉ",
                 "Afficher le nom du porteur",
                 "Le nom et le prénom trouvés par une recherche de carte sont affichés en caisse à côté du numéro. Désactivé : la caisse n'affiche que le numéro de carte, comme pour une carte scannée (BO-10-03-04).",
@@ -597,6 +785,26 @@ public class PosSettingsService {
                 "Promotions personnalisées à la carte",
                 "La carte de fidélité est transmise au moteur de promotion, qui lit les offres personnelles du porteur et peut les déclencher. Désactivé : le panier est valorisé anonymement et aucune promotion personnalisée n'est déclenchée (BO-10-03-22).",
                 "true", null),
+        new Def("fidelity.template-online", Type.TEXT, "FIDÉLITÉ",
+                "Gabarit de la zone fidélité — porteur, en ligne",
+                "Code du gabarit imprimé à la place de la zone fidélité intégrée quand une carte a été présentée et que le programme a répondu. Vide : la caisse imprime sa zone intégrée (BO-10-03-05, BO-10-03-12).",
+                "", null),
+        new Def("fidelity.template-offline", Type.TEXT, "FIDÉLITÉ",
+                "Gabarit de la zone fidélité — porteur, hors ligne",
+                "Code du gabarit imprimé quand une carte a été présentée et que le programme n'a pas répondu. Vide : la caisse imprime sa zone intégrée, carte et message hors ligne (BO-10-03-05, BO-10-03-11).",
+                "", null),
+        new Def("fidelity.template-non-holder-online", Type.TEXT, "FIDÉLITÉ",
+                "Gabarit de la zone fidélité — non porteur, en ligne",
+                "Code du gabarit imprimé quand aucune carte n'a été présentée et que le programme a répondu, c'est-à-dire pour la projection anonyme. Vide : la caisse imprime sa zone intégrée (BO-10-03-05).",
+                "", null),
+        new Def("fidelity.template-non-holder-offline", Type.TEXT, "FIDÉLITÉ",
+                "Gabarit de la zone fidélité — non porteur, hors ligne",
+                "Code du gabarit imprimé quand aucune carte n'a été présentée et que le programme n'a pas répondu. Vide : la caisse imprime sa zone intégrée, limitée au message du magasin (BO-10-03-05, BO-10-03-13).",
+                "", null),
+        new Def("fidelity.template-grouped", Type.TEXT, "FIDÉLITÉ",
+                "Gabarit de la zone fidélité regroupée par catégorie",
+                "Code du gabarit imprimé à la place du gabarit porteur en ligne quand le regroupement des avantages vaut CATEGORY. Vide : le gabarit porteur en ligne s'applique, regroupement ou non (BO-10-03-21).",
+                "", null),
         new Def("fidelity.url", Type.TEXT, "FIDÉLITÉ",
                 "URL du service fidélité",
                 "Adresse de base du service fidélité appelé pour valoriser le panier avec les avantages fid, projeter la cagnotte et envoyer les transactions. Vide : la propriété de déploiement pos.fid.url s'applique (BO-11-04-04).",
@@ -665,6 +873,14 @@ public class PosSettingsService {
                 "Aval superviseur : forçage de prix",
                 "Le forçage du prix d'une ligne exige un aval superviseur. Désactivé : le caissier force seul (EXP-32).",
                 "true", null),
+        new Def("gesture.endorsement-ticket-reassign", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : réaffectation d'un ticket",
+                "La réaffectation d'un ticket clôturé à un client fidélisé exige un aval superviseur (LC-03-06-01). Désactivé : le caissier réaffecte seul.",
+                "true", null),
+        new Def("reassign.pdv-duplicate", Type.BOOL, "TICKETS",
+                "Duplicata PDV de la réaffectation",
+                "La réaffectation d'un ticket imprime aussi un duplicata pour le point de vente (LC-03-06-05). Désactivé : seul le ticket du client sort.",
+                "false", null),
         new Def("cash.variance-threshold", Type.TEXT, "CLÔTURE",
                 "Seuil d'écart de caisse (€)",
                 "Écart de caisse (valeur absolue) au-delà duquel la clôture alerte et exige un recomptage ou une validation superviseur nominative. Usuellement 1 € (EXP-82).",
@@ -677,10 +893,74 @@ public class PosSettingsService {
                 "Mode de fond de caisse",
                 "FIXED : fond fixe, la caissière compte son tiroir chaque soir et la RAZ caissière est quotidienne (défaut). FLOATING_WEEK_MONTH : fond flottant, le comptage réel et la RAZ caissière n'ont lieu qu'en fin de semaine et le dernier jour du mois. FLOATING_MONTH : fond flottant avec RAZ caissière mensuelle seulement (cas rare). Les soirs sans comptage prélèvent le surplus au-dessus du fond initial et ne calculent aucun écart. FLOATING est accepté comme synonyme de FLOATING_WEEK_MONTH (EXP-95).",
                 "FIXED", null),
+        new Def("control.cancel-line", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : annulation d'article",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Sans effet quand l'aval superviseur de l'annulation de ligne est désactivé : ce drapeau dit SI le geste est surveillé, cette clé dit ce qui se passe alors (BO-10-02-01).",
+                "ENDORSE", null),
+        new Def("control.cancel-payment", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : annulation d'un paiement partiel",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Porte sur l'abandon des règlements déjà encaissés d'un ticket en cours de paiement (BO-10-02-02).",
+                "NONE", null),
+        new Def("control.refund", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : remboursement",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Sans effet quand l'aval superviseur du remboursement est désactivé : ce drapeau dit SI le geste est surveillé, cette clé dit ce qui se passe alors (BO-10-02-03).",
+                "ENDORSE", null),
+        new Def("control.drawer-out-of-sale", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : ouverture du tiroir hors vente",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Porte sur les ouvertures qui ne règlent aucune vente : prise de poste et clôture de session (BO-10-02-04). ENDORSE y vaut BLOCK : aucune cérémonie d'aval n'existe à ce moment.",
+                "NONE", null),
+        new Def("control.quantity", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : saisie de quantité",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Déclenché au-delà de la quantité plafond ci-dessous (BO-10-02-06).",
+                "NONE", null),
+        new Def("control.quantity-max", Type.INT, "POINTS DE CONTRÔLE",
+                "Quantité plafond d'une ligne",
+                "Quantité au-delà de laquelle le contrôle de saisie de quantité se déclenche. La borne absolue de 999 reste appliquée quoi qu'il arrive (BO-10-02-06).",
+                "999", null),
+        new Def("control.ticket-total", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : total du ticket",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Déclenché au-delà du total plafond ci-dessous (BO-10-02-07). ENDORSE y vaut BLOCK : aucune cérémonie d'aval n'existe à ce moment.",
+                "NONE", null),
+        new Def("control.ticket-total-max", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Total de ticket plafond (€)",
+                "Total TTC au-delà duquel le contrôle du total de ticket se déclenche. Vide : aucun plafond, le contrôle ne se déclenche jamais (BO-10-02-07).",
+                "", null),
+        new Def("control.parked-at-close", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : clôture avec des tickets en attente",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Les tickets en attente non repris sont annulés par la clôture : ce contrôle est ce qui en prévient le caissier (BO-10-02-08). ENDORSE y vaut BLOCK : aucune cérémonie d'aval n'existe à ce moment.",
+                "NONE", null),
+        new Def("control.card-payment", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : règlement par carte",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Porte sur l'usage des moyens de paiement monétiques en caisse (BO-10-02-10). ENDORSE y vaut BLOCK : aucune cérémonie d'aval n'existe à ce moment.",
+                "NONE", null),
+        new Def("control.item-amount", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : montant d'un article",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Porte sur le prix forcé d'une ligne, comparé en valeur absolue : une vente et un retour sont plafonnés de la même façon (BO-10-02-16).",
+                "NONE", null),
+        new Def("control.item-amount-max", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Montant d'article plafond (€)",
+                "Montant au-delà duquel le contrôle du montant d'article se déclenche, comparé en valeur absolue. Vide : aucun plafond, le contrôle ne se déclenche jamais (BO-10-02-16).",
+                "", null),
+        new Def("control.payment-amount", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Contrôle : montant d'un règlement",
+                "Niveau du contrôle : NONE (aucun contrôle), WARN (alerte non bloquante, le geste passe et l'opérateur est prévenu), BLOCK (geste refusé, qu'aucune habilitation de la caisse ne lève) ou ENDORSE (geste refusé jusqu'à l'aval d'un superviseur). Une valeur inconnue retombe sur le défaut de ce point. Porte sur le montant saisi pour un moyen de paiement, comparé en valeur absolue (BO-10-02-17). ENDORSE y vaut BLOCK : aucune cérémonie d'aval n'existe à ce moment.",
+                "NONE", null),
+        new Def("control.payment-amount-max", Type.TEXT, "POINTS DE CONTRÔLE",
+                "Montant de règlement plafond (€)",
+                "Montant au-delà duquel le contrôle du montant de règlement se déclenche, comparé en valeur absolue. Vide : aucun plafond, le contrôle ne se déclenche jamais (BO-10-02-17).",
+                "", null),
         new Def("gesture.endorsement-scope", Type.TEXT, "GESTES NÉGATIFS",
                 "Portée de l'aval superviseur",
                 "PER_OP : l'aval vaut pour un seul geste (défaut). PER_TICKET : une fois donné, l'aval reste attaché au ticket jusqu'à la touche FIN SUPERVISEUR ou la fin du ticket (EXP-33).",
                 "PER_OP", null),
+        new Def("auth.endorsement-roles", Type.TEXT, "GESTES NÉGATIFS",
+                "Rôles habilités à donner un aval",
+                "Rôles dont le titulaire peut avaliser un geste en caisse, séparés par des points-virgules (MANAGER, ADMIN, CASHIER). Vide ou illisible : MANAGER;ADMIN, les deux rôles qui avalisaient avant que la liste soit administrable (BO-04-02-01).",
+                "MANAGER;ADMIN", null),
+        new Def("supervision.unknown-item-alert", Type.BOOL, "SUPERVISION",
+                "Alerter le back-office sur article inconnu",
+                "Un article scanné que le référentiel ne connaît pas remonte une demande de service au tableau de bord, au même titre qu'un appel superviseur. Désactivé — le défaut — l'article inconnu n'est consultable qu'après coup au journal (BO-04-02-06).",
+                "false", null),
         new Def("supervisor.service-reasons", Type.TEXT, "SUPERVISION",
                 "Motifs de demande de service",
                 "Motifs proposés à l'écran d'appel superviseur, séparés par des points-virgules — liste administrée au lieu des quatre boutons figés (EXP-84).",
@@ -1014,6 +1294,30 @@ public class PosSettingsService {
     }
 
     /**
+     * The roles whose holder may endorse a guarded gesture
+     * ({@code BO-04-02-01}), as a raw semicolon-separated string.
+     *
+     * @return the administered roles, never null
+     */
+    public String endorsementRoles() {
+        LOGGER.info("Entering method endorsementRoles");
+        LOGGER.info("Exiting method endorsementRoles");
+        return value("auth.endorsement-roles");
+    }
+
+    /**
+     * Whether an unknown article scanned at the till raises a service
+     * request at the back office ({@code BO-04-02-06}).
+     *
+     * @return true when the alert is administered
+     */
+    public boolean unknownItemAlertEnabled() {
+        LOGGER.info("Entering method unknownItemAlertEnabled");
+        LOGGER.info("Exiting method unknownItemAlertEnabled");
+        return boolValue("supervision.unknown-item-alert");
+    }
+
+    /**
      * The administered service-request reasons shown on the supervisor-call
      * screen (EXP-84), as a raw semicolon-separated string.
      *
@@ -1133,6 +1437,19 @@ public class PosSettingsService {
         LOGGER.info("Entering method gestureEndorsementRequired with gestureKey: " + gestureKey);
         LOGGER.info("Exiting method gestureEndorsementRequired");
         return boolValue("gesture.endorsement-" + gestureKey);
+    }
+
+    /**
+     * Whether the reassignment of a closed ticket to a fidelity customer also
+     * prints a duplicata for the POINT OF VENTE (LC-03-06-05): the customer's
+     * new ticket always prints, the shop's copy is administered.
+     *
+     * @return true when the shop's duplicata prints too
+     */
+    public boolean reassignPdvDuplicate() {
+        LOGGER.info("Entering method reassignPdvDuplicate");
+        LOGGER.info("Exiting method reassignPdvDuplicate");
+        return boolValue("reassign.pdv-duplicate");
     }
 
     /**
@@ -1467,6 +1784,178 @@ public class PosSettingsService {
     }
 
     /**
+     * One third-party application the register can reach (BO-03-09-27).
+     *
+     * @param label the operator-facing wording of the touch
+     * @param url the address the register opens
+     */
+    public record ExternalApp(String label, String url) {
+    }
+
+    /**
+     * The third-party applications the register offers (BO-03-09-27), in
+     * administered order.
+     *
+     * <p>A malformed entry is DROPPED rather than refused: one typo in the back
+     * office must not cost the cashier the other applications. An entry naming
+     * no address, or no wording, is malformed — a touch nobody can label and a
+     * touch leading nowhere are both useless.
+     *
+     * <p>ADDRESSES ONLY, deliberately. The requirement says "URL ou
+     * exécutable"; a register that runs an arbitrary binary because a
+     * referential row said so is a security hole, so the executable half is
+     * not implemented and the line is rated accordingly.
+     *
+     * @return the administered applications, empty when none is administered
+     */
+    public java.util.List<ExternalApp> externalApps() {
+        LOGGER.info("Entering method externalApps");
+        java.util.List<ExternalApp> apps = new java.util.ArrayList<>();
+        String raw = value("touch.external-apps");
+        if (raw == null || raw.isBlank()) {
+            LOGGER.info("Exiting method externalApps");
+            return apps;
+        }
+        for (String entry : raw.split(";")) {
+            String trimmed = entry.trim();
+            int arrow = trimmed.indexOf('>');
+            if (arrow <= 0 || arrow == trimmed.length() - 1) {
+                continue;
+            }
+            String label = trimmed.substring(0, arrow).trim();
+            String url = trimmed.substring(arrow + 1).trim();
+            if (label.isEmpty() || url.isEmpty()) {
+                continue;
+            }
+            apps.add(new ExternalApp(label, url));
+        }
+        LOGGER.info("Exiting method externalApps");
+        return apps;
+    }
+
+    /**
+     * One action the point of sale's period end performs (BO-03-12-02).
+     */
+    public enum PeriodAction {
+
+        /** Close the registers left open. */
+        CLOSE_REGISTERS,
+
+        /** Count the safe. */
+        SAFE_COUNT,
+
+        /** Emit the consolidated Z report. */
+        Z_REPORT,
+
+        /** Prepare the bank deposit. */
+        BANK_DEPOSIT
+    }
+
+    /**
+     * What the POINT OF SALE's period end chains, in administered order
+     * (BO-03-12-02).
+     *
+     * <p>Above the cash sessions: the three {@code period.*} keys beside this
+     * one already say WHEN a period ends and what each REGISTER does about it,
+     * and the opening calendar is the pair of {@code financial.closed-*} keys.
+     * All of them are catalog keys, so the head office already poses them at
+     * the PDV echelon and every register inherits them — that part needed no
+     * code. What this key adds is what the STORE does at that moment, as an
+     * ordered list the back office writes.
+     *
+     * <p>An unknown name is DROPPED rather than refused: a typo must not leave
+     * a store unable to close its day. A duplicate is kept once — chaining the
+     * same action twice is never what a shop means.
+     *
+     * @return the administered actions in order, empty when none is administered
+     */
+    public java.util.List<PeriodAction> periodPdvActions() {
+        LOGGER.info("Entering method periodPdvActions");
+        java.util.List<PeriodAction> actions = new java.util.ArrayList<>();
+        String raw = value("period.pdv-actions");
+        if (raw == null || raw.isBlank()) {
+            LOGGER.info("Exiting method periodPdvActions");
+            return actions;
+        }
+        for (String entry : raw.split(";")) {
+            String name = entry.trim().toUpperCase();
+            if (name.isEmpty()) {
+                continue;
+            }
+            try {
+                PeriodAction action = PeriodAction.valueOf(name);
+                if (!actions.contains(action)) {
+                    actions.add(action);
+                }
+            } catch (IllegalArgumentException e) {
+                LOGGER.debugf("Action de fin de periode inconnue, ignoree: %s", name);
+            }
+        }
+        LOGGER.info("Exiting method periodPdvActions");
+        return actions;
+    }
+
+    /**
+     * The range of customer numbers the register attributes to the customers it
+     * creates (BO-03-06-53), empty when none is administered.
+     *
+     * @return the administered range, empty when none is administered
+     */
+    public String customerLocalCodeRange() {
+        LOGGER.info("Entering method customerLocalCodeRange");
+        LOGGER.info("Exiting method customerLocalCodeRange");
+        return value("customer.local-code-range");
+    }
+
+    /**
+     * The range of tender functional identifiers the STORE may modify
+     * (BO-03-02-06 and -07), empty when it may modify them all.
+     *
+     * @return the administered range, empty when none is administered
+     */
+    public String tenderLocalRange() {
+        LOGGER.info("Entering method tenderLocalRange");
+        LOGGER.info("Exiting method tenderLocalRange");
+        return value("tender.local-range");
+    }
+
+    /**
+     * What is printed on the back of a cheque (BO-03-02-43), one line per
+     * semicolon, empty when nothing is administered.
+     *
+     * @return the administered endorsement, empty when none is administered
+     */
+    public String chequeEndorsementLines() {
+        LOGGER.info("Entering method chequeEndorsementLines");
+        LOGGER.info("Exiting method chequeEndorsementLines");
+        return value("cheque.endorsement-lines");
+    }
+
+    /**
+     * Whether the administered Label Point De Vente is added to every
+     * monetique request (BO-03-09-31).
+     *
+     * @return true when the label travels with the request
+     */
+    public boolean terminalPdvLabelEnabled() {
+        LOGGER.info("Entering method terminalPdvLabelEnabled");
+        LOGGER.info("Exiting method terminalPdvLabelEnabled");
+        return boolValue("terminal.pdv-label-enabled");
+    }
+
+    /**
+     * The Label Point De Vente as the acquirer wrote it (BO-03-09-31), in the
+     * {@code {TAG}value} form the register emits verbatim.
+     *
+     * @return the administered label, empty when none is administered
+     */
+    public String terminalPdvLabel() {
+        LOGGER.info("Entering method terminalPdvLabel");
+        LOGGER.info("Exiting method terminalPdvLabel");
+        return value("terminal.pdv-label");
+    }
+
+    /**
      * Whether the manual monetique degraded mode is active (BO-03-12-05):
      * card payments bypass the configured terminal and are accepted
      * immediately.
@@ -1513,6 +2002,35 @@ public class PosSettingsService {
         LOGGER.info("Entering method ticketHeaderMessage");
         LOGGER.info("Exiting method ticketHeaderMessage");
         return value("ticket.header-message");
+    }
+
+    /**
+     * The web address printed at the FOOT of the sale and return documents
+     * ({@code BO-03-05-08}); empty when none is administered.
+     *
+     * @return the administered address, possibly empty
+     */
+    public String ticketFooterUrl() {
+        LOGGER.info("Entering method ticketFooterUrl");
+        LOGGER.info("Exiting method ticketFooterUrl");
+        return value("ticket.footer-url");
+    }
+
+    /**
+     * How the footer address is rendered ({@code BO-03-05-08}): {@code QR},
+     * {@code BARCODE}, {@code TEXTE} or {@code AUCUN}.
+     *
+     * <p>Answered raw, the printer service deciding what an unknown value
+     * means: the catalogue describes the four words, and a register that
+     * meets a fifth prints the code it has always been able to print rather
+     * than nothing.
+     *
+     * @return the administered format, never null
+     */
+    public String ticketFooterUrlFormat() {
+        LOGGER.info("Entering method ticketFooterUrlFormat");
+        LOGGER.info("Exiting method ticketFooterUrlFormat");
+        return value("ticket.footer-url-format");
     }
 
     /**
@@ -1743,6 +2261,22 @@ public class PosSettingsService {
     }
 
     /**
+     * Whether the holder's NAME is shown on the CUSTOMER display at card
+     * attachment (BO-10-03-03).
+     *
+     * <p>Distinct from the cashier-side rule (BO-10-03-04) and off by default,
+     * which is not the same prudence twice: the cashier screen faces one
+     * person, the customer display faces the queue.
+     *
+     * @return true when the customer display states the holder
+     */
+    public boolean fidelityShowHolderNameOnCustomerDisplay() {
+        LOGGER.info("Entering method fidelityShowHolderNameOnCustomerDisplay");
+        LOGGER.info("Exiting method fidelityShowHolderNameOnCustomerDisplay");
+        return boolValue("fidelity.show-holder-name-customer");
+    }
+
+    /**
      * The range of account-customer numbers the register accepts for a credit
      * settlement (BO-03-06-52), as a regular expression; empty when any number
      * is accepted and none is recognised at scan.
@@ -1779,6 +2313,287 @@ public class PosSettingsService {
         LOGGER.info("Entering method fidelityJvPromotionEnabled");
         LOGGER.info("Exiting method fidelityJvPromotionEnabled");
         return boolValue("fidelity.jv-promotion-enabled");
+    }
+
+    /**
+     * The number of DECIMALS a commercial document prints a figure with
+     * (BO-10-02-19), clamped to the two values the requirement allows.
+     *
+     * <p>Two or three, and nothing else: a document administered with seven
+     * decimals would be unreadable, and one administered with none would state
+     * a price that is not the price. Anything outside the range answers two,
+     * which is what every document printed before the keys existed.
+     *
+     * @param key the settings key carrying the figure's decimals
+     * @return 2 or 3
+     */
+    private int documentDecimals(String key) {
+        int decimals = intValue(key);
+        return decimals == 3 ? 3 : 2;
+    }
+
+    /**
+     * Decimals of the UNIT PRICE EXCLUDING TAX on a commercial document
+     * (BO-10-02-19).
+     *
+     * @return 2 or 3
+     */
+    public int invoiceUnitExcludingTaxDecimals() {
+        LOGGER.info("Entering method invoiceUnitExcludingTaxDecimals");
+        int decimals = documentDecimals("invoice.decimals-unit-ht");
+        LOGGER.info("Exiting method invoiceUnitExcludingTaxDecimals");
+        return decimals;
+    }
+
+    /**
+     * Decimals of the TAXABLE BASE of a VAT row (BO-10-02-19).
+     *
+     * @return 2 or 3
+     */
+    public int invoiceVatBaseDecimals() {
+        LOGGER.info("Entering method invoiceVatBaseDecimals");
+        int decimals = documentDecimals("invoice.decimals-vat-base");
+        LOGGER.info("Exiting method invoiceVatBaseDecimals");
+        return decimals;
+    }
+
+    /**
+     * Decimals of the TAX AMOUNT of a VAT row (BO-10-02-19).
+     *
+     * @return 2 or 3
+     */
+    public int invoiceVatAmountDecimals() {
+        LOGGER.info("Entering method invoiceVatAmountDecimals");
+        int decimals = documentDecimals("invoice.decimals-vat-amount");
+        LOGGER.info("Exiting method invoiceVatAmountDecimals");
+        return decimals;
+    }
+
+    /**
+     * Decimals of the TOTAL EXCLUDING TAX in the document foot (BO-10-02-19).
+     *
+     * @return 2 or 3
+     */
+    public int invoiceTotalExcludingTaxDecimals() {
+        LOGGER.info("Entering method invoiceTotalExcludingTaxDecimals");
+        int decimals = documentDecimals("invoice.decimals-total-ht");
+        LOGGER.info("Exiting method invoiceTotalExcludingTaxDecimals");
+        return decimals;
+    }
+
+    /**
+     * Decimals of the TOTAL INCLUDING TAX in the document foot (BO-10-02-19).
+     *
+     * @return 2 or 3
+     */
+    public int invoiceTotalIncludingTaxDecimals() {
+        LOGGER.info("Entering method invoiceTotalIncludingTaxDecimals");
+        int decimals = documentDecimals("invoice.decimals-total-ttc");
+        LOGGER.info("Exiting method invoiceTotalIncludingTaxDecimals");
+        return decimals;
+    }
+
+    /**
+     * The supervisor barcode's PREFIX (BO-10-02-32).
+     *
+     * <p>Blank is the absence of a prefix and the behaviour every register had
+     * before it existed: the supervisor code alone identifies. Administered,
+     * the prefix is what a barcode carries and a keyboard does not, which is
+     * the whole point of the parameter.
+     *
+     * @return the administered prefix, blank when there is none
+     */
+    public String supervisorBadgePrefix() {
+        LOGGER.info("Entering method supervisorBadgePrefix");
+        String prefix = value("scan.supervisor-prefix");
+        LOGGER.info("Exiting method supervisorBadgePrefix");
+        return prefix;
+    }
+
+    /**
+     * Whether an article may be rung while a settlement is under way
+     * (BO-10-02-15).
+     *
+     * @return true when the sale accepts articles during the settlement
+     */
+    public boolean saleAllowedDuringPayment() {
+        LOGGER.info("Entering method saleAllowedDuringPayment");
+        LOGGER.info("Exiting method saleAllowedDuringPayment");
+        return boolValue("sale.allow-during-payment");
+    }
+
+    /**
+     * What the register does when the idle delay expires (BO-10-02-28), read as
+     * administered and resolved by the caller — {@code CLOSE} or anything else,
+     * which means the lock.
+     *
+     * @return the administered action
+     */
+    public String idleAction() {
+        LOGGER.info("Entering method idleAction");
+        String action = value("auth.idle-action");
+        LOGGER.info("Exiting method idleAction");
+        return action;
+    }
+
+    /**
+     * Whether the article's SECOND CODE is printed under its ticket line
+     * (BO-10-02-20).
+     *
+     * @return true when the second code goes on the paper
+     */
+    public boolean secondCodePrinted() {
+        LOGGER.info("Entering method secondCodePrinted");
+        LOGGER.info("Exiting method secondCodePrinted");
+        return boolValue("ticket.second-code-print");
+    }
+
+    /**
+     * Where the ticket states its ARTICLE COUNT (BO-10-07-10), read as
+     * administered and resolved by the caller — {@code TOTAL_LINE},
+     * {@code OWN_LINE}, or anything else, which means nowhere.
+     *
+     * @return the administered placement
+     */
+    public String ticketItemCountPrint() {
+        LOGGER.info("Entering method ticketItemCountPrint");
+        String placement = value("ticket.item-count-print");
+        LOGGER.info("Exiting method ticketItemCountPrint");
+        return placement;
+    }
+
+    /**
+     * Whether the unknown-article slip carries the read code as a BARCODE
+     * (BO-10-07-11).
+     *
+     * @return true when the slip is meant to be rescanned
+     */
+    public boolean unknownArticleBarcodePrinted() {
+        LOGGER.info("Entering method unknownArticleBarcodePrinted");
+        LOGGER.info("Exiting method unknownArticleBarcodePrinted");
+        return boolValue("ticket.unknown-article-barcode");
+    }
+
+    /**
+     * How far back the register searches a closed ticket before giving up, in
+     * DAYS (BO-10-07-16).
+     *
+     * <p>Zero or negative is not a depth of zero — a register that answers
+     * nothing to every search would look broken — but the absence of an
+     * administered one: the caller then keeps its built-in depth.
+     *
+     * @return the administered depth in days, zero or less when there is none
+     */
+    public int ticketSearchDays() {
+        LOGGER.info("Entering method ticketSearchDays");
+        int days = intValue("ticket.search-days");
+        LOGGER.info("Exiting method ticketSearchDays");
+        return days;
+    }
+
+    /**
+     * Days an EXPIRED and never-redeemed instrument is kept (BO-10-08-13).
+     *
+     * @return the delay in days, zero meaning no limit
+     */
+    public int barcodeExpiredUnusedDays() {
+        LOGGER.info("Entering method barcodeExpiredUnusedDays");
+        int days = intValue("retention.barcodes-expired-unused-days");
+        LOGGER.info("Exiting method barcodeExpiredUnusedDays");
+        return days;
+    }
+
+    /**
+     * Days a dated and EXHAUSTED instrument is kept after exhaustion
+     * (BO-10-08-14).
+     *
+     * @return the delay in days, zero meaning no limit
+     */
+    public int barcodeExpiredUsedDays() {
+        LOGGER.info("Entering method barcodeExpiredUsedDays");
+        int days = intValue("retention.barcodes-expired-used-days");
+        LOGGER.info("Exiting method barcodeExpiredUsedDays");
+        return days;
+    }
+
+    /**
+     * Days an instrument carrying NO validity date is kept after issue
+     * (BO-10-08-15).
+     *
+     * @return the delay in days, zero meaning no limit
+     */
+    public int barcodeUndatedDays() {
+        LOGGER.info("Entering method barcodeUndatedDays");
+        int days = intValue("retention.barcodes-undated-days");
+        LOGGER.info("Exiting method barcodeUndatedDays");
+        return days;
+    }
+
+    /**
+     * Whether the enter key opens the settlement on an empty buffer
+     * (BO-10-02-13).
+     *
+     * @return true when enter alone is the TOTAL key
+     */
+    public boolean enterAsTotal() {
+        LOGGER.info("Entering method enterAsTotal");
+        LOGGER.info("Exiting method enterAsTotal");
+        return boolValue("keyboard.enter-as-total");
+    }
+
+    /**
+     * The TEMPLATE CODE naming the administered loyalty zone for this sale's
+     * case, or null when the store administered none (BO-10-03-05).
+     *
+     * <p>Four cases and not one: a card was presented or not, the programme
+     * answered or not. A fifth key takes precedence over the holder-online one
+     * when the advantages are grouped by category (BO-10-03-21), because that
+     * is the only case where a grouped layout has anything to group.
+     *
+     * <p>A blank key is the absence of a template and not a template named by
+     * the empty string: the register then prints its built-in zone, which is
+     * what every store does until a paramétreur has been there.
+     *
+     * @param cardPresent whether a loyalty card was attached to the sale
+     * @param programmeUnavailable whether the loyalty service failed to answer
+     * @param groupedByCategory whether the advantages are grouped by category
+     * @return the administered template code, or null when there is none
+     */
+    public String fidelityTemplateCode(boolean cardPresent,
+            boolean programmeUnavailable, boolean groupedByCategory) {
+        LOGGER.info("Entering method fidelityTemplateCode");
+        if (cardPresent && !programmeUnavailable && groupedByCategory) {
+            String grouped = trimmedOrNull(value("fidelity.template-grouped"));
+            if (grouped != null) {
+                LOGGER.info("Exiting method fidelityTemplateCode");
+                return grouped;
+            }
+        }
+        String key;
+        if (cardPresent) {
+            key = programmeUnavailable ? "fidelity.template-offline" : "fidelity.template-online";
+        } else {
+            key = programmeUnavailable
+                    ? "fidelity.template-non-holder-offline"
+                    : "fidelity.template-non-holder-online";
+        }
+        String code = trimmedOrNull(value(key));
+        LOGGER.info("Exiting method fidelityTemplateCode");
+        return code;
+    }
+
+    /**
+     * Reads an administered value as a template code, a blank one meaning none.
+     *
+     * <p>Never handed a null: every caller passes a CATALOGUED key, and a
+     * catalogued key whose row is missing or empty answers its default value,
+     * which for these five is the empty string.
+     *
+     * @param raw the administered value, blank when nothing was administered
+     * @return the trimmed value, or null when there is nothing to read
+     */
+    private String trimmedOrNull(String raw) {
+        return raw.isBlank() ? null : raw.trim();
     }
 
     /**
@@ -2418,17 +3233,183 @@ public class PosSettingsService {
      * @param dedicatedTicket true when the key opens a dedicated return ticket,
      *        false when it takes the article back inside the sale
      */
-    public record ReturnType(String label, boolean dedicatedTicket) {
+    public record ReturnType(String label, boolean dedicatedTicket,
+                             boolean endorsementExempt, boolean originOptional,
+                             boolean priceConfirmed) {
+
+        /**
+         * Builds a type carrying only the base gesture, every option off — the
+         * shape every administered entry had before the options existed.
+         *
+         * @param label the operator-facing label
+         * @param dedicatedTicket whether the key opens a dedicated return ticket
+         */
+        public ReturnType(String label, boolean dedicatedTicket) {
+            this(label, dedicatedTicket, false, false, false);
+        }
+    }
+
+    /**
+     * ONE ready-made discount key (BO-03-07-03 and BO-03-07-06).
+     *
+     * <p>A label the cashier taps, a kind and a value — nothing else. The two
+     * kinds are the two gestures the register already performs: a PERCENTAGE off
+     * the line, or an AMOUNT in euros off the line. The key spares the cashier
+     * the numpad, which is what the questionnaire asks for: "sélectionner
+     * directement la touche avec le bon pourcentage".
+     *
+     * @param label what the key is called on the screen, never blank
+     * @param percent true for a percentage, false for an amount in euros
+     * @param value the percentage or the amount, strictly positive
+     * @param cumulative true when the key may be used on a line that already
+     *        carries a discount or an automatic promotion (BO-03-07-11)
+     */
+    public record DiscountPreset(String label, boolean percent, java.math.BigDecimal value,
+                                 boolean cumulative) {
+    }
+
+    /**
+     * The ready-made discount keys the back office administers (BO-03-07-03,
+     * -06 and -11), parsed from the semicolon-separated list.
+     *
+     * <p>An entry is {@code label>KIND:value} with KIND either {@code PERCENT}
+     * or {@code AMOUNT}, optionally followed by {@code ,CUMUL} to let the key be
+     * used on an article that already carries a reduction. An entry whose kind
+     * is unknown, whose value is not a positive number or which carries no
+     * label is DROPPED rather than guessed: a key that takes off a figure
+     * nobody administered is worse than a key that is not offered.
+     *
+     * @return the administered keys, in order, never null
+     */
+    public List<DiscountPreset> discountPresets() {
+        LOGGER.info("Entering method discountPresets");
+        String raw = value("discount.presets");
+        if (raw.isBlank()) {
+            LOGGER.info("Exiting method discountPresets");
+            return List.of();
+        }
+        List<DiscountPreset> presets = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String entry = part.trim();
+            int marker = entry.indexOf('>');
+            if (entry.isEmpty() || marker < 0) {
+                continue;
+            }
+            String label = entry.substring(0, marker).trim();
+            if (label.isEmpty()) {
+                continue;
+            }
+            boolean percent = false;
+            boolean amount = false;
+            boolean cumulative = false;
+            java.math.BigDecimal figure = null;
+            for (String option : entry.substring(marker + 1).split(",\\s*(?=[A-Za-z])")) {
+                String name = option.trim();
+                if ("CUMUL".equalsIgnoreCase(name)) {
+                    cumulative = true;
+                    continue;
+                }
+                int colon = name.indexOf(':');
+                if (colon < 0) {
+                    continue;
+                }
+                String kind = name.substring(0, colon).trim();
+                percent = percent || "PERCENT".equalsIgnoreCase(kind);
+                amount = amount || "AMOUNT".equalsIgnoreCase(kind);
+                try {
+                    figure = new java.math.BigDecimal(
+                            name.substring(colon + 1).trim().replace(',', '.'));
+                } catch (NumberFormatException e) {
+                    figure = null;
+                }
+            }
+            if ((!percent && !amount) || figure == null || figure.signum() <= 0) {
+                continue;
+            }
+            presets.add(new DiscountPreset(label, percent, figure, cumulative));
+        }
+        LOGGER.info("Exiting method discountPresets");
+        return presets;
+    }
+
+    /**
+     * The ready-made discount key carrying that label, or null when none does.
+     *
+     * @param label the label to resolve, possibly null
+     * @return the key, or null when the list names none
+     */
+    public DiscountPreset discountPreset(String label) {
+        LOGGER.info("Entering method discountPreset with label: " + label);
+        if (label == null || label.isBlank()) {
+            LOGGER.info("Exiting method discountPreset");
+            return null;
+        }
+        String typed = label.trim();
+        for (DiscountPreset candidate : discountPresets()) {
+            if (candidate.label().equalsIgnoreCase(typed)) {
+                LOGGER.info("Exiting method discountPreset");
+                return candidate;
+            }
+        }
+        LOGGER.info("Exiting method discountPreset");
+        return null;
+    }
+
+    /**
+     * Whether a freely keyed discount may be applied to a line that already
+     * carries one (BO-03-07-11).
+     *
+     * <p>Defaults to true, which is what the register did before the key
+     * existed. A ready-made key carrying {@code CUMUL} passes over this
+     * default; one that does not carry it obeys it.
+     *
+     * @return true when the cumulation is allowed
+     */
+    public boolean discountCumulativeOnDiscounted() {
+        LOGGER.info("Entering method discountCumulativeOnDiscounted");
+        LOGGER.info("Exiting method discountCumulativeOnDiscounted");
+        return boolValue("discount.cumulative-on-discounted");
+    }
+
+    /**
+     * Whether the TICKET-level discount bears on the lines that already carry a
+     * reduction (BO-03-07-12).
+     *
+     * <p>Defaults to true. Switched off, those lines leave the base AND the
+     * allocation — the same doctrine as an article that bans discounts
+     * (BO-02-03-09): leaving them in the base would shrink everyone else's
+     * share to pay for a discount they never receive.
+     *
+     * @return true when the global discount bears on reduced lines
+     */
+    public boolean discountGlobalOnDiscounted() {
+        LOGGER.info("Entering method discountGlobalOnDiscounted");
+        LOGGER.info("Exiting method discountGlobalOnDiscounted");
+        return boolValue("discount.global-on-discounted");
     }
 
     /**
      * The return types offered in caisse (LC-05-04-01), parsed from the
      * semicolon-separated administered list. An entry is a label, optionally
-     * followed by {@code >TICKET} to say the key opens a dedicated return ticket
-     * rather than taking the article back inside the sale; anything else after
-     * the marker reads as the in-sale gesture, so a typo offers a key that works.
-     * Blank entries are dropped and an empty setting yields an empty list — only
-     * the two base gestures are then offered. Never null.
+     * followed by {@code >} and the OPTIONS of the type, separated by commas:
+     *
+     * <ul>
+     *   <li>{@code TICKET} — the key opens a dedicated return ticket rather than
+     *       taking the article back inside the sale (LC-05-04-01).</li>
+     *   <li>{@code NOENDORSE} — the type needs NO supervisor endorsement
+     *       (BO-03-13-08): an exchange of equal value does not call a manager.</li>
+     *   <li>{@code NOORIGIN} — the type may be used when the original ticket was
+     *       not found (BO-03-13-06), even where the store forbids the
+     *       without-origin return in general.</li>
+     *   <li>{@code PRICE} — each returned line has its price CONFIRMED or
+     *       changed by the cashier (BO-03-13-10).</li>
+     * </ul>
+     *
+     * <p>An unknown marker is ignored rather than refused, so a typo offers a key
+     * that works — the rule the single {@code >TICKET} marker already followed,
+     * and an entry written for the older format still reads the same way. Blank
+     * entries are dropped and an empty setting yields an empty list — only the
+     * two base gestures are then offered. Never null.
      *
      * @return the administered return types, in order
      */
@@ -2450,9 +3431,25 @@ public class PosSettingsService {
             if (label.isEmpty()) {
                 continue;
             }
-            boolean dedicated = marker >= 0
-                    && "TICKET".equalsIgnoreCase(entry.substring(marker + 1).trim());
-            types.add(new ReturnType(label, dedicated));
+            boolean dedicated = false;
+            boolean exempt = false;
+            boolean originOptional = false;
+            boolean priceConfirmed = false;
+            if (marker >= 0) {
+                for (String option : entry.substring(marker + 1).split(",\\s*(?=[A-Za-z])")) {
+                    String name = option.trim();
+                    if ("TICKET".equalsIgnoreCase(name)) {
+                        dedicated = true;
+                    } else if ("NOENDORSE".equalsIgnoreCase(name)) {
+                        exempt = true;
+                    } else if ("NOORIGIN".equalsIgnoreCase(name)) {
+                        originOptional = true;
+                    } else if ("PRICE".equalsIgnoreCase(name)) {
+                        priceConfirmed = true;
+                    }
+                }
+            }
+            types.add(new ReturnType(label, dedicated, exempt, originOptional, priceConfirmed));
         }
         LOGGER.info("Exiting method returnTypes");
         return types;
@@ -2485,6 +3482,54 @@ public class PosSettingsService {
         LOGGER.info("Entering method islandChangeAllowed");
         LOGGER.info("Exiting method islandChangeAllowed");
         return boolValue("island.change-allowed");
+    }
+
+    /**
+     * Whether a slip is printed when a scanned code is recognized by nothing
+     * (BO-03-10-05).
+     *
+     * <p>Resolved per island like the other island keys. Defaults to false, so
+     * an unposted setting leaves the unknown code exactly where it was: a
+     * message on the screen and no paper.
+     *
+     * @return true when the unknown-article slip is printed
+     */
+    public boolean islandUnknownArticleTicket() {
+        LOGGER.info("Entering method islandUnknownArticleTicket");
+        LOGGER.info("Exiting method islandUnknownArticleTicket");
+        return boolValue("island.unknown-article-ticket");
+    }
+
+    /**
+     * Whether the island silences the INFORMATIVE messages tied to an article
+     * (BO-03-10-13).
+     *
+     * <p>Informative only. A refusal is never silenced — a gesture the store
+     * forbids stays forbidden and says so — so this key reads the warnings and
+     * never the errors.
+     *
+     * @return true when the article messages are blocked on this island
+     */
+    public boolean islandBlockArticlePopups() {
+        LOGGER.info("Entering method islandBlockArticlePopups");
+        LOGGER.info("Exiting method islandBlockArticlePopups");
+        return boolValue("island.block-article-popups");
+    }
+
+    /**
+     * Whether the island silences the INFORMATIVE messages tied to a tender
+     * (BO-03-10-14).
+     *
+     * <p>Same rule as the article key: the non-blocking alerts of the payment
+     * control points are silenced, the refusals and the endorsement requests
+     * are not.
+     *
+     * @return true when the payment messages are blocked on this island
+     */
+    public boolean islandBlockPaymentPopups() {
+        LOGGER.info("Entering method islandBlockPaymentPopups");
+        LOGGER.info("Exiting method islandBlockPaymentPopups");
+        return boolValue("island.block-payment-popups");
     }
 
     /**
@@ -2790,6 +3835,44 @@ public class PosSettingsService {
     }
 
     /**
+     * The SYMBOL printed beside an amount on the register's documents
+     * (BO-10-07-05).
+     *
+     * @return the administered symbol, blank when the shop prints bare amounts
+     */
+    public String currencySymbol() {
+        LOGGER.info("Entering method currencySymbol");
+        String symbol = value("currency.symbol");
+        LOGGER.info("Exiting method currencySymbol");
+        return symbol;
+    }
+
+    /**
+     * Whether the register prints the currency symbol at all (BO-10-07-04).
+     *
+     * @return true when amounts carry the symbol
+     */
+    public boolean currencySymbolPrinted() {
+        LOGGER.info("Entering method currencySymbolPrinted");
+        LOGGER.info("Exiting method currencySymbolPrinted");
+        return boolValue("currency.symbol-print");
+    }
+
+    /**
+     * The SIDE of the amount the symbol is printed on (BO-10-07-06), read as
+     * administered and resolved by the caller — {@code LEFT} or anything else,
+     * which means the right.
+     *
+     * @return the administered position
+     */
+    public String currencySymbolPosition() {
+        LOGGER.info("Entering method currencySymbolPosition");
+        String position = value("currency.symbol-position");
+        LOGGER.info("Exiting method currencySymbolPosition");
+        return position;
+    }
+
+    /**
      * How the ticket travels in the e-mail (LC-08-02-07/08), as administered. The
      * mail service normalizes it — an unknown value falls back to the message body
      * there — so this stays a plain read.
@@ -2852,6 +3935,76 @@ public class PosSettingsService {
         LOGGER.info("Entering method ticketLineAttributeIsolate");
         LOGGER.info("Exiting method ticketLineAttributeIsolate");
         return value("ticket.line-attribute-isolate");
+    }
+
+    /**
+     * The prefix the printed ticket barcode carries (BO-03-06-55).
+     *
+     * <p>A PREFIX and not a whole code: the barcode must stay the one a return
+     * or a claim is looked up by, so the ticket number is kept and the store
+     * only says which range it belongs to — which is what a gate or a game
+     * kiosk filters on.
+     *
+     * @return the administered prefix, empty when none
+     */
+    public String ticketBarcodePrefix() {
+        LOGGER.info("Entering method ticketBarcodePrefix");
+        LOGGER.info("Exiting method ticketBarcodePrefix");
+        return value("ticket.barcode-prefix");
+    }
+
+    /**
+     * Whether the VAT regime NUMBER prints on the article line (BO-03-03-37).
+     *
+     * <p>A number and not a rate: the regime is numbered once by the commercial
+     * management, and that number is what a Belgian or French audit reads back.
+     *
+     * @return true when the VAT code is printed on each article line
+     */
+    public boolean ticketVatCode() {
+        LOGGER.info("Entering method ticketVatCode");
+        LOGGER.info("Exiting method ticketVatCode");
+        return boolValue("ticket.vat-code");
+    }
+
+    /**
+     * Whether the exit ticket is printed INSTEAD OF the sale receipt
+     * (BO-03-03-36).
+     *
+     * @return true when the exit ticket replaces the receipt
+     */
+    public boolean exitTicketEnabled() {
+        LOGGER.info("Entering method exitTicketEnabled");
+        LOGGER.info("Exiting method exitTicketEnabled");
+        return boolValue("ticket.exit-ticket");
+    }
+
+    /**
+     * How many of the dearest articles the exit ticket names (BO-03-03-36).
+     *
+     * <p>Bounded here rather than at the printer: a paramétreur who types a
+     * hundred must cost the default and never a paper longer than the receipt
+     * the document is meant to replace.
+     *
+     * @return the number of articles named, always between 1 and 20
+     */
+    public int exitTicketArticles() {
+        LOGGER.info("Entering method exitTicketArticles");
+        int count = intValue("ticket.exit-ticket-articles");
+        LOGGER.info("Exiting method exitTicketArticles");
+        return count < 1 || count > 20 ? 3 : count;
+    }
+
+    /**
+     * Whether a resume ticket is printed when a parked sale comes back
+     * (BO-03-03-07).
+     *
+     * @return true when the resume prints its own document
+     */
+    public boolean parkingPrintResume() {
+        LOGGER.info("Entering method parkingPrintResume");
+        LOGGER.info("Exiting method parkingPrintResume");
+        return boolValue("parking.print-resume");
     }
 
     /**
@@ -2959,5 +4112,201 @@ public class PosSettingsService {
         LOGGER.info("Entering method fidelityNonHolderMessage");
         LOGGER.info("Exiting method fidelityNonHolderMessage");
         return value("fidelity.non-holder-message");
+    }
+
+    /**
+     * The administered LEVEL of a control point (BO-10-02-01 to -10), as it
+     * stands in the catalogue.
+     *
+     * <p>Read as text and resolved by {@code ControlLevel}, not here: the
+     * register's rules normalize what a paramétreur typed, this service only
+     * hands it over.
+     *
+     * @param key the control point's settings key
+     * @return the administered value, never null
+     */
+    public String controlLevel(String key) {
+        LOGGER.info("Entering method controlLevel with key: " + key);
+        LOGGER.info("Exiting method controlLevel");
+        return value(key);
+    }
+
+    /**
+     * The quantity beyond which the quantity control fires (BO-10-02-06).
+     *
+     * @return the administered ceiling, in units
+     */
+    public int controlQuantityMax() {
+        LOGGER.info("Entering method controlQuantityMax");
+        LOGGER.info("Exiting method controlQuantityMax");
+        return intValue("control.quantity-max");
+    }
+
+    /**
+     * The ticket total beyond which the ticket-total control fires
+     * (BO-10-02-07).
+     *
+     * <p>Null when the shop administers no ceiling, which is the default and
+     * means the control never fires — a blank is the absence of a ceiling and
+     * not a ceiling of zero, which would alert on every sale.
+     *
+     * @return the ceiling, or null when none is administered or the value
+     *         cannot be read as an amount
+     */
+    public java.math.BigDecimal controlTicketTotalMax() {
+        LOGGER.info("Entering method controlTicketTotalMax");
+        String raw = value("control.ticket-total-max");
+        if (raw.isBlank()) {
+            LOGGER.info("Exiting method controlTicketTotalMax");
+            return null;
+        }
+        try {
+            LOGGER.info("Exiting method controlTicketTotalMax");
+            return new java.math.BigDecimal(raw.trim().replace(',', '.'));
+        } catch (NumberFormatException malformed) {
+            // A ceiling nobody can read is no ceiling: a typo must not alert on
+            // every sale of the day.
+            LOGGER.warnf("Plafond de total de ticket illisible (%s), aucun plafond appliqué", raw);
+            LOGGER.info("Exiting method controlTicketTotalMax");
+            return null;
+        }
+    }
+
+    /**
+     * The article amount beyond which the item-amount control fires
+     * (BO-10-02-16).
+     *
+     * @return the ceiling, or null when none is administered or the value
+     *         cannot be read as an amount
+     */
+    public java.math.BigDecimal controlItemAmountMax() {
+        LOGGER.info("Entering method controlItemAmountMax");
+        java.math.BigDecimal ceiling = amountCeiling("control.item-amount-max", "montant d'article");
+        LOGGER.info("Exiting method controlItemAmountMax");
+        return ceiling;
+    }
+
+    /**
+     * The settlement amount beyond which the payment-amount control fires
+     * (BO-10-02-17).
+     *
+     * @return the ceiling, or null when none is administered or the value
+     *         cannot be read as an amount
+     */
+    public java.math.BigDecimal controlPaymentAmountMax() {
+        LOGGER.info("Entering method controlPaymentAmountMax");
+        java.math.BigDecimal ceiling = amountCeiling("control.payment-amount-max", "montant de règlement");
+        LOGGER.info("Exiting method controlPaymentAmountMax");
+        return ceiling;
+    }
+
+    /**
+     * Reads an administered AMOUNT CEILING, blank and unreadable alike meaning
+     * no ceiling at all.
+     *
+     * <p>A blank is the absence of a ceiling and not a ceiling of zero, which
+     * would fire on every sale; a typo answers the same, because a figure
+     * nobody can read must not start refusing gestures across the shop.
+     *
+     * @param key the settings key carrying the ceiling
+     * @param label the wording naming that ceiling in the warning log
+     * @return the ceiling, or null when there is none to apply
+     */
+    private java.math.BigDecimal amountCeiling(String key, String label) {
+        String raw = value(key);
+        if (raw.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(raw.trim().replace(',', '.'));
+        } catch (NumberFormatException malformed) {
+            LOGGER.warnf("Plafond de %s illisible (%s), aucun plafond appliqué", label, raw);
+            return null;
+        }
+    }
+
+    /**
+     * Whether the APPLIED tare is printed under a weighed line (BO-10-05-04).
+     *
+     * @return true when the ticket states the tare in kilograms
+     */
+    public boolean tarePrinted() {
+        LOGGER.info("Entering method tarePrinted");
+        LOGGER.info("Exiting method tarePrinted");
+        return boolValue("balance.print-tare");
+    }
+
+    /**
+     * The FISCAL CERTIFICATION NUMBER of the software, as the administration
+     * delivered it (BO-10-06-03).
+     *
+     * @return the administered number, blank where no country requires one
+     */
+    public String fiscalCertificateNumber() {
+        LOGGER.info("Entering method fiscalCertificateNumber");
+        String number = value("fiscal.certificate-number");
+        LOGGER.info("Exiting method fiscalCertificateNumber");
+        return number;
+    }
+
+    /**
+     * Whether the basket sent to the offer engine carries the article's FAMILY
+     * and SUB-FAMILY (BO-10-03-19).
+     *
+     * @return true when the nomenclature travels with each line
+     */
+    public boolean fidelitySendSubFamily() {
+        LOGGER.info("Entering method fidelitySendSubFamily");
+        LOGGER.info("Exiting method fidelitySendSubFamily");
+        return boolValue("fidelity.send-subfamily");
+    }
+
+    /**
+     * Whether the AMOUNT DUE is emitted in enlarged characters (BO-10-07-14).
+     *
+     * @return true when the total line carries the enlargement directive
+     */
+    public boolean dueAmountLarge() {
+        LOGGER.info("Entering method dueAmountLarge");
+        LOGGER.info("Exiting method dueAmountLarge");
+        return boolValue("ticket.due-amount-large");
+    }
+
+    /**
+     * Where the ECO-PARTICIPATION is printed on the ticket (BO-10-06-06), read
+     * as administered and resolved by the caller — {@code LINE},
+     * {@code TOTAL}, or anything else, which means nowhere.
+     *
+     * @return the administered placement
+     */
+    public String ecoTaxPrint() {
+        LOGGER.info("Entering method ecoTaxPrint");
+        String placement = value("ticket.ecotax-print");
+        LOGGER.info("Exiting method ecoTaxPrint");
+        return placement;
+    }
+
+    /**
+     * Whether the register's TRANSACTION COUNTER restarts at one at the end of
+     * a period (BO-09-03-04).
+     *
+     * @return true when the ticket numbering restarts
+     */
+    public boolean resetTicketCounterAtPeriodEnd() {
+        LOGGER.info("Entering method resetTicketCounterAtPeriodEnd");
+        LOGGER.info("Exiting method resetTicketCounterAtPeriodEnd");
+        return boolValue("period.reset-ticket-counter");
+    }
+
+    /**
+     * The number of days after which a secret must be renewed (BO-01-02-12).
+     *
+     * @return the delay in days, zero meaning no expiry at all
+     */
+    public int passwordExpiryDays() {
+        LOGGER.info("Entering method passwordExpiryDays");
+        int days = intValue("auth.password-expiry-days");
+        LOGGER.info("Exiting method passwordExpiryDays");
+        return days;
     }
 }

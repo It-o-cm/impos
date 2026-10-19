@@ -1,0 +1,244 @@
+{@java.lang.String padContainer}
+{@java.lang.String displayClass}
+{!
+ ! THE SUPERVISOR IDENTIFICATION, ONCE.
+ !
+ ! Four screens ask a supervisor to identify themselves: the paused lock screen
+ ! (forced unlock / forced fin de journee), the closing screen (forced close),
+ ! the variance alert (endorsed drawer variance) and the return detail
+ ! (cancelling a paid ticket). Each had written its OWN pair of click-to-focus
+ ! fields, and each had written it differently: an operator trained on one did
+ ! not recognise the next, and a fix to one never reached the other three.
+ !
+ ! It is now the IDENTIFICATION OF THE OPENING, and only here: the same
+ ! CODE PIN RAPIDE / IDENTIFIANT toggle, the same two-step walk, the same
+ ! labels, read from the opening's own keys because it is the same gesture.
+ !
+ ! WHAT THE INCLUDING SCREEN OWES IT
+ !   - padContainer: the id of the div the register's pad is drawn into. The pad
+ !     is a singleton, so a screen whose pad is shared with other fields passes
+ !     that same container and takes it back by re-binding its own field.
+ !   - displayClass: the screen's own class for an input display, so the panel
+ !     looks like the screen it sits in.
+ !   - in each submitted form, a hidden "supervisor" and a hidden
+ !     "supervisorPassword", and onsubmit="return SupAuth.fill(this)". The two
+ !     holders below sit OUTSIDE the forms on purpose: the lock screen submits
+ !     the same identification to two different endpoints.
+ !
+ ! IT READS THE BADGE ITSELF, on all four screens, because presenting a badge
+ ! and keying an identifier must always have the same effect. Its poll both ARMS
+ ! the register's supervisor mailbox and collects it, so the scan chain routes a
+ ! badge here exactly while this panel is on screen (AuthScanHandler case 2).
+ ! The poll only arms while the panel is VISIBLE: the lock screen carries this
+ ! panel inside a hidden overlay beside the opening's own identification, and a
+ ! badge presented to open the register must not be captured by a panel nobody
+ ! opened.
+!}
+<style>
+  /* Scoped under .sup-auth so a screen that styles .login-toggle for its own
+     purposes — the opening form of the lock screen does — keeps governing it. */
+  .sup-auth { display: flex; flex-direction: column; gap: 8px; }
+  .sup-auth .login-modes { display: flex; gap: 10px; }
+  .sup-auth .login-toggle { flex: 1; padding: 10px; background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-muted); font-size: var(--fs-body); font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; transition: 0.2s; text-transform: uppercase; }
+  .sup-auth .login-toggle.active { background: var(--primary); border-color: white; color: white; }
+  .sup-auth .step-indicator { color: var(--warning); font-size: var(--fs-body); }
+  .sup-auth .hint-text { color: var(--text-muted); font-size: var(--fs-body); }
+</style>
+<div class="sup-auth">
+  <div class="login-modes">
+    <button type="button" class="login-toggle active" id="supAuthPinMode" onclick="SupAuth.setMode('pin', this)">{inject:i18n.get('lock.pinMode')}</button>
+    <button type="button" class="login-toggle" id="supAuthIdMode" onclick="SupAuth.setMode('id', this)">{inject:i18n.get('lock.loginMode')}</button>
+  </div>
+  <div class="step-indicator" id="supAuthStep" style="display:none;">{inject:i18n.get('lock.step1')}</div>
+  <div class="hint-text" id="supAuthHint">{inject:i18n.get('lock.enterCode')}</div>
+  <div id="supAuthDisplay" class="{displayClass} pad-display" onclick="SupAuth.focus()"></div>
+  <input type="hidden" id="supAuthLogin" value="">
+  <input type="hidden" id="supAuthPin" value="">
+  <button type="button" class="btn btn-muted" id="supAuthNext" style="display:none;" onclick="SupAuth.next()">{inject:i18n.get('lock.next')}</button>
+</div>
+<script>
+  /* LC-13-06 : les libelles que ce volet ecrit lui-meme, resolus cote serveur
+     comme ceux de son HTML. Ce sont ceux de l'ouverture. */
+  var SUP_LBL = {
+      enterCode:  "{inject:i18n.get('lock.enterCode')}",
+      enterLogin: "{inject:i18n.get('lock.enterLogin')}",
+      enterPin:   "{inject:i18n.get('lock.enterPin')}",
+      step1:      "{inject:i18n.get('lock.step1')}",
+      step2:      "{inject:i18n.get('lock.step2')}"
+  };
+
+  var SupAuth = {
+
+    /* Le conteneur du pave de la page hote. */
+    padContainer: "{padContainer}",
+
+    /* Le mode courant: 'pin' (code rapide) ou 'id' (identifiant puis code). */
+    mode: 'pin',
+
+    /* L'etape courante du mode 'id': 1 l'identifiant, 2 le code. */
+    step: 1,
+
+    /* Raccourci de lecture du DOM.
+       @param id l'identifiant de l'element
+       @return l'element, ou null */
+    el: function (id) { return document.getElementById(id); },
+
+    /* Bascule le volet sur l'un des deux modes. Le changement de mode remet le
+       parcours a sa premiere etape et vide ce qui avait ete saisi sous l'autre
+       mode, pour qu'un identifiant abandonne ne parte pas avec le code suivant.
+       @param mode 'pin' ou 'id'
+       @param btn la touche pressee, qui porte l'etat actif */
+    setMode: function (mode, btn) {
+      this.mode = mode;
+      this.step = 1;
+      this.el('supAuthLogin').value = "";
+      this.el('supAuthPin').value = "";
+      this.el('supAuthPinMode').classList.remove('active');
+      this.el('supAuthIdMode').classList.remove('active');
+      if (btn) { btn.classList.add('active'); }
+      this.focus();
+      PosInput.clear();
+    },
+
+    /* Prend le pave et le cable sur l'etape courante. En mode code rapide le
+       pave ecrit l'identifiant, comme a l'ouverture ou le meme chiffrage sert
+       d'identifiant et de code; en mode identifiant l'etape 1 se tape en
+       lettres et l'etape 2 en chiffres masques. */
+    focus: function () {
+      var step = this.el('supAuthStep');
+      var hint = this.el('supAuthHint');
+      var next = this.el('supAuthNext');
+      var display = this.el('supAuthDisplay');
+      if (display) {
+        display.classList.add('active');
+        display.classList.add('pad-active');
+      }
+      if (this.mode === 'pin') {
+        step.style.display = 'none';
+        hint.innerText = SUP_LBL.enterCode;
+        next.style.display = 'none';
+        PosInput.setup({
+          displayId: 'supAuthDisplay',
+          hiddenId: 'supAuthLogin',
+          containerId: this.padContainer,
+          keyboardType: 'numpad',
+          mode: 'pin',
+          maxLength: 8,
+          initialValue: this.el('supAuthLogin').value || ''
+        });
+        return;
+      }
+      step.style.display = 'block';
+      if (this.step === 1) {
+        step.innerText = SUP_LBL.step1;
+        hint.innerText = SUP_LBL.enterLogin;
+        next.style.display = 'block';
+        PosInput.setup({
+          displayId: 'supAuthDisplay',
+          hiddenId: null,
+          containerId: this.padContainer,
+          keyboardType: 'alpha',
+          mode: 'text',
+          uppercase: true,
+          maxLength: 32
+        });
+        return;
+      }
+      step.innerText = SUP_LBL.step2;
+      hint.innerText = SUP_LBL.enterPin;
+      next.style.display = 'none';
+      PosInput.setup({
+        displayId: 'supAuthDisplay',
+        hiddenId: 'supAuthPin',
+        containerId: this.padContainer,
+        keyboardType: 'numpad',
+        mode: 'pin',
+        maxLength: 8,
+        initialValue: this.el('supAuthPin').value || ''
+      });
+    },
+
+    /* Rend le pave a la page hote: le lisere quitte l'afficheur du volet. A
+       appeler par un ecran dont le pave est partage avec d'autres champs. */
+    blur: function () {
+      var display = this.el('supAuthDisplay');
+      if (display) {
+        display.classList.remove('active');
+        display.classList.remove('pad-active');
+      }
+    },
+
+    /* SUIVANT: passe de l'identifiant au code, avec la meme garde de deux
+       caracteres que l'ouverture — un identifiant d'une lettre est une faute de
+       frappe, pas une identite. */
+    next: function () {
+      if (this.mode !== 'id' || this.step !== 1) { return; }
+      if (PosInput.buffer.length < 2) { return; }
+      this.el('supAuthLogin').value = PosInput.buffer.toUpperCase();
+      this.step = 2;
+      this.focus();
+      PosInput.clear();
+    },
+
+    /* Badge presente: il nomme le superviseur, son identifiant est fixe et il
+       ne reste que le code a taper — le raccourci que le badge offre a
+       l'ouverture. Le code est TOUJOURS demande: un aval ne s'obtient pas en
+       passant un badge, quelle que soit la regle d'ouverture du back-office.
+       @param badgeId le badge lu */
+    badge: function (badgeId) {
+      this.mode = 'id';
+      this.step = 2;
+      this.el('supAuthLogin').value = badgeId;
+      this.el('supAuthPin').value = "";
+      this.el('supAuthPinMode').classList.remove('active');
+      this.el('supAuthIdMode').classList.add('active');
+      this.focus();
+      PosInput.clear();
+    },
+
+    /* Vrai quand ce volet est AFFICHE. Sur l'ecran verrouille il vit dans un
+       calque cache a cote de l'identification de l'ouverture: tant qu'il n'est
+       pas ouvert, le badge presente appartient a l'ouverture.
+       @return true quand le volet occupe l'ecran */
+    visible: function () {
+      var panel = this.el('supAuthDisplay');
+      return panel !== null && panel.offsetParent !== null;
+    },
+
+    /* Un tour de sondage: arme la boite aux lettres du superviseur et ramasse
+       ce qu'elle contient. L'armement et le ramassage sont le MEME appel, donc
+       l'armement ne survit pas au volet — aucune page n'a a se souvenir de le
+       baisser. */
+    poll: function () {
+      if (!this.visible()) { return; }
+      var self = this;
+      fetch('/supervisor-badge-data')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.scannedBadge && data.scannedBadge !== "" && self.visible()) {
+            self.badge(data.scannedBadge);
+          }
+        })
+        .catch(function () { /* un tour manque n'est pas une panne */ });
+    },
+
+    /* Recopie l'identification dans les deux champs caches du formulaire
+       soumis. Les valeurs viennent des porteurs du volet et non de l'afficheur,
+       ou le code est masque par des etoiles. En mode code rapide le meme
+       chiffrage sert d'identifiant et de code, comme a l'ouverture.
+       @param form le formulaire en cours de soumission
+       @return true, pour laisser la soumission suivre son cours */
+    fill: function (form) {
+      var login = this.el('supAuthLogin').value;
+      var pin = this.mode === 'pin' ? login : this.el('supAuthPin').value;
+      var loginField = form.querySelector('input[name=supervisor]');
+      var pinField = form.querySelector('input[name=supervisorPassword]');
+      if (loginField) { loginField.value = login; }
+      if (pinField) { pinField.value = pin; }
+      return true;
+    }
+  };
+
+  /* Le volet s'alimente lui-meme en badges tant qu'il est a l'ecran. */
+  setInterval(function () { SupAuth.poll(); }, 1000);
+</script>

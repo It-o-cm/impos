@@ -137,7 +137,7 @@ public class GroupCIT {
         scan(EAN_HUILE);
         page.getByText(LABEL_HUILE).waitFor();
         openGesture(page, "remise", "REMISE");
-        typeAndValidate(page, "1");
+        typeAndValidate(page, "100");
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
         Assertions.assertEquals(PriceModType.REMISE, line.modifierType, "the gesture must stamp a REMISE modifier");
@@ -154,7 +154,7 @@ public class GroupCIT {
         scan(EAN_HUILE);
         page2.getByText(LABEL_HUILE).waitFor();
         openGesture(page2, "remise", "REMISE");
-        typeAndValidate(page2, "10");
+        typeAndValidate(page2, "1000");
         approveEndorsementWithManager(page2);
         Assertions.assertEquals(0, posState.ticket.items.get(0).getTotalPrice().compareTo(BigDecimal.ZERO),
                 "a remise above the line total must floor the line at 0,00 €");
@@ -229,7 +229,7 @@ public class GroupCIT {
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
-        tapDigits(page.locator("#payNumpadZone"), "5");
+        tapDigits(page.locator("#payNumpadZone"), "500");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER ESPÈCES").setExact(true)).click();
         page.getByText("TRANSACTION TERMINÉE").waitFor();
@@ -269,7 +269,7 @@ public class GroupCIT {
         Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("2")),
                 "two scans of a unit EAN must merge into a quantity-2 line");
         openGesture(page, "force_price", "FORÇAGE PRIX");
-        typeAndValidate(page, "5");
+        typeAndValidate(page, "500");
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
         Assertions.assertEquals(PriceModType.FORCE_PRICE, line.modifierType, "the gesture must stamp a FORCE_PRICE modifier");
@@ -342,7 +342,7 @@ public class GroupCIT {
         scan(EAN_HUILE);
         page.getByText(LABEL_HUILE).waitFor();
         openGesture(page, "remise", "REMISE");
-        typeAndValidate(page, "1");
+        typeAndValidate(page, "100");
         // The manager badges over the shoulder (no login typed): the mailbox
         // prefills the login, the modal jumps to PIN, the PIN applies the remise.
         approveEndorsementWithManager(page);
@@ -370,13 +370,13 @@ public class GroupCIT {
         page.getByText(LABEL_HUILE).waitFor();
         // First gesture: a 1,00 € REMISE (6,00 → 5,00).
         openGesture(page, "remise", "REMISE");
-        typeAndValidate(page, "1");
+        typeAndValidate(page, "100");
         approveEndorsementWithManager(page);
         Assertions.assertEquals(PriceModType.REMISE, posState.ticket.items.get(0).modifierType,
                 "the first gesture must stamp a REMISE modifier");
         // Second gesture: a FORÇAGE to 4,00 € REPLACES the REMISE.
         openGesture(page, "force_price", "FORÇAGE PRIX");
-        typeAndValidate(page, "4");
+        typeAndValidate(page, "400");
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
         Assertions.assertEquals(PriceModType.FORCE_PRICE, line.modifierType,
@@ -413,7 +413,7 @@ public class GroupCIT {
         scan(EAN_BAGUETTE);
         page.getByText(LABEL_BAGUETTE).waitFor();
         openGesture(page, "global_remise", "REMISE TICKET");
-        typeAndValidate(page, "1");
+        typeAndValidate(page, "100");
         approveEndorsementWithManager(page);
         BigDecimal totalHuile = posState.ticket.items.get(0).getTotalPrice();
         BigDecimal totalBaguette = posState.ticket.items.get(1).getTotalPrice();
@@ -445,7 +445,7 @@ public class GroupCIT {
             scan(EAN_HUILE);
             pageCap.getByText(LABEL_HUILE).waitFor();
             openGesture(pageCap, "global_remise", "REMISE TICKET");
-            typeAndValidate(pageCap, "6");
+            typeAndValidate(pageCap, "600");
             approveEndorsementWithManager(pageCap);
             Assertions.assertEquals("REMISE SUPERIEURE AU PLAFOND", posState.ticket.transientError,
                     "a € ticket remise above the ceiling must be refused with the plafond message");
@@ -473,9 +473,12 @@ public class GroupCIT {
             posSettings.store("discount.global-max-percent", "100");
         }
         // --- requested during a payment → TERMINEZ OU ANNULEZ LE TICKET D'ABORD ---
-        // Endorsement is disabled for this branch so the gesture applies directly
-        // and the payment-phase guard fires synchronously at submit.
-        posSettings.store("gesture.endorsement-required", "false");
+        // The discount endorsement is disabled for this branch (the per-gesture key
+        // the dispatch actually reads is gesture.endorsement-discount, not the
+        // generic gesture.endorsement-required) so the ticket remise applies
+        // directly through applyGestureDirectly and the payment-phase guard in
+        // TicketService.applyGlobalDiscount fires synchronously at submit.
+        posSettings.store("gesture.endorsement-discount", "false");
         try {
             Page pagePay = freshSale();
             scan(EAN_HUILE);
@@ -489,7 +492,7 @@ public class GroupCIT {
                     "no ticket discount must apply during a payment");
             pagePay.close();
         } finally {
-            posSettings.store("gesture.endorsement-required", "true");
+            posSettings.store("gesture.endorsement-discount", "true");
         }
     }
 
@@ -548,7 +551,7 @@ public class GroupCIT {
         Assertions.assertEquals(1, posState.ticket.items.size(),
                 "the gift card must be a sale line before the gesture");
         openGesture(pageMoney, "remise", "REMISE");
-        typeAndValidate(pageMoney, "5");
+        typeAndValidate(pageMoney, "500");
         approveEndorsementWithManager(pageMoney);
         TicketState.TicketItem money = posState.ticket.items.get(0);
         Assertions.assertNull(money.modifierType,
@@ -562,7 +565,7 @@ public class GroupCIT {
         pageDf.getByText(LABEL_HUILE).waitFor();
         posState.ticket.items.get(0).discountForbidden = true;
         openGesture(pageDf, "remise", "REMISE");
-        typeAndValidate(pageDf, "1");
+        typeAndValidate(pageDf, "100");
         approveEndorsementWithManager(pageDf);
         TicketState.TicketItem df = posState.ticket.items.get(0);
         Assertions.assertNull(df.modifierType,
@@ -577,7 +580,7 @@ public class GroupCIT {
             scan(EAN_HUILE);
             pageCap.getByText(LABEL_HUILE).waitFor();
             openGesture(pageCap, "remise", "REMISE");
-            typeAndValidate(pageCap, "5");
+            typeAndValidate(pageCap, "500");
             approveEndorsementWithManager(pageCap);
             TicketState.TicketItem cap = posState.ticket.items.get(0);
             Assertions.assertNull(cap.modifierType,
@@ -857,6 +860,9 @@ public class GroupCIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

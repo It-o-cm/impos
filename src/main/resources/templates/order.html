@@ -1,0 +1,107 @@
+{!
+ ! CREATION DE COMMANDE EN CAISSE (OrderResource + OrderCreationService, LC-06-03).
+ ! Le caissier a enregistre les articles de la commande comme ceux d'une vente
+ ! (Epic 2) ; cet ecran collecte l'acompte TTC (LC-06-03-03) et transforme le
+ ! panier en commande : mouvement d'acompte reference (LC-06-03-04), TVA par
+ ! taux au prorata (LC-06-03-05), ticket d'acompte avec code-barres
+ ! (LC-06-03-06), commande poussee au noeud magasin (LC-06-03-01). Le solde
+ ! se regle plus tard en rappelant le code (LC-06-03-07).
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('order.creerCommande')}</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 24px; width: 36rem; max-height: 100%; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
+    .card { border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .card h3 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
+    .order-lines { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-label); }
+    .order-line { display: flex; justify-content: space-between; gap: 10px; }
+    .order-total { display: flex; justify-content: space-between; font-weight: bold; border-top: 1px solid var(--border-color); padding-top: 8px; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row input { flex: 1; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; padding: 10px 12px; }
+    .row input.active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
+    .order-kb { max-width: 30rem; margin: 0 auto; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('order.creerCommande')}</span>
+      <span id="clock"></span>
+    </div>
+    <div class="main-area">
+      <div class="panel">
+        {#if error??}<div class="error-box">{error}</div>{/if}
+
+        <div class="card">
+          <h3>{inject:i18n.get('order.articlesCommande')}</h3>
+          <div class="order-lines">
+            {#for item in state.ticket.items}
+            <div class="order-line">
+              <span>{item.label}{#if item.quantity > 1} x{item.quantity}{/if}</span>
+              <span>{item.getPriceFormatted()}</span>
+            </div>
+            {/for}
+          </div>
+          <div class="order-total">
+            <span>{inject:i18n.get('order.totalCommande')}</span>
+            <span>{state.ticket.totalFormatted} €</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>{inject:i18n.get('order.acompteAPercevoir')}</h3>
+          <form class="row" method="post" action="/action/order/create">
+            <div id="dispAmount" class="pad-display" data-placeholder="{inject:i18n.get('order.acompteAPercevoir')}" onclick="activateAmount()"></div>
+            <input type="hidden" name="amount" id="valAmount" value="">
+            <button type="submit" class="btn btn-success">{inject:i18n.get('order.creer')}</button>
+          </form>
+        </div>
+
+        <div class="order-kb pos-kb-compact" id="orderKbArea"></div>
+      </div>
+    </div>
+    <div class="bottom-nav">
+      <a class="btn btn-muted" href="/" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+    </div>
+  </div>
+
+  {#include keyboard-lib /}
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* L'acompte est un montant : pave prix en centimes, comme l'ecran de rappel. */
+    function activateAmount() {
+        const display = document.getElementById('dispAmount');
+        document.querySelectorAll('.pad-display').forEach(el => el.classList.remove('active'));
+        display.classList.add('active');
+        PosInput.setup({
+            displayId: 'dispAmount',
+            hiddenId: 'valAmount',
+            containerId: 'orderKbArea',
+            keyboardType: 'price',
+            mode: 'cents',
+            uppercase: false,
+            maxLength: 10,
+            initialValue: document.getElementById('valAmount').value || ''
+        });
+    }
+
+    activateAmount();
+  </script>
+</body>
+</html>

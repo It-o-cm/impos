@@ -180,12 +180,14 @@ class VatRateTest {
     }
 
     /**
-     * {@code getChecksum} hashes the three fields.
+     * {@code getChecksum} hashes the five administered fields, the country and
+     * the legal mention with the referential's own trio.
      */
     @Test
-    void getChecksumHashesTheThreeFields() {
+    void getChecksumHashesTheFiveFields() {
         VatRate rate = regime(1, "0.2000", "Taux normal");
-        assertEquals(Objects.hash(rate.number, rate.rate, rate.label), rate.getChecksum());
+        assertEquals(Objects.hash(rate.number, rate.rate, rate.label,
+                rate.country, rate.legalMention), rate.getChecksum());
     }
 
     /**

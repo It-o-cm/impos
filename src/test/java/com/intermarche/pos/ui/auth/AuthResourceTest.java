@@ -74,6 +74,10 @@ class AuthResourceTest {
                 mock(com.intermarche.pos.service.CheckoutPointService.class);
         when(resource.checkoutPointService.isDeactivated()).thenReturn(false);
         when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(true);
+        // BO-10-02-04: the drawer-outside-a-sale control answers as it does
+        // with nothing administered — the drawer opens —, which is what every
+        // case of this class was written against.
+        when(resource.endorsementService.drawerOutOfSaleAllowed(any())).thenReturn(true);
         // The hardware gate defaults to ALL UP, the state every pre-existing
         // success case runs under; the gate tests override it device by device.
         when(resource.hardwareService.probeDevices()).thenReturn(java.util.List.of(

@@ -41,8 +41,16 @@ public class EndorsementService {
     @Inject
     TechnicalEventService technicalEventService;
 
+    /** Tells the node a request was settled at the till (BO-04-02-03). */
+    @Inject
+    com.intermarche.pos.service.SupervisorSettleService supervisorSettleService;
+
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The operator messages the control points speak with (BO-10-02-01 to -10). */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /**
      * Whether a negative gesture may run WITHOUT opening the endorsement modal
@@ -109,6 +117,106 @@ public class EndorsementService {
     }
 
     /**
+     * The administered level of a CONTROL POINT (BO-10-02-01 to -10), as the
+     * back office states it and before anyone is looked at.
+     *
+     * @param point the control point
+     * @return its administered level, its own default when the value cannot be
+     *         read
+     */
+    public ControlLevel level(ControlPoint point) {
+        LOGGER.info("Entering method level with point: " + point);
+        ControlLevel level = ControlLevel.of(
+                posSettingsService.controlLevel(point.getSettingKey()),
+                point.getDefaultLevel());
+        LOGGER.info("Exiting method level");
+        return level;
+    }
+
+    /**
+     * What a control point does HERE AND NOW, the operator included
+     * (BO-10-02-01 to -10).
+     * <p>
+     * The administered level, with ONE resolution applied: a gesture awaiting a
+     * supervisor's endorsement needs none when a supervisor is the one
+     * operating (LC-01-05-07) or when a supervisor session is open on the
+     * ticket (EXP-33) — the same shortcut {@link #selfAuthorized} already gives
+     * every other guarded gesture, said once here so that eight call sites do
+     * not each say it their own way.
+     * <p>
+     * A refusal is NOT resolved away: {@link ControlLevel#BLOCK} means the shop
+     * decided the gesture does not happen at this register, and a supervisor
+     * standing there does not change that.
+     *
+     * @param state the current POS state
+     * @param point the control point
+     * @return what the caller must do, never null
+     */
+    public ControlLevel check(PosState state, ControlPoint point) {
+        LOGGER.info("Entering method check with point: " + point);
+        ControlLevel level = level(point);
+        if (level == ControlLevel.ENDORSE && selfAuthorized(state)) {
+            LOGGER.info("Exiting method check");
+            return ControlLevel.NONE;
+        }
+        if (level == ControlLevel.ENDORSE && !point.isEndorsable()) {
+            // Said once, here: a point that fires where no ceremony exists
+            // refuses rather than promising an aval nobody can give.
+            LOGGER.info("Exiting method check");
+            return ControlLevel.BLOCK;
+        }
+        LOGGER.info("Exiting method check");
+        return level;
+    }
+
+    /**
+     * Whether the drawer may open OUTSIDE a sale (BO-10-02-04), and tells the
+     * operator when it may not.
+     * <p>
+     * Two screens open the drawer without settling anything — the register
+     * taken over at the lock screen, and the Z count — and both ask this one
+     * question rather than each writing the control their own way. The point is
+     * not endorsable, so a shop administering an aval gets a refusal here; see
+     * {@link ControlPoint#isEndorsable()}.
+     *
+     * @param state the current POS state
+     * @return true when the drawer may open
+     */
+    public boolean drawerOutOfSaleAllowed(PosState state) {
+        LOGGER.info("Entering method drawerOutOfSaleAllowed");
+        ControlLevel level = check(state, ControlPoint.DRAWER_OUT_OF_SALE);
+        if (level == ControlLevel.WARN) {
+            state.ticket.setWarning(controlMessage(ControlPoint.DRAWER_OUT_OF_SALE, level));
+        } else if (!level.allows()) {
+            state.ticket.setError(controlMessage(ControlPoint.DRAWER_OUT_OF_SALE, level));
+        }
+        LOGGER.info("Exiting method drawerOutOfSaleAllowed");
+        return level.allows();
+    }
+
+    /**
+     * The sentence the operator reads when a control point speaks
+     * (BO-10-02-01 to -10).
+     *
+     * <p>Two wordings and eight gestures, not sixteen sentences: the gesture
+     * names itself and the level says what happened to it. An operator reads
+     * the same two sentences wherever a control fires, which is what makes them
+     * recognisable at a glance.
+     *
+     * @param point the control point speaking
+     * @param level what it decided
+     * @return the sentence, never null
+     */
+    public String controlMessage(ControlPoint point, ControlLevel level) {
+        LOGGER.info("Entering method controlMessage with point: " + point + ", level: " + level);
+        String sentence = i18n.format(
+                level == ControlLevel.BLOCK ? "op.controleRefus" : "op.controleAlerte",
+                i18n.get(point.getLabelKey()));
+        LOGGER.info("Exiting method controlMessage");
+        return sentence;
+    }
+
+    /**
      * Verifies that the presented credentials belong to an active employee
      * holding the MANAGER or ADMIN role, PIN lockout enforced.
      *
@@ -123,6 +231,78 @@ public class EndorsementService {
         return status.isSuccess()
                 && (status.employee.role == Employee.EmployeeRole.MANAGER
                     || status.employee.role == Employee.EmployeeRole.ADMIN);
+    }
+
+    /**
+     * Whether a role may endorse a guarded gesture ({@code BO-04-02-01}).
+     *
+     * <p>ADMINISTERED, where it used to be written in this method: a shop
+     * that wants its head cashiers to endorse a line cancellation names
+     * their role instead of asking for a release. The two roles that
+     * endorsed before the list existed remain the default, so a shop that
+     * administers nothing behaves exactly as it did.
+     *
+     * <p>A list naming nothing readable falls back on those two rather than
+     * forbidding everything: an administered list is a typo away from
+     * locking a shop out of its own endorsements, and the fallback is what
+     * makes that typo survivable.
+     *
+     * @param role the role of the holder presenting their credentials
+     * @return true when that role endorses
+     */
+    boolean endorses(Employee.EmployeeRole role) {
+        if (role == null) {
+            return false;
+        }
+        String administered = posSettingsService == null ? null
+                : posSettingsService.endorsementRoles();
+        if (administered == null || administered.isBlank()) {
+            return role == Employee.EmployeeRole.MANAGER || role == Employee.EmployeeRole.ADMIN;
+        }
+        boolean named = false;
+        for (String part : administered.split(";")) {
+            String typed = part.trim();
+            if (typed.isEmpty()) {
+                continue;
+            }
+            named = true;
+            if (typed.equalsIgnoreCase(role.name())) {
+                return true;
+            }
+        }
+        // A list that names nothing readable is not a list that forbids
+        // everything: it is a typo, and a typo must not lock a shop out of
+        // its own supervisor endorsements.
+        return !named
+                && (role == Employee.EmployeeRole.MANAGER
+                    || role == Employee.EmployeeRole.ADMIN);
+    }
+
+    /**
+     * The back office's AUTHORISATION of the gesture this lane is holding
+     * ({@code BO-04-02-02}), journalled the moment it is consumed, or null
+     * when nobody authorised anything.
+     *
+     * <p>Journalled HERE and not when the order landed, because the journal
+     * of a register states what the register DID: an authorisation nobody
+     * used is a message, not an endorsement. Consuming it leaves the same
+     * event a typed code leaves, naming the back office instead of a badge.
+     *
+     * @param state the current POS state, possibly null
+     * @return who granted it, or null when nobody did
+     */
+    public String remotelyGranted(PosState state) {
+        LOGGER.info("Entering method remotelyGranted");
+        String granted = state == null || state.endorsement == null
+                ? null : state.endorsement.remoteGrant;
+        if (granted != null && !granted.isBlank()) {
+            technicalEventService.log(TechnicalEvent.EventType.ENDORSEMENT_GRANTED,
+                    "Autorisation accordée par le back-office (" + granted.trim() + ")");
+            LOGGER.info("Exiting method remotelyGranted");
+            return granted.trim();
+        }
+        LOGGER.info("Exiting method remotelyGranted");
+        return null;
     }
 
     /**
@@ -159,9 +339,7 @@ public class EndorsementService {
     public AuthService.CheckOutcome authorizeOutcome(String login, String password, String actionCode) {
         LOGGER.info("Entering method authorizeOutcome with login: " + login + ", password: ***" + ", actionCode: " + actionCode);
         AuthService.CredentialStatus status = authService.checkCredentials(login, password);
-        boolean granted = status.isSuccess()
-                && (status.employee.role == Employee.EmployeeRole.MANAGER
-                    || status.employee.role == Employee.EmployeeRole.ADMIN);
+        boolean granted = status.isSuccess() && endorses(status.employee.role);
         // BO-04-01-39: name the endorsing operator in the first-class badge
         // column, not only inside the free-text detail — otherwise the journal's
         // "N° caissière" range filter (matched on operatorBadgeId) never returns
@@ -172,6 +350,13 @@ public class EndorsementService {
                         : TechnicalEvent.EventType.ENDORSEMENT_DENIED,
                 actionCode + " par " + (login != null ? login : "?"),
                 login);
+        if (granted && supervisorSettleService != null) {
+            // BO-04-02-03: a supervisor settled it HERE, so the back office
+            // marks the demand « déjà traitée en caisse » rather than sending
+            // somebody to a lane that no longer needs anyone. Fire and forget:
+            // the endorsement is already granted and journalled.
+            supervisorSettleService.settledAtTill();
+        }
         LOGGER.info("Exiting method authorizeOutcome");
         if (granted) {
             return AuthService.CheckOutcome.GRANTED;

@@ -26,6 +26,13 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for the A4 page of {@link NetworkDocumentPrinter}.
@@ -40,6 +47,38 @@ import static org.mockito.Mockito.*;
  * unadministered arm and the no-renderer arm.
  */
 class NetworkDocumentPrinterTest {
+    /** The static mock silencing the catalog for every test, closed after each. */
+    private MockedStatic<PanacheEntityBase> panache;
+
+    /**
+     * The document funnels of this class read the VAT referential (the legal
+     * mentions, {@code VatRate.findByRate}) and, in places, the administered
+     * document names — plain unit tests have no persistence context to
+     * answer either with, so the catalog is silent for every test: no rate
+     * resolves to a regime, so no mention prints, and every layout falls
+     * back to the register's own wording.
+     */
+    @BeforeEach
+    void silenceTheCatalog() {
+        panache = mockStatic(PanacheEntityBase.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Object> nothing = mock(PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(anyString(), any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(anyString(), any(Object[].class)))
+                .thenReturn(java.util.List.of());
+    }
+
+    /**
+     * Closes the static mock the {@code @BeforeEach} opened, on the same
+     * thread Mockito requires.
+     */
+    @AfterEach
+    void closeTheCatalog() {
+        panache.close();
+    }
+
 
     /**
      * Builds the A4 printer with a real renderer wired.
@@ -130,16 +169,14 @@ class NetworkDocumentPrinterTest {
     void anAdministeredLayoutReplacesTheHandBuiltPage() {
         NetworkDocumentPrinter printer = withRenderer();
         InvoiceDocument document = laidOut();
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            panache.when(() -> DocumentTemplate.list(
-                            "active = true and documentType = ?1 order by priority, code",
-                            DocumentTemplate.DocumentType.INVOICE_A4))
-                    .thenReturn(List.of(layout(
-                            "<h1>{document.title} {document.number}</h1>"
-                                    + "<p>{seller.name}</p><p>{customer.name}</p>")));
-            assertEquals("<h1>FACTURE C04-F000042</h1><p>MAGASIN</p><p>SARL DUPONT</p>",
-                    printer.page(document));
-        }
+        panache.when(() -> DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        DocumentTemplate.DocumentType.INVOICE_A4))
+                .thenReturn(List.of(layout(
+                        "<h1>{document.title} {document.number}</h1>"
+                                + "<p>{seller.name}</p><p>{customer.name}</p>")));
+        assertEquals("<h1>FACTURE C04-F000042</h1><p>MAGASIN</p><p>SARL DUPONT</p>",
+                printer.page(document));
     }
 
     /**
@@ -150,18 +187,17 @@ class NetworkDocumentPrinterTest {
     void anUnadministeredA4KeepsTheHandBuiltPage() {
         NetworkDocumentPrinter printer = withRenderer();
         InvoiceDocument document = laidOut();
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            panache.when(() -> DocumentTemplate.list(
-                            "active = true and documentType = ?1 order by priority, code",
-                            DocumentTemplate.DocumentType.INVOICE_A4))
-                    .thenReturn(List.of());
-            assertEquals(NetworkDocumentPrinter.html(document, TestMessages.french()), printer.page(document));
-        }
+        panache.when(() -> DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        DocumentTemplate.DocumentType.INVOICE_A4))
+                .thenReturn(List.of());
+        assertEquals(NetworkDocumentPrinter.html(document, TestMessages.french()), printer.page(document));
     }
 
     /**
-     * A printer built with no renderer at all keeps the hand-built page — the
-     * null leg of the layout guard.
+     * A printer built with no renderer at all keeps the hand-built page: the
+     * null leg of the layout guard, which hands back the page the class
+     * draws itself.
      */
     @Test
     void aPrinterWithoutARendererKeepsTheHandBuiltPage() {
@@ -196,19 +232,16 @@ class NetworkDocumentPrinterTest {
     void bothInvoiceLayoutsReadTheSameDescription() {
         NetworkDocumentPrinter printer = withRenderer();
         InvoiceDocument document = laidOut();
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            panache.when(() -> DocumentTemplate.list(
-                            "active = true and documentType = ?1 order by priority, code",
-                            DocumentTemplate.DocumentType.INVOICE_A4))
-                    .thenReturn(List.of(layout("{totals.includingTax}")));
-            assertEquals(document.asDocumentData().get("totals") instanceof java.util.Map
-                            ? ((java.util.Map<?, ?>) document.asDocumentData().get("totals"))
-                                    .get("includingTax")
-                            : null,
-                    printer.page(document));
-        }
+        panache.when(() -> DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        DocumentTemplate.DocumentType.INVOICE_A4))
+                .thenReturn(List.of(layout("{totals.includingTax}")));
+        assertEquals(document.asDocumentData().get("totals") instanceof java.util.Map
+                        ? ((java.util.Map<?, ?>) document.asDocumentData().get("totals"))
+                                .get("includingTax")
+                        : null,
+                printer.page(document));
     }
-
     // --------------------------------------------------
     // Coverage campaign — the hand-built page body and the network send
     // --------------------------------------------------

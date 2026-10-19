@@ -41,7 +41,8 @@ public final class RefPayloads {
             List.of("ENGINE_FEEDS", "PRODUCTS", "FAMILIES", "TOUCH_GROUPS", "VAT_RATES", "PRICES",
                     "EMPLOYEES", "COUPON_TYPES", "ARTICLE_RANGES", "ISLANDS", "CHECKOUT_POINTS",
                     "TENDERS",
-                    "DOCUMENT_TEMPLATES", "SETTINGS", "CUSTOMERS", "CURRENCIES", "POSTAL_CODES");
+                    "DOCUMENT_TEMPLATES", "PROVIDER_MESSAGES", "SETTINGS",
+                    "CUSTOMERS", "CURRENCIES", "POSTAL_CODES", "POS_LISTS", "STORE_IMAGES");
 
     /**
      * How one article group is drawn on the touch grid (upsert by group code).
@@ -63,6 +64,14 @@ public final class RefPayloads {
         public int displayOrder;
         /** The sales volume for the volume order (BO-03-01-13). */
         public long salesVolume;
+        /** Islands the group is drawn on (BO-03-01-21), codes split by ';', or null for all. */
+        public String islandCodes;
+        /** Registers the group is drawn on (BO-03-01-22), ids split by ';', or null for all. */
+        public String terminalIds;
+        /** Kinds of point of contact (BO-03-01-23), names split by ';', or null for all. */
+        public String tpvTypes;
+        /** The group's label in other languages, as lang=libellé pairs (BO-03-01-19). */
+        public String labels;
     }
 
     /**
@@ -128,6 +137,8 @@ public final class RefPayloads {
         public Integer ageRestriction;
         /** The checkout label, or null (BO-02-03-02). */
         public String checkoutLabel;
+        /** The message shown when the article is rung, or null (BO-03-08-09). */
+        public String infoMessage;
         /** The internal code, or null (BO-02-03-04). */
         public String internalCode;
         /** True when the product is sold loose (bulk), weight known only at weighing time. */
@@ -156,6 +167,10 @@ public final class RefPayloads {
         public BigDecimal rate;
         /** What a human reads in front of the rate, or null. */
         public String label;
+        /** The ISO country the regime belongs to, or null for all of them. */
+        public String country;
+        /** The legal mention the regime obliges the documents to carry, or null. */
+        public String legalMention;
     }
 
     public static class PriceDto {
@@ -199,6 +214,10 @@ public final class RefPayloads {
         public String badgeId;
         /** The personal display theme, or null (follows the store). */
         public String theme;
+        /** Interface language administered for this employee, or null (BO-01-01-04). */
+        public String language;
+        /** When the secret was last changed, ISO-8601, or null (BO-01-02-12). */
+        public String passwordChangedAt;
         /** Whether the employee is active. */
         public boolean active;
     }
@@ -304,8 +323,37 @@ public final class RefPayloads {
         public String customerDisplayType;
         /** The resolution of the customer display, free text, or null. */
         public String customerDisplayResolution;
+        /** The protocol of the attached scale (BO-03-09-15), by name. */
+        public String scaleProtocol;
+        /** Where the scale answers (BO-03-09-15), or null. */
+        public String scaleAddress;
+        /** The port the scale answers on (BO-03-09-15), or null. */
+        public Integer scalePort;
+        /** The protocol of the attached coin machine (BO-03-09-24/-25/-26), by name. */
+        public String coinMachineProtocol;
+        /** Where the coin machine answers, or null. */
+        public String coinMachineAddress;
+        /** The port the coin machine answers on, or null. */
+        public Integer coinMachinePort;
         /** The code of the cash-menu model assigned (BO-03-10-16), or null. */
         public String menuTemplateCode;
+    }
+
+    /**
+     * ONE PROVIDER MESSAGE translated into the shop's words (BO-03-08-06
+     * and -07).
+     */
+    public static class ProviderMessageDto {
+        /** The provider the code comes from (half of the upsert key). */
+        public String providerCode;
+        /** The code the provider answers (the other half). */
+        public String messageCode;
+        /** What the cashier reads, or null to keep the provider's text. */
+        public String screenText;
+        /** What the ticket prints, or null to print nothing. */
+        public String ticketText;
+        /** Whether the substitution is applied. */
+        public boolean active;
     }
 
     /**
@@ -329,6 +377,14 @@ public final class RefPayloads {
         public int copies;
         /** The Qute source. */
         public String source;
+        /** The administered name of the document, null when the register's own stands. */
+        public String title;
+        /** The administered name of a REPRINT, null when the register's own stands. */
+        public String duplicateTitle;
+        /** The prefix the document's number carries, null when none. */
+        public String numberPrefix;
+        /** The name of each printed copy, in order, separated by semicolons. */
+        public String copyTitles;
     }
 
     /**
@@ -342,6 +398,10 @@ public final class RefPayloads {
         public String functionalId;
         /** The display label. */
         public String label;
+        /** Code of the group the method is totalled under (BO-06-06-09), or null. */
+        public String groupCode;
+        /** Label of that group (BO-06-06-09), or null. */
+        public String groupLabel;
         /** Whether the tender is in service. */
         public boolean active;
         /** The order the tenders are offered in. */
@@ -372,6 +432,12 @@ public final class RefPayloads {
         public boolean changeAllowed;
         /** The tender the change is given in, or null for the tender itself. */
         public String changeTenderCode;
+        /** The VIC product code of the multi-product card (BO-03-09-30), or null. */
+        public String vicProductCode;
+        /** Whether a self-service lane may settle with this tender (BO-03-02-27). */
+        public boolean selfServiceAllowed = true;
+        /** Whether settling with it on a self-service lane calls the hostess (BO-03-02-29). */
+        public boolean selfServiceSupervision;
         /** Whether the cashier's holding is declared automatically. */
         public boolean cashierDeclaration;
         /** Whether this tender is withdrawn from the drawer automatically. */
@@ -390,6 +456,14 @@ public final class RefPayloads {
         public boolean withdrawalReportDetail;
         /** Whether the use of this tender is reported to the fidelity programme. */
         public boolean fidelityReported;
+        /** The gabarit printed when this tender is used, or null. */
+        public String documentTemplateCode;
+        /** How many times that slip is printed. */
+        public int printCount;
+        /** Whether a duplicate of that slip is printed beside it. */
+        public boolean printDuplicate;
+        /** Whether that slip is printed even when the receipt is not. */
+        public boolean printForced;
     }
 
     /**
@@ -428,6 +502,12 @@ public final class RefPayloads {
         public boolean checkDigit;
         /** The generated recognition pattern. */
         public String matchPattern;
+        /** What the register does with a code of the range (BO-03-06-56/-60/-61). */
+        public String purpose;
+        /** The promotion a PROMOTION range names (BO-03-06-43), or null. */
+        public String promotionCode;
+        /** The third-party service an EXTERNAL_LOOKUP range asks (BO-03-06-41), or null. */
+        public String lookupUrl;
     }
 
     /**
@@ -601,5 +681,79 @@ public final class RefPayloads {
         public boolean active;
         /** The order it appears in on the payment screen. */
         public int displayOrder;
+        /** The tender the change is given in, or null for euros. */
+        public String changeTenderCode;
+    }
+
+    /**
+     * An administered NAMED LIST and its entries ({@code BO-04-02-07},
+     * {@code BO-04-03-12}): the service-request reasons, the justifications,
+     * the return types and the tare containers, which used to travel as four
+     * semicolon-separated settings.
+     *
+     * <p>The entries ride INSIDE the list rather than as a domain of their
+     * own, like the free fields of a customer: a list without its entries is
+     * not a half-applied list, it is a wrong one, and the two must land in
+     * the same transaction.
+     */
+    public static class PosListDto {
+        /** The list code (upsert key). */
+        public String code;
+        /** The heading the entries are grouped under. */
+        public String label;
+        /** What the list drives: SERVICE_REQUEST, JUSTIFICATION, RETURN_TYPE or TARE_CONTAINER. */
+        public String kind;
+        /** The register functions it serves, semicolon-separated, or null for all. */
+        public String functions;
+        /** Whether the list is offered at all. */
+        public boolean active;
+        /** The entries, in display order; never null on the wire. */
+        public java.util.List<PosListItemDto> items;
+    }
+
+    /**
+     * ONE entry of an administered list. What it carries besides its label
+     * depends on the kind of its list: a severity for a service request, a
+     * weight for a tare container, option markers for a return type.
+     */
+    public static class PosListItemDto {
+        /** The entry code, unique inside its list. */
+        public String code;
+        /** What the key is called in front of the cashier. */
+        public String label;
+        /** The rank the entry is drawn at, lowest first. */
+        public int displayOrder;
+        /** The priority of a service request, 0 when unused. */
+        public int severity;
+        /** The weight of a tare container in kilograms, as text, or null. */
+        public String numericValue;
+        /** The option markers of a return type, comma-separated, or null. */
+        public String options;
+        /** Whether the entry is offered at all. */
+        public boolean active;
+    }
+
+    /**
+     * An administered IMAGE resolved for the asking store
+     * ({@code BO-03-03-15}, {@code BO-10-03-09}): the receipt logo, or the
+     * visual of a loyalty advantage.
+     *
+     * <p>THE ECHELON IS NOT ON THE WIRE. The store node resolves the chain —
+     * PDV, enseigne, country, group default — and sends the winner, exactly
+     * as it sends resolved parameters and never the echelon rows.
+     */
+    public static class StoreImageDto {
+        /** The image code (upsert key). */
+        public String code;
+        /** What the administrator calls it. */
+        public String label;
+        /** What it is for: RECEIPT_LOGO or LOYALTY_ADVANTAGE. */
+        public String usage;
+        /** The loyalty advantage it illustrates, or null for a logo. */
+        public String advantageCode;
+        /** The image itself, a PNG {@code data:} URI. */
+        public String imageData;
+        /** Whether the register uses it at all. */
+        public boolean active;
     }
 }

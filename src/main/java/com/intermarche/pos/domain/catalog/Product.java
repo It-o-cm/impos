@@ -88,6 +88,22 @@ public class Product extends BaseEntity {
     public String checkoutLabel;
 
     /**
+     * An information message shown to the cashier WHEN THIS ARTICLE IS RUNG
+     * (BO-03-08-09); null when the article says nothing.
+     *
+     * <p>On the article and not in a table of rules, because the message IS an
+     * attribute of the article: "produit fragile", "vérifier la date", "appeler
+     * le rayon". A store writes it where it writes the article's label, and it
+     * travels down the same road.
+     *
+     * <p>Never blocking. It is an information, so it leaves a notice and the
+     * sale goes on — an article the shop wants to refuse is handled by a
+     * control point, not by a sentence.
+     */
+    @Column(name = "info_message", length = 200)
+    public String infoMessage;
+
+    /**
      * The internal code (code interne, BO-02-03-04): an in-store identifier a
      * cashier can scan or key to reach the article in addition to its EAN.
      * Unique across the referential, nullable when the article has none.

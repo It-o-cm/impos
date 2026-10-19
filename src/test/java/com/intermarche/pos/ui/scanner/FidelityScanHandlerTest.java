@@ -90,12 +90,16 @@ class FidelityScanHandlerTest {
 
     /**
      * A matching card on an unlocked register is validated by the fidelity
-     * service and the context is marked handled.
+     * service and the context is marked handled. The state carries an EMPTY
+     * loyalty sub-state, the only production reality: {@code PosState} always
+     * wires one, and the replacement proposal of LC-03-04-08 reads it.
      */
     @Test
     void matchingCardUnlockedIsValidated() {
         PosState state = mock(PosState.class);
         when(state.isLocked()).thenReturn(false);
+        state.reprint = new com.intermarche.pos.ui.reprintticket.ReprintState();
+        state.fidelity = new FidelityState();
         FidelityService fidelityService = mock(FidelityService.class);
         ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
         newHandler(fidelityService).handle(ctx);
@@ -112,6 +116,7 @@ class FidelityScanHandlerTest {
     void matchingCardLockedIsIgnored() {
         PosState state = mock(PosState.class);
         when(state.isLocked()).thenReturn(true);
+        state.reprint = new com.intermarche.pos.ui.reprintticket.ReprintState();
         FidelityService fidelityService = mock(FidelityService.class);
         ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
         newHandler(fidelityService).handle(ctx);
@@ -127,6 +132,7 @@ class FidelityScanHandlerTest {
     void nonFidelityCodeIsNotRecognized() {
         PosState state = mock(PosState.class);
         when(state.isLocked()).thenReturn(false);
+        state.reprint = new com.intermarche.pos.ui.reprintticket.ReprintState();
         FidelityService fidelityService = mock(FidelityService.class);
         ScanContext ctx = new ScanContext(NON_FIDELITY_CODE, state);
         newHandler(fidelityService).handle(ctx);
@@ -143,6 +149,7 @@ class FidelityScanHandlerTest {
     void secondCardRefusedWhenMultipleScanDisallowed() {
         PosState state = mock(PosState.class);
         when(state.isLocked()).thenReturn(false);
+        state.reprint = new com.intermarche.pos.ui.reprintticket.ReprintState();
         FidelityState fidelity = mock(FidelityState.class);
         fidelity.active = true;
         state.fidelity = fidelity;
@@ -165,12 +172,85 @@ class FidelityScanHandlerTest {
     void firstCardValidatedWhenMultipleScanDisallowed() {
         PosState state = mock(PosState.class);
         when(state.isLocked()).thenReturn(false);
+        state.reprint = new com.intermarche.pos.ui.reprintticket.ReprintState();
         FidelityState fidelity = mock(FidelityState.class);
         fidelity.active = false;
         state.fidelity = fidelity;
         FidelityService fidelityService = mock(FidelityService.class);
         ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
         newHandler(fidelityService, false).handle(ctx);
+        verify(fidelityService).validateCard(state, FIDELITY_CODE);
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * LC-03-04-08: a DIFFERENT card arriving on a ticket that already carries
+     * one is PARKED as a proposal, not substituted — the operator confirms the
+     * swap on the screen, and nothing is attached here.
+     */
+    @Test
+    void aDifferentCardIsProposedNeverSubstituted() {
+        PosState state = newState(false);
+        state.fidelity.assignCard("FID9999");
+        FidelityService fidelityService = mock(FidelityService.class);
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        newHandler(fidelityService).handle(ctx);
+        assertEquals(FIDELITY_CODE, state.fidelity.pendingReplacementCard);
+        assertEquals("FID9999", state.fidelity.label);
+        verify(fidelityService, never()).validateCard(any(), any());
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * LC-03-06-03: while the REASSIGNMENT mask of the reprint screen is open,
+     * a scanned card FILLS THE MASK instead of attaching to the live sale —
+     * the number is the one the closed ticket is being reassigned to, and
+     * the operator validates it there.
+     */
+    @Test
+    void aScannedCardFillsTheOpenReassignmentMask() {
+        PosState state = newState(false);
+        state.reprint.reassignMode = true;
+        state.reprint.reassignMaskOpen = true;
+        FidelityService fidelityService = mock(FidelityService.class);
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        newHandler(fidelityService).handle(ctx);
+        assertEquals(FIDELITY_CODE, state.reprint.reassignCard);
+        assertFalse(state.fidelity.active);
+        verify(fidelityService, never()).validateCard(any(), any());
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * LC-03-06-03, the other arm: outside the reassignment mask the very same
+     * scan keeps its ordinary meaning — the mask only claims the card while
+     * it is open in the reassignment mode.
+     */
+    @Test
+    void theSameScanKeepsItsOrdinaryMeaningOutsideTheMask() {
+        PosState state = newState(false);
+        state.reprint.reassignMode = true;
+        state.reprint.reassignMaskOpen = false;
+        FidelityService fidelityService = mock(FidelityService.class);
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        newHandler(fidelityService).handle(ctx);
+        assertEquals("", state.reprint.reassignCard);
+        verify(fidelityService).validateCard(state, FIDELITY_CODE);
+    }
+
+    /**
+     * LC-03-04-08, the other arm: the SAME card scanned again is a refresh,
+     * not a substitution — it goes through the ordinary attachment and no
+     * proposal is parked.
+     */
+    @Test
+    void theSameCardScannedAgainAttachesDirectly() {
+        PosState state = newState(false);
+        state.fidelity.assignCard(FIDELITY_CODE);
+        FidelityService fidelityService = mock(FidelityService.class);
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        newHandler(fidelityService).handle(ctx);
+        assertNull(state.fidelity.pendingReplacementCard);
         verify(fidelityService).validateCard(state, FIDELITY_CODE);
         assertTrue(ctx.handled);
     }
@@ -185,6 +265,7 @@ class FidelityScanHandlerTest {
         PosState state = mock(PosState.class);
         when(state.isLocked()).thenReturn(locked);
         state.fidelity = new FidelityState();
+        state.reprint = new com.intermarche.pos.ui.reprintticket.ReprintState();
         return state;
     }
 

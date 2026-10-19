@@ -508,7 +508,9 @@ public class GroupBIT {
         page2.navigate(base.toString() + "manual");
         page2.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("NON RECONNU").setExact(true)).click();
-        tapDigits(page2.locator("#keyboardArea"), "2");
+        // KEYED IN CENTS: every amount pad of the register is a cents pad, so
+        // 2,00 € is tapped 2-0-0 (the pad places the comma and carries none).
+        tapDigits(page2.locator("#keyboardArea"), "200");
         page2.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("VALIDER").setExact(true)).click();
         page2.getByText("PRODUIT NON RECONNU").waitFor();
         TicketState.TicketItem unknown = posState.ticket.items.get(0);
@@ -587,32 +589,53 @@ public class GroupBIT {
      * B12 — Annulation de ligne.
      * <p>
      * Selecting the last-entered line and cancelling removes it directly (no
-     * endorsement): the total is recomputed and the persisted draft is
-     * resynchronized to zero lines.
+     * endorsement): the line goes, the total is recomputed and the draft is
+     * resynchronized on what the cart still holds.
+     * <p>
+     * TWO LINES AND NOT ONE, because the ONLY line of a ticket is no longer
+     * cancellable: the anti-fraud guard refuses it and names the exit, the
+     * ticket abandon (EXP-35, catalogued as C11). Emptying a cart by cancelling
+     * its last line is therefore a gesture that no longer exists, and the draft
+     * of an emptied cart is what B14 exercises through the abandon.
      */
     @Test
     void b12_annulation_de_ligne() {
         Page page = freshSale();
         scan(EAN_BAGUETTE);
-        page.getByText(LABEL_BAGUETTE).waitFor();
+        scan(EAN_HUILE);
+        // Waited through a LOCATOR and not through waitForFunction: the latter
+        // polls on the animation frame, which a page the browser is not showing
+        // no longer serves — the condition became true and the wait never saw
+        // it. Every other wait of this suite is a locator for that reason.
+        page.locator("a.receipt-item-link").nth(1).waitFor();
         // The current sale's draft id (drafts accumulate across scenarios, so
         // read the in-memory id, never the oldest OPEN draft in the database).
         Long draftId = posState.payment.ticketDbId;
         Assertions.assertNotNull(draftId, "scanning a line must persist the sale's draft");
-        // Select the line, then cancel it (last entered -> direct cancel).
-        page.locator("a.receipt-item-link").first().click();
+        BigDecimal keptLineTotal = posState.ticket.items.get(0).getTotalPrice();
+        // Select the last-entered line, then cancel it (last entered -> direct cancel).
+        page.locator("a.receipt-item-link").last().click();
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ANNULER LIGNE").setExact(true)).click();
-        page.getByText("CLIENT SUIVANT").waitFor();
-        Assertions.assertTrue(posState.ticket.items.isEmpty(), "the cancelled line must be removed");
-        Assertions.assertEquals(0, posState.ticket.totalAmount.compareTo(BigDecimal.ZERO),
-                "the total must be recomputed to zero");
-        // Draft resynchronized: the single write funnel cancels the draft of an
-        // emptied cart (in-memory id reset to null, the row flipped CANCELLED).
-        Assertions.assertNull(posState.payment.ticketDbId, "an emptied cart must drop the draft id");
+        // THE CANCELLED LINE LEAVES THE CART AND STAYS ON THE SCREEN, struck
+        // through and no longer clickable (its href falls back to "#"): what was
+        // cancelled is a fact of the sale the operator and the customer must
+        // still be able to point at. The receipt therefore still carries two
+        // links, and what is waited for is the strike-through, not a removal —
+        // the cart itself is read on the state below, where the line is gone.
+        page.locator(".receipt-item.cancelled").first().waitFor();
+        Assertions.assertEquals(1, posState.ticket.items.size(), "the cancelled line must be removed");
+        Assertions.assertEquals(EAN_BAGUETTE, posState.ticket.items.get(0).ean,
+                "the line left standing must be the one that was not cancelled");
+        Assertions.assertEquals(0, posState.ticket.totalAmount.compareTo(keptLineTotal),
+                "the total must be recomputed on the single remaining line");
+        // Draft resynchronized: the single write funnel keeps the row it already
+        // owns and reconciles its lines on what the cart now holds.
+        Assertions.assertEquals(draftId, posState.payment.ticketDbId,
+                "a cart that still holds a line must keep its draft");
         Ticket.TicketStatus status = QuarkusTransaction.requiringNew()
                 .call(() -> ((Ticket) Ticket.findById(draftId)).status);
-        Assertions.assertEquals(Ticket.TicketStatus.CANCELLED, status,
-                "the resynchronized draft of an emptied cart must be CANCELLED");
+        Assertions.assertEquals(Ticket.TicketStatus.OPEN, status,
+                "the resynchronized draft of a non-empty cart stays OPEN");
         page.close();
     }
 
@@ -620,9 +643,13 @@ public class GroupBIT {
      * B13 — QUANTITÉ.
      * <p>
      * The QUANTITÉ modal applies a whole quantity (1-999) directly on a unit
-     * line, with no endorsement; on a weighed line the typed value is a
-     * DECIMAL weight in kilograms; it is refused on a negative line
-     * ({@code QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE}).
+     * line, with no endorsement; it is REFUSED on a weighed line and on a
+     * negative one ({@code QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE}).
+     * <p>
+     * A WEIGHED LINE CARRIES A MEASUREMENT, not a quantity: the figure came
+     * from the scale, and no key overwrites it (LC-02-13-15 — the register
+     * cancels such a line whole and weighs again). The catalogue says the same:
+     * "refusée sur ligne pesée/négative".
      */
     @Test
     void b13_quantite() {
@@ -630,28 +657,35 @@ public class GroupBIT {
         Page page = freshSale();
         scan(EAN_BAGUETTE);
         page.getByText(LABEL_BAGUETTE).waitFor();
+        // THE LINE IS SELECTED FIRST. The QUANTITÉ key reads the explicit
+        // selection and nothing else: with no line chosen the modal opens with
+        // no target at all and VALIDER ARMS the quantity for the article about
+        // to be rung (LC-02-13-04/05/06) instead of changing this one.
+        page.locator("a.receipt-item-link").first().click();
         applyQuantityModal(page, "3");
         Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("3")),
                 "the typed quantity (3) must be applied on the unit line");
         page.close();
 
-        // --- A weighed line takes the typed value as a DECIMAL weight (kg) ---
+        // --- Refused on a weighed line: its quantity is a measurement ---
         Page page2 = freshSale();
         page2.navigate(base.toString() + "fruits");
         setScaleWeight("1.250");
         typePluCode(page2, PLU_POMMES);
         page2.getByText(LABEL_POMMES).waitFor();
+        page2.locator("a.receipt-item-link").first().click();
         applyQuantityModal(page2, "2");
-        Assertions.assertNull(posState.ticket.transientError,
-                "a valid typed weight on a weighed line raises no message");
-        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("2.000")),
-                "the typed value must be applied as a weight in kilograms (2,000 kg)");
+        Assertions.assertEquals("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE", posState.ticket.transientError,
+                "a weighed line must refuse a quantity change");
+        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("1.250")),
+                "the weighed line must keep the weight the scale measured (1,250 kg)");
         page2.close();
 
         // --- Refused on a negative line ---
         Page page3 = freshSale();
         scan(DEPOSIT_VOUCHER);
         page3.getByText("BON DE CONSIGNE").waitFor();
+        page3.locator("a.receipt-item-link").first().click();
         applyQuantityModal(page3, "2");
         Assertions.assertEquals("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE", posState.ticket.transientError,
                 "a negative line must refuse a quantity change");
@@ -678,6 +712,18 @@ public class GroupBIT {
         // the menu selector, so the menu carrying the key is selected first.
         page.navigate(base.toString() + "action/menu/ticket");
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ANNULER TICKET").setExact(true)).click();
+        // THE KEY NO LONGER CANCELS: it opens the ABANDON screen (LC-04-04),
+        // which asks the administered reason — mandatory as soon as the shop
+        // offers a list, which the default does — and only then carries the
+        // gesture to the manager's aval. Any reason of the list will do here;
+        // which ones are offered and their refusals belong to the abandon
+        // scenarios, not to this one.
+        // THE LABEL IS THE BUTTON: the native radio is hidden by the screen's
+        // own CSS (.reason-btn input { display: none }) and the label around it
+        // carries the look and the touch target, as a finger needs.
+        page.locator("label.reason-btn").first().click();
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("ABANDONNER LE TICKET").setExact(true)).click();
         approveEndorsementWithManager(page);
         page.getByText("CLIENT SUIVANT").waitFor();
         Assertions.assertTrue(posState.ticket.items.isEmpty(), "the cancelled ticket must clear the screen");
@@ -850,7 +896,10 @@ public class GroupBIT {
                 "repeat with an empty cart must be refused");
         // --- A unit line: +1 and the repeated notice ---
         scan(EAN_HUILE);
-        page.getByText(LABEL_HUILE).waitFor();
+        // Waited on the RECEIPT LINE and not on the label: the message zone
+        // names the article too ("ARTICLE RÉPÉTÉ : <label>"), so a bare text
+        // match resolves two elements and Playwright's strict mode refuses it.
+        page.locator("a.receipt-item-link").first().waitFor();
         page.navigate(base.toString() + "action/repeat");
         Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("2")),
                 "repeat must add one to the last unit line");
@@ -892,13 +941,16 @@ public class GroupBIT {
         Page page = freshSale();
         scan(EAN_HUILE);
         page.getByText(LABEL_HUILE).waitFor();
-        page.navigate(base.toString() + "action/select/0");
+        // SELECTED BY UID. The route takes the line's identity and no longer a
+        // page offset (P2), so "0" selects nothing — and an unselected collect
+        // arms the NEXT article, which is the section below.
+        page.navigate(base.toString() + "action/select/" + posState.ticket.items.get(0).uid);
         page.navigate(base.toString() + "action/collect");
         Assertions.assertEquals("ARTICLE MARQUÉ À ENLEVER", posState.ticket.transientError,
                 "toggling a selected line must mark it to collect");
         Assertions.assertTrue(posState.ticket.items.get(0).toCollect, "the line must carry the to-collect flag");
         // The collect action clears the selection, so re-select before toggling back.
-        page.navigate(base.toString() + "action/select/0");
+        page.navigate(base.toString() + "action/select/" + posState.ticket.items.get(0).uid);
         page.navigate(base.toString() + "action/collect");
         Assertions.assertEquals("MARQUAGE À ENLEVER RETIRÉ", posState.ticket.transientError,
                 "toggling again must clear the mark");
@@ -1257,7 +1309,11 @@ public class GroupBIT {
             np.product = p;
             np.priceExcludingTax = new BigDecimal(priceTTC);
             np.priceIncludingTax = new BigDecimal(priceTTC);
-            np.vat = new VatRate(1, new BigDecimal("0.2000"), "Taux normal");
+            // THE REGIME IS READ, NOT BUILT. A transient VatRate hung on a
+            // persisted Price is not cascaded, and the flush refuses the graph
+            // ("references an unsaved transient instance"). The seed writes the
+            // five regimes before any price names one: number 1 is the 20 %.
+            np.vat = VatRate.find("number", 1).firstResult();
             np.priority = 1;
             np.startDateTime = LocalDateTime.of(2026, 1, 12, 0, 0);
             np.endDateTime = null;
@@ -1293,6 +1349,9 @@ public class GroupBIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

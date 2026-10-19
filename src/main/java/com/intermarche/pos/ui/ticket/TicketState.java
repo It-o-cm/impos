@@ -65,6 +65,90 @@ public class TicketState implements Serializable {
      */
     public transient Set<String> scannedStickerCodes = new HashSet<>();
 
+    /**
+     * The uid of the line waiting for its activation code (BO-03-06-44), or
+     * null when the register is not waiting for a second scan.
+     *
+     * <p>ONE line at a time, deliberately: the register asks for the code of
+     * the article it has just rung, and the operator answers before ringing
+     * the next one. Queuing several would make the second scan ambiguous, which
+     * is the one thing a code that activates a gift card cannot be.
+     */
+    public transient String pendingActivationUid = null;
+
+    /**
+     * The reference of the customer order, quote or sale voucher a barcode
+     * recalled on this ticket (BO-03-06-58), or null when none was.
+     *
+     * <p>A REFERENCE and nothing more. The order itself lives on the store
+     * node; what a barcode can honestly do at the register is name it, and the
+     * reference is kept RAW — leading zeros included — because a reference is a
+     * key the shop matches character for character, not a number.
+     */
+    public transient String recalledOrderReference = null;
+
+    /**
+     * The uid of the line whose cancellation is waiting for its justification
+     * ({@code BO-06-06-04}), or null when nothing is waiting.
+     *
+     * <p>ONE line at a time, like the activation code above and for the same
+     * reason: the register asks why THIS line is being cancelled, and the
+     * operator answers before anything else happens.
+     */
+    public transient String pendingCancelUid = null;
+
+    /**
+     * Code of the justification the operator chose for the cancellation in
+     * progress ({@code BO-06-06-04}), or null when none has been chosen.
+     *
+     * <p>Held on the state and not passed along the call chain because the
+     * gesture may be INTERRUPTED between the choice and the cancellation: a
+     * cancellation that needs a manager's endorsement is parked and replayed,
+     * and the reason must survive that detour — a line cancelled after an
+     * aval must not lose the reason the cashier gave before it.
+     */
+    public transient String pendingCancelReasonCode = null;
+
+    /**
+     * Label of the justification the operator chose for the cancellation in
+     * progress ({@code BO-06-06-04}), or null when none has been chosen.
+     */
+    public transient String pendingCancelReasonLabel = null;
+
+    /**
+     * The names of the promotions a scanned barcode armed on this ticket
+     * (BO-03-06-43), in the order they were armed.
+     *
+     * <p>A list and not a set, because the order is what the operator saw, and
+     * {@link #armPromotion(String)} is what keeps it free of duplicates. Held
+     * on the ticket like the tare and the sticker codes above: a promotion a
+     * customer triggered has no business reaching the next one.
+     */
+    public List<String> scannedPromotions = new ArrayList<>();
+
+    /**
+     * The container weight a TARE barcode announced, in kilograms, waiting to be
+     * deducted from the next weighed line (BO-03-06-60), or null when none was
+     * announced.
+     *
+     * <p>Held on the ticket and not on the register: a tare announced on one
+     * ticket has no business reaching the next customer, so it leaves with the
+     * ticket like the scanned sticker codes above.
+     */
+    public BigDecimal pendingTareKg = null;
+
+    /**
+     * Whether the ticket-level discount leaves the already-reduced lines alone
+     * (BO-03-07-12), as the store administered it when the gesture was made.
+     *
+     * <p>Carried on the ticket and not read from the back office at every
+     * allocation: the allocation runs at every recomputation of the total, and
+     * the rule belongs to the gesture that was made — a parameter changed
+     * mid-sale must not silently re-cut a discount already shown to the
+     * customer.
+     */
+    public boolean globalDiscountSparesReducedLines = false;
+
     /** Running total of the ticket (tax included), unrounded accumulation. */
     public BigDecimal totalAmount = BigDecimal.ZERO;
 
@@ -414,6 +498,28 @@ public class TicketState implements Serializable {
     }
 
     /**
+     * Whether a line already carries a reduction (BO-03-07-12): a manual
+     * gesture, or an automatic promotion the engine valued it below its own
+     * price.
+     *
+     * <p>Shares are reset before the allocation, so {@code getTotalPrice()} is
+     * not used here: the comparison is the ENGINE's figure against the local
+     * one, which is what an automatic promotion is.
+     *
+     * @param item the line
+     * @return true when the line is already reduced
+     */
+    private boolean isReduced(TicketItem item) {
+        if (item.modifierType != null) {
+            return true;
+        }
+        if (item.valuedTotal == null || item.unitPrice == null || item.quantity == null) {
+            return false;
+        }
+        return item.valuedTotal.compareTo(item.unitPrice.multiply(item.quantity)) < 0;
+    }
+
+    /**
      * Allocates the ticket-level discount onto the POSITIVE lines, prorata
      * of their DISCOUNTABLE (valued) totals with the cent residue on the largest share —
      * the reconciler's allocation doctrine reapplied: the fiscal stays 100%
@@ -440,6 +546,10 @@ public class TicketState implements Serializable {
             // line never receives — the ticket discount would silently cost
             // less than it says.
             if (item.moneyProduct || item.discountForbidden) continue;
+            // BO-03-07-12: a line already reduced may be spared, and it then
+            // leaves the BASE as well as the allocation — the same doctrine as
+            // the article that bans discounts just above.
+            if (globalDiscountSparesReducedLines && isReduced(item)) continue;
             BigDecimal lineTotal = item.getTotalPrice();
             if (lineTotal.signum() > 0) {
                 base = base.add(lineTotal);
@@ -460,6 +570,7 @@ public class TicketState implements Serializable {
         BigDecimal largestTotal = BigDecimal.ZERO;
         for (TicketItem item : items) {
             if (item.moneyProduct || item.discountForbidden) continue;
+            if (globalDiscountSparesReducedLines && isReduced(item)) continue;
             // Shares were ALL reset to null at the top of this method, so
             // getTotalPrice() already IS the pre-share (valued) line total —
             // the allocation base per line. Re-adding the share here would be
@@ -510,12 +621,34 @@ public class TicketState implements Serializable {
     }
 
     /**
+     * Takes the announced container tare and forgets it.
+     *
+     * <p>Read ONCE: a tare belongs to the container that was just put on the
+     * scale, and leaving it armed would quietly lighten the following line too
+     * (BO-03-06-60).
+     *
+     * @return the announced tare in kilograms, or null when none was announced
+     */
+    public BigDecimal consumePendingTare() {
+        BigDecimal tare = pendingTareKg;
+        pendingTareKg = null;
+        return tare;
+    }
+
+    /**
      * Clears the whole ticket state (lines, total, weights, error).
      */
     public void clear() {
         items.clear();
         cancelledItems.clear();
         scannedStickerCodes.clear();
+        scannedPromotions.clear();
+        pendingActivationUid = null;
+        recalledOrderReference = null;
+        pendingCancelUid = null;
+        pendingCancelReasonCode = null;
+        pendingCancelReasonLabel = null;
+        pendingTareKg = null;
         totalAmount = BigDecimal.ZERO;
         currentWeight = 0.0;
         lastRecordedWeight = Double.NaN;
@@ -523,10 +656,63 @@ public class TicketState implements Serializable {
         globalDiscountType = null;
         globalDiscountValue = null;
         globalDiscountApplied = null;
+        globalDiscountSparesReducedLines = false;
         transientError = null;
         transientOk = false;
         transientWarn = false;
         onChange();
+    }
+
+    /**
+     * Stores the activation code of the line the register is waiting on
+     * (BO-03-06-44) and stops waiting.
+     *
+     * <p>The wait is cleared WHATEVER the outcome: a code the register cannot
+     * attach to a line (the line was cancelled, the uid no longer exists) must
+     * not leave the next scan hostage to a line nobody can see.
+     *
+     * @param code the scanned activation code, or null
+     * @return the line the code was stored on, or null when there was nothing
+     *         to wait for, nothing to store, or no line carrying the uid
+     */
+    public TicketItem storePendingActivation(String code) {
+        String uid = pendingActivationUid;
+        pendingActivationUid = null;
+        if (uid == null || code == null || code.isBlank()) {
+            return null;
+        }
+        for (TicketItem item : items) {
+            if (item != null && uid.equals(item.uid)) {
+                item.activationCode = code.trim();
+                onChange();
+                return item;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Arms a named promotion on this ticket (BO-03-06-43).
+     *
+     * <p>Idempotent on purpose: scanning the same promotion barcode twice is a
+     * gesture a customer makes, not a second right. A blank name is refused
+     * rather than armed — the engine would have nothing to resolve.
+     *
+     * @param promotionCode the administered promotion name, or null
+     * @return true when the name was armed by this call, false when it was
+     *         blank or already armed
+     */
+    public boolean armPromotion(String promotionCode) {
+        if (promotionCode == null || promotionCode.isBlank()) {
+            return false;
+        }
+        String name = promotionCode.trim();
+        if (scannedPromotions.contains(name)) {
+            return false;
+        }
+        scannedPromotions.add(name);
+        onChange();
+        return true;
     }
 
     /**
@@ -878,6 +1064,17 @@ public class TicketState implements Serializable {
         public BigDecimal tareKg = null;
 
         /**
+         * The tare REALLY APPLIED to this weighing — container, article or
+         * administered default, whichever won (BO-10-05-04).
+         *
+         * <p>Distinct from {@link #tareKg}, which is the article's own tare kept
+         * for a later manual re-entry: this one is what the scale was told to
+         * deduct, and it is the only figure a customer disputing a net weight
+         * can be answered with. Null for a line that was not weighed.
+         */
+        public BigDecimal appliedTareKg = null;
+
+        /**
          * True when the article sold on this line may be settled with a meal
          * voucher (BO-02-03-06). Snapshotted from the product at add time, like
          * {@link #discountForbidden}, so the eligible base is known even when
@@ -1013,6 +1210,28 @@ public class TicketState implements Serializable {
          */
         public java.time.LocalDate gs1ExpiryDate = null;
 
+        /**
+         * The activation code of a dematerialised article, scanned right after
+         * its EAN (BO-03-06-44), or null on every ordinary line.
+         *
+         * <p>Held on the LINE and not on the register, because it belongs to
+         * one item: a gift card and the phone top-up beside it each carry their
+         * own code, and a reclamation three weeks later is answered by the line
+         * that kept it. Carried into the persisted ticket line beside
+         * {@link #gs1ExpiryDate}, for the same reason.
+         */
+        public String activationCode = null;
+
+        /**
+         * The provider that owes the activation of this line (BO-03-06-44), as
+         * the referential named it, or null.
+         *
+         * <p>Snapshotted on the line rather than read back from the catalog: a
+         * provider the back office changes next month must not rewrite what a
+         * sale already settled.
+         */
+        public String activationProvider = null;
+
         public BigDecimal getTotalPrice() {
             BigDecimal __t = valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
             if (globalDiscountShare != null) {
@@ -1073,6 +1292,21 @@ public class TicketState implements Serializable {
         public String getPriceFormatted() {
             BigDecimal rounded = getTotalPrice().setScale(2, RoundingMode.HALF_UP);
             return String.format("%.2f", rounded).replace(".", ",");
+        }
+
+        /**
+         * Returns the software tare REALLY APPLIED to this weighing, formatted
+         * in kilograms for the cashier display (LC-14-02-03), or null when no
+         * tare applied — a tare of zero is not an applied tare and the line
+         * stays silent rather than printing "0,000 kg" under every fruit.
+         *
+         * @return the applied tare in kilograms, French comma, or null
+         */
+        public String getTareFormatted() {
+            if (appliedTareKg == null || appliedTareKg.signum() <= 0) {
+                return null;
+            }
+            return String.format("%.3f", appliedTareKg).replace(".", ",");
         }
 
         /**

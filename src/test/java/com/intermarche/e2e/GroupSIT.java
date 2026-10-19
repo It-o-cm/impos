@@ -140,7 +140,13 @@ public class GroupSIT {
         Locator keypad = page.locator("#floatKbArea");
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        // KEYED IN CENTS: the float pad carries NO comma key (the pad places
+        // the comma itself), so 200,00 € is tapped 2-0-0-0-0 and the separator
+        // of the amount written here is skipped rather than looked for.
         for (char key : "200,00".toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

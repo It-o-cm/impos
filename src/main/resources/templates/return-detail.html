@@ -222,11 +222,14 @@
              paramétrée au BackOffice, s'applique à tout le retour. Le choix
              persiste côté serveur pour survivre à l'aval manager. -->
         <div class="return-reasons">
+          {! BO-06-06-05 : le motif porte desormais un code en plus de son
+           ! libelle ; l'ecran continue de poster le LIBELLE, qui est ce que la
+           ! caisse garde, et c'est le service qui resout le code. !}
           {#for reason in reasons}
-          {#if state.refund.returnReason == reason}
-          <a href="/return/reason?reason={reason}" class="reason-btn on">{reason}</a>
+          {#if state.refund.returnReason == reason.label}
+          <a href="/return/reason?reason={reason.label}" class="reason-btn on">{reason.label}</a>
           {#else}
-          <a href="/return/reason?reason={reason}" class="reason-btn">{reason}</a>
+          <a href="/return/reason?reason={reason.label}" class="reason-btn">{reason.label}</a>
           {/if}
           {/for}
         </div>

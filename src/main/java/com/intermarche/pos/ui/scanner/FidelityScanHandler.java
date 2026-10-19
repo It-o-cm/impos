@@ -49,10 +49,32 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
 
         // On n'applique la fidélité que si la caisse est déverrouillée
         if (!ctx.state.isLocked() && ctx.code.matches(cardPattern())) {
+            // LC-03-06-03: while the REASSIGNMENT mask of the reprint screen is
+            // open, a scanned card is the card that ticket is being reassigned
+            // to — it fills the mask instead of attaching to the live sale,
+            // which is on another screen and would silently change hands.
+            if (ctx.state.reprint.reassignMode && ctx.state.reprint.reassignMaskOpen) {
+                ctx.state.reprint.reassignCard = ctx.code;
+                ctx.state.touch();
+                ctx.handled = true;
+                return;
+            }
             // BO-10-03-02: a card already attached blocks any further scan
             // unless the back office allows multiple scans (last one wins).
             if (!posSettingsService.fidelityAllowMultipleScan() && ctx.state.fidelity.active) {
                 ctx.state.ticket.setError(i18n.get("op.carteFideliteDejaScannee"));
+                ctx.handled = true;
+                return;
+            }
+            // LC-03-04-08: a DIFFERENT card arriving on a ticket that already
+            // carries one is PROPOSED, never substituted in silence — the
+            // replacement loses the first holder's advantages and earns on
+            // the new one's account, and the operator confirms the swap before
+            // either happens. The same card scanned again is a refresh, not a
+            // substitution, and stays the silent gesture it always was.
+            if (ctx.state.fidelity.active
+                    && !ctx.code.equals(ctx.state.fidelity.label)) {
+                ctx.state.fidelity.pendingReplacementCard = ctx.code;
                 ctx.handled = true;
                 return;
             }

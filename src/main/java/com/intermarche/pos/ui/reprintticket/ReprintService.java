@@ -42,6 +42,14 @@ public class ReprintService {
     @Inject
     com.intermarche.pos.ui.ticket.TicketSearchService ticketSearchService;
 
+    /** The manager-endorsement flow, for the reassignment gesture (LC-03-06-01). */
+    @Inject
+    com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
+
+    /** The reassignment itself — the chained gesture of LC-03-06-01 to -06. */
+    @Inject
+    TicketReassignmentService reassignmentService;
+
     /**
      * Loads the closed tickets, most recent first, into the reprint state.
      */
@@ -55,6 +63,93 @@ public class ReprintService {
     }
 
     /**
+     * Enters the REASSIGNMENT browsing mode (LC-03-06-02): the list and every
+     * further search keep only the closed tickets no client is attached to,
+     * because only those are offered to the gesture.
+     */
+    public void startReassignMode() {
+        LOGGER.info("Entering method startReassignMode");
+        state.reprint.reassignMode = true;
+        state.reprint.reassignMaskOpen = false;
+        state.reprint.reassignCard = "";
+        state.reprint.reassignError = "";
+        state.reprint.setTickets(Ticket.find(
+                "status = ?1 and fidelityCard is null ORDER BY creationDate DESC",
+                Ticket.TicketStatus.CLOSED).list());
+        state.touch();
+        LOGGER.info("Exiting method startReassignMode");
+    }
+
+    /**
+     * Leaves the REASSIGNMENT browsing mode and restores the ordinary
+     * duplicata history (LC-03-06-02).
+     */
+    public void cancelReassignMode() {
+        LOGGER.info("Entering method cancelReassignMode");
+        state.reprint.reassignMode = false;
+        state.reprint.reassignMaskOpen = false;
+        state.reprint.reassignCard = "";
+        state.reprint.reassignError = "";
+        loadHistory();
+        LOGGER.info("Exiting method cancelReassignMode");
+    }
+
+    /**
+     * Opens the card mask of the reassignment on the viewed ticket
+     * (LC-03-06-03): the card number is typed — the manual entry is the
+     * fallback the whole fidelity screen already models — and the previous
+     * attempt's outcome is cleared.
+     *
+     * @param ticketId the database id of the ticket to reassign
+     */
+    public void beginReassign(Long ticketId) {
+        LOGGER.info("Entering method beginReassign with ticketId: " + ticketId);
+        state.reprint.reassignMaskOpen = true;
+        state.reprint.reassignCard = "";
+        state.reprint.reassignError = "";
+        state.touch();
+        LOGGER.info("Exiting method beginReassign");
+    }
+
+    /**
+     * Leaves the card mask without reassigning anything (LC-03-06-03).
+     */
+    public void cancelReassignMask() {
+        LOGGER.info("Entering method cancelReassignMask");
+        state.reprint.reassignMaskOpen = false;
+        state.reprint.reassignCard = "";
+        state.reprint.reassignError = "";
+        state.touch();
+        LOGGER.info("Exiting method cancelReassignMask");
+    }
+
+    /**
+     * Performs the reassignment of the viewed ticket to the typed card
+     * (LC-03-06-01 to -06), through the administered endorsement: a store
+     * that demands a supervisor's aval for the gesture has the form parked —
+     * ticket and card — until a manager's credential answers, and a store
+     * that does not runs the chained gesture at once.
+     *
+     * @param ticketId the database id of the closed ticket
+     * @param card the fidelity card number, as typed in the mask
+     */
+    public void applyReassign(Long ticketId, String card) {
+        LOGGER.info("Entering method applyReassign with ticketId: " + ticketId + ", card: " + card);
+        state.reprint.reassignCard = card == null ? "" : card;
+        if (endorsementService.gestureAuthorized(state, "ticket-reassign")) {
+            reassignmentService.perform(ticketId, card);
+            LOGGER.info("Exiting method applyReassign");
+            return;
+        }
+        java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+        form.put("ticketId", ticketId == null ? "" : String.valueOf(ticketId));
+        form.put("card", card == null ? "" : card);
+        endorsementService.requestAuthorization(state, "TICKET_REASSIGN", form,
+                "/reprint/view/" + (ticketId == null ? "" : ticketId));
+        LOGGER.info("Exiting method applyReassign");
+    }
+
+    /**
      * Searches the closed tickets for the duplicata by number, date or amount
      * (EXP-47) — the SAME engine the return search uses. A blank pattern falls
      * back to the full history.
@@ -64,7 +159,21 @@ public class ReprintService {
     public void search(String pattern) {
         LOGGER.info("Entering method search with pattern: " + pattern);
         if (pattern == null || pattern.isBlank()) {
+            if (state.reprint.reassignMode) {
+                startReassignMode();
+                LOGGER.info("Exiting method search");
+                return;
+            }
             loadHistory();
+            LOGGER.info("Exiting method search");
+            return;
+        }
+        if (state.reprint.reassignMode) {
+            // LC-03-06-02: the reassignment pool keeps only the tickets no
+            // client is attached to, whatever criterion searched them.
+            state.reprint.setTickets(
+                    ticketSearchService.searchByPattern(pattern, true));
+            state.touch();
             LOGGER.info("Exiting method search");
             return;
         }

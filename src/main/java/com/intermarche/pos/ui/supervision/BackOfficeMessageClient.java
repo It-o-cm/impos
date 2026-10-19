@@ -53,13 +53,20 @@ public class BackOfficeMessageClient {
 
     /**
      * A pending back-office message pulled from the node: a plain notice, or a
-     * survey when {@code question} is present.
+     * survey when {@code question} is present, carrying the answer machinery
+     * of LC-03-07-06 to -10.
      *
      * @param text the message text, or null when there is only a survey
      * @param question the survey question, or null for a plain notice
      * @param options the survey options as a semicolon list, or null
+     * @param responseType the survey's response type name, or null for options
+     * @param required true when the survey may not be passed by
+     * @param postalFormat the postal-code mask, or null
+     * @param postalCodes the valid postal codes as a semicolon list, or null
      */
-    public record PendingMessage(String text, String question, String options) {
+    public record PendingMessage(String text, String question, String options,
+            String responseType, boolean required, String postalFormat,
+            String postalCodes) {
     }
 
     /**
@@ -70,13 +77,31 @@ public class BackOfficeMessageClient {
      */
     public PendingMessage fetchPending() {
         LOGGER.info("Entering method fetchPending");
+        PendingMessage message = fetchPending(null);
+        LOGGER.info("Exiting method fetchPending");
+        return message;
+    }
+
+    /**
+     * Pulls the message the node addresses to this terminal AT A TRANSACTION
+     * MOMENT (LC-03-07-01 / -02): the register names the moment it just
+     * reached and the node answers the survey administered for it, or
+     * nothing. Same tolerance as the ordinary poll: a null fetch is a no-op.
+     *
+     * @param moment the transaction moment name, or null for the ordinary poll
+     * @return the pending message, or null
+     */
+    public PendingMessage fetchPending(String moment) {
+        LOGGER.info("Entering method fetchPending with moment: " + moment);
         if (nodeUrl.isEmpty() || nodeUrl.get().isBlank()) {
             LOGGER.info("Exiting method fetchPending");
             return null;
         }
         try {
+            String query = "?terminal=" + terminalId
+                    + (moment == null || moment.isBlank() ? "" : "&moment=" + moment);
             HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(nodeUrl.get() + "?terminal=" + terminalId))
+                    .uri(URI.create(nodeUrl.get() + query))
                     .timeout(Duration.ofSeconds(3))
                     .GET();
             token.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
@@ -95,6 +120,49 @@ public class BackOfficeMessageClient {
             // thrown error that could disturb the lane.
             LOGGER.warnf("Message back-office indisponible (%s)", e.getMessage());
             LOGGER.info("Exiting method fetchPending");
+            return null;
+        }
+    }
+
+    /**
+     * Pulls the survey a scanned code-barre names (LC-03-07-03): the register
+     * asks for the administered message by its id, and the node serves it or
+     * nothing. Same tolerance as the ordinary poll.
+     *
+     * @param surveyId the administered id the scanned code carries
+     * @return the survey, or null
+     */
+    public PendingMessage fetchSurvey(long surveyId) {
+        LOGGER.info("Entering method fetchSurvey with surveyId: " + surveyId);
+        if (nodeUrl.isEmpty() || nodeUrl.get().isBlank()) {
+            LOGGER.info("Exiting method fetchSurvey");
+            return null;
+        }
+        try {
+            // The survey endpoint lives beside the pending one the URL names:
+            // the configured URL ends with the /pending path, and the survey
+            // path is its sibling under the same base.
+            String base = nodeUrl.get();
+            int lastSegment = base.lastIndexOf('/');
+            String root = lastSegment > 0 ? base.substring(0, lastSegment) : base;
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(root + "/survey/" + surveyId + "?terminal=" + terminalId))
+                    .timeout(Duration.ofSeconds(3))
+                    .GET();
+            token.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
+            HttpResponse<String> response = httpClient.send(builder.build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300
+                    || response.body() == null || response.body().isBlank()) {
+                LOGGER.info("Exiting method fetchSurvey");
+                return null;
+            }
+            PendingMessage message = objectMapper.readValue(response.body(), PendingMessage.class);
+            LOGGER.info("Exiting method fetchSurvey");
+            return message;
+        } catch (Exception e) {
+            LOGGER.warnf("Sondage par scan indisponible (%s)", e.getMessage());
+            LOGGER.info("Exiting method fetchSurvey");
             return null;
         }
     }

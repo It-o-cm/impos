@@ -287,4 +287,96 @@ public class ReprintResource {
         LOGGER.info("Exiting method printForeign");
         return reprintForeignPage.data("state", state);
     }
+
+    /**
+     * Enters the REASSIGNMENT browsing mode (LC-03-06-02): the history keeps
+     * only the closed tickets no client is attached to.
+     *
+     * @return the reprint page on the reassignment pool
+     */
+    @GET
+    @Path("/reassign")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance startReassignMode() {
+        LOGGER.info("Entering method startReassignMode");
+        reprintService.startReassignMode();
+        LOGGER.info("Exiting method startReassignMode");
+        return reprintTicketPage.data("state", state);
+    }
+
+    /**
+     * Leaves the REASSIGNMENT browsing mode and restores the ordinary
+     * duplicata history (LC-03-06-02).
+     *
+     * @return the reprint page on the ordinary history
+     */
+    @GET
+    @Path("/reassign/cancel")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance cancelReassignMode() {
+        LOGGER.info("Entering method cancelReassignMode");
+        reprintService.cancelReassignMode();
+        LOGGER.info("Exiting method cancelReassignMode");
+        return reprintTicketPage.data("state", state);
+    }
+
+    /**
+     * Opens the card mask of the reassignment on the viewed ticket
+     * (LC-03-06-03): the card number is typed on the detail page of a
+     * non-affected closed ticket.
+     *
+     * @param id the database id of the viewed ticket
+     * @return the reprint page on its detail view, mask open
+     */
+    @GET
+    @Path("/view/{id}/reassign")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance beginReassign(@PathParam("id") Long id) {
+        LOGGER.info("Entering method beginReassign with id: " + id);
+        if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            LOGGER.info("Exiting method beginReassign");
+            return showReprintDetail(id);
+        }
+        reprintService.beginReassign(id);
+        LOGGER.info("Exiting method beginReassign");
+        return reprintDetailPage.data("state", state);
+    }
+
+    /**
+     * Leaves the card mask without reassigning anything (LC-03-06-03).
+     *
+     * @param id the database id of the viewed ticket
+     * @return the reprint page on its detail view, mask closed
+     */
+    @GET
+    @Path("/view/{id}/reassign/cancel")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance cancelReassign(@PathParam("id") Long id) {
+        LOGGER.info("Entering method cancelReassign with id: " + id);
+        reprintService.cancelReassignMask();
+        LOGGER.info("Exiting method cancelReassign");
+        return showReprintDetail(id);
+    }
+
+    /**
+     * Performs the reassignment of the viewed ticket to the typed card
+     * (LC-03-06-01 to -06), through the administered endorsement: the
+     * supervisor's modal is served by the detail page when a store demands
+     * the aval, and the chained gesture runs at once otherwise.
+     *
+     * @param id the database id of the closed ticket
+     * @param card the fidelity card number, as typed in the mask
+     * @return a 303 redirect to the detail view (PRG pattern, so a browser
+     *         reload never replays the reassignment)
+     */
+    @POST
+    @Path("/view/{id}/reassign")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response applyReassign(@PathParam("id") Long id,
+            @FormParam("card") String card) {
+        LOGGER.info("Entering method applyReassign with id: " + id + ", card: " + card);
+        reprintService.applyReassign(id, card);
+        LOGGER.info("Exiting method applyReassign");
+        return Response.seeOther(URI.create("/reprint/view/" + id)).build();
+    }
 }

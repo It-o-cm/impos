@@ -132,7 +132,7 @@ class CustomerDisplayResourceTest {
         resource.state.payment.ticketDbId = null;
         resource.state.customerMessage = "";
         Map<String, Object> result = resource.customerData(1L);
-        assertEquals(16, result.size());
+        assertEquals(17, result.size());
         assertEquals(true, result.get("changed"));
         assertEquals(2L, result.get("version"));
         assertEquals(false, result.get("locked"));
@@ -185,7 +185,7 @@ class CustomerDisplayResourceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(42L)).thenReturn(ticket);
             Map<String, Object> result = resource.customerData(null);
-            assertEquals(16, result.size());
+            assertEquals(17, result.size());
             assertEquals(true, result.get("changed"));
             assertEquals(9L, result.get("version"));
             assertEquals(true, result.get("locked"));
@@ -337,5 +337,27 @@ class CustomerDisplayResourceTest {
         List<Map<String, String>> items = (List<Map<String, String>>) result.get("items");
         assertEquals("2,36 m", items.get(0).get("qty"));
         assertEquals("x2", items.get(1).get("qty"));
+    }
+
+    /**
+     * BO-10-03-03: the customer display names the holder only where the shop
+     * asked for it — the cashier-side rule is a separate decision.
+     */
+    @Test
+    void theCustomerDisplayNamesTheHolderOnlyWhenAsked() {
+        CustomerDisplayResource naming = newResource();
+        naming.state.fidelity = new com.intermarche.pos.ui.fidelity.FidelityState();
+        naming.state.fidelity.assignCard("6045200000123");
+        naming.state.fidelity.holderLastName = "Dupont";
+        naming.state.fidelity.holderFirstName = "Jean";
+        when(naming.posSettingsService.fidelityShowHolderNameOnCustomerDisplay())
+                .thenReturn(true);
+        assertEquals("DUPONT Jean", naming.customerData(null).get("fidelityHolder"));
+
+        CustomerDisplayResource silent = newResource();
+        silent.state.fidelity = new com.intermarche.pos.ui.fidelity.FidelityState();
+        silent.state.fidelity.assignCard("6045200000123");
+        silent.state.fidelity.holderLastName = "Dupont";
+        assertEquals("", silent.customerData(null).get("fidelityHolder"));
     }
 }

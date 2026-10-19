@@ -954,4 +954,48 @@ class PosStateTest {
         assertEquals("-3,20", new PosState.PendingClose(
                 null, null, null, null, new java.math.BigDecimal("-3.20")).getVarianceFormatted());
     }
+
+    /**
+     * {@code clearTicket()} forgets the order the ticket was loaded from by a
+     * recall (LC-06-03-07): the settle push of one order must never fire on the
+     * next customer's sale.
+     */
+    @Test
+    void clearTicketForgetsTheRecalledOrder() {
+        PosState state = new PosState();
+        state.recalledOrderCode = "C04-CMD000001";
+        state.clearTicket();
+        assertNull(state.recalledOrderCode);
+    }
+
+    /**
+     * The service request, its reason and the message-arrived indicator are
+     * NODE-PUSHED and a whole-lane concern (LC-01-07-03/-04, LC-01-08-04):
+     * {@code clearTicket()} deliberately leaves them standing — a request for
+     * help outlives the customer whose basket interrupted the reading of its
+     * answer.
+     */
+    @Test
+    void clearTicketKeepsTheSupervisionIndicators() {
+        PosState state = new PosState();
+        state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        state.serviceRequestReason = "Sécurité";
+        state.boMessageArrived = true;
+        state.clearTicket();
+        assertEquals(PosState.ServiceRequestStatus.PENDING, state.serviceRequest);
+        assertEquals("Sécurité", state.serviceRequestReason);
+        assertTrue(state.boMessageArrived);
+    }
+
+    /**
+     * The request state starts at NONE and the reason and the arrived flag
+     * at nothing: a lane that has asked nothing shows nothing.
+     */
+    @Test
+    void supervisionIndicatorsStartAtNothing() {
+        PosState state = new PosState();
+        assertEquals(PosState.ServiceRequestStatus.NONE, state.serviceRequest);
+        assertNull(state.serviceRequestReason);
+        assertFalse(state.boMessageArrived);
+    }
 }

@@ -7,6 +7,7 @@ import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.recall.RecalledDocument;
 import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
@@ -59,9 +60,21 @@ public class TicketService {
     @Inject
     com.intermarche.pos.ui.Messages i18n;
 
+    /** The control points of the sale (BO-10-02-07). */
+    @Inject
+    com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
+
     /** The back-office parameters (discount caps — LC-03-02). */
     @jakarta.inject.Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The administered lists: return types (BO-04-02-07). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosListService posListService;
+
+    /** The register's upward notices: unknown-article alert (BO-04-02-06). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.SupervisorSettleService supervisorSettleService;
 
     /** Internal scale used for intermediate unit-price divisions. */
     private static final int PRICE_SCALE = 4;
@@ -97,6 +110,10 @@ public class TicketService {
     @Inject
     ValuationService valuationService;
 
+    /** The survey trigger of the transaction's beginning (LC-03-07-01). */
+    @Inject
+    com.intermarche.pos.ui.supervision.SurveyTriggerService surveyTriggerService;
+
     /**
      * The single post-mutation funnel (phase 7 lot 4): persists the draft,
      * then revalues the cart against the engine — every cart mutation of
@@ -104,12 +121,65 @@ public class TicketService {
      * (synchronous local call; training, payment phase and open circuit
      * are guarded inside {@code revalue}).
      *
+     * <p>LC-03-07-01: this funnel is also where the register lives the
+     * BEGINNING of a transaction — the first article that makes the cart
+     * non-empty — and the survey administered for that moment is asked here,
+     * once per transaction, tolerantly.
+     *
      * @param state the current POS state
      */
     private void syncAndRevalue(PosState state) {
         ticketPersistenceService.syncDraft(state);
         valuationService.revalue(state);
+        noticeOnArticleMessage(state);
         warnOnExpensiveEntry(state);
+        surveyTriggerService.maybeFireOnTransactionStart(state);
+    }
+
+    /**
+     * Shows the ARTICLE'S OWN MESSAGE when one has just been rung
+     * (BO-03-08-09).
+     *
+     * <p>An information and never a refusal: "produit fragile", "vérifier la
+     * date", "appeler le rayon". The line is registered, the sale goes on, and
+     * the cashier reads the sentence the store attached to that article. An
+     * article the shop wants to refuse is a control point's business, not a
+     * sentence's.
+     *
+     * <p>Said BEFORE the price warning and not after, because the two share one
+     * notice slot and the article's own message is the more specific of the
+     * two: a store that wrote a sentence on an article wants that sentence
+     * read, and a dear article says it is dear by its price.
+     *
+     * <p>An error already on the screen outranks both: a line that was refused
+     * must not be covered by a notice about the line before it.
+     *
+     * @param state the current POS state
+     */
+    private void noticeOnArticleMessage(PosState state) {
+        if (!state.lineJustEntered || state.ticket.transientError != null) {
+            return;
+        }
+        // BO-03-10-13: the island may silence the messages tied to an article.
+        // The flag is NOT consumed here: a blocked message is a message the
+        // register never shows, and the next reader of lineJustEntered — the
+        // high-price warning — must decide for itself.
+        if (posSettingsService.islandBlockArticlePopups()) {
+            return;
+        }
+        TicketState.TicketItem entered = enteredLine(state);
+        if (entered == null || entered.ean == null || entered.ean.isBlank()) {
+            return;
+        }
+        // The line carries the EAN and not the article's key, so the message is
+        // read by the EAN the line was rung on — the same lookup the sale made.
+        com.intermarche.pos.domain.catalog.Product product =
+                com.intermarche.pos.domain.catalog.Product.find("ean", entered.ean).firstResult();
+        if (product == null || product.infoMessage == null || product.infoMessage.isBlank()) {
+            return;
+        }
+        state.lineJustEntered = false;
+        state.ticket.setWarning(product.infoMessage.trim());
     }
 
     /**
@@ -140,6 +210,12 @@ public class TicketService {
         }
         state.lineJustEntered = false;
         if (state.ticket.transientError != null) {
+            return;
+        }
+        // BO-03-10-13: silenced by the island, like the article message — the
+        // flag above is still consumed, so the entry is accounted for either
+        // way and the next entry starts clean.
+        if (posSettingsService.islandBlockArticlePopups()) {
             return;
         }
         BigDecimal threshold = posSettingsService.saleLineWarningThreshold();
@@ -180,6 +256,10 @@ public class TicketService {
 
     @Inject
     Instance<ScanContext.ScanHandler> scanHandlers;
+
+    /** Whether an article may be rung on THIS register (BO-03-01-18). */
+    @jakarta.inject.Inject
+    ArticleScopeService articleScopeService;
 
     /**
      * The return flow, for the one scan the sale screen does not own: on the
@@ -249,10 +329,78 @@ public class TicketService {
             LOGGER.info("Exiting method applyGlobalDiscount");
             return;
         }
+        // BO-03-07-12: the store decides whether the ticket-level gesture bears
+        // on the lines that already carry a reduction. Read HERE and carried on
+        // the ticket, because the allocation runs at every recomputation and has
+        // no business reaching for the back office each time.
+        state.ticket.globalDiscountSparesReducedLines =
+                !posSettingsService.discountGlobalOnDiscounted();
+        // LC-03-02-15: when the store spares the already-reduced lines, the
+        // discount must have somewhere to land. A ticket whose every eligible
+        // line is already reduced cannot carry it, and the questionnaire asks
+        // the register to say so out loud rather than let the allocation
+        // silently allocate nothing.
+        if (state.ticket.globalDiscountSparesReducedLines
+                && !state.ticket.items.isEmpty()
+                && globalDiscountBase(state) == null) {
+            state.ticket.setError(i18n.get("op.toutesLignesDejaRemisees"));
+            LOGGER.info("Exiting method applyGlobalDiscount");
+            return;
+        }
+        // LC-03-02-14: an AMOUNT gesture is bounded by the administered
+        // PERCENTAGE ceiling too — a rabais whose implied share of the ticket
+        // exceeds the ceiling is the same theft of margin as a keyed percentage
+        // above it, and the operator is told with the ceiling's own word. The
+        // base is the one the allocation will ventilate on, so the two figures
+        // the operator compares are the same two the register uses.
+        if (type == PriceModType.GLOBAL_REMISE) {
+            java.math.BigDecimal base = globalDiscountBase(state);
+            if (base != null && base.signum() > 0) {
+                java.math.BigDecimal impliedPercent = value.multiply(BigDecimal.valueOf(100))
+                        .divide(base, PRICE_SCALE, RoundingMode.HALF_UP);
+                if (impliedPercent.compareTo(BigDecimal.valueOf(cap)) > 0) {
+                    state.ticket.setError(i18n.get("op.remiseSuperieurePlafond"));
+                    LOGGER.info("Exiting method applyGlobalDiscount");
+                    return;
+                }
+            }
+        }
         state.ticket.setGlobalDiscount(
                 type == PriceModType.GLOBAL_DISCOUNT ? "PERCENT" : "AMOUNT", value);
         recalculateTotal(state);
         LOGGER.info("Exiting method applyGlobalDiscount");
+    }
+
+    /**
+     * The base a ticket-level discount would ventilate on RIGHT NOW: the
+     * positive totals of the eligible lines, excluding the money products and
+     * the articles that ban discounts, and — when the store spares them
+     * (BO-03-07-12) — the lines that already carry a reduction.
+     *
+     * <p>Returns null — and not zero — when NO line is eligible: that is the
+     * signal the caller refuses the gesture on, because a base of zero from a
+     * NON-empty ticket means the ceiling cannot even be computed, and the
+     * all-reduced case of LC-03-02-15 must not read as "go ahead".
+     *
+     * @param state the current POS state
+     * @return the eligible base, or null when no line can carry the discount
+     */
+    private java.math.BigDecimal globalDiscountBase(PosState state) {
+        java.math.BigDecimal base = BigDecimal.ZERO;
+        boolean found = false;
+        for (TicketState.TicketItem item : state.ticket.items) {
+            if (item == null || item.moneyProduct || item.discountForbidden) {
+                continue;
+            }
+            if (state.ticket.globalDiscountSparesReducedLines && alreadyReduced(item)) {
+                continue;
+            }
+            if (item.getTotalPrice().signum() > 0) {
+                found = true;
+                base = base.add(item.getTotalPrice());
+            }
+        }
+        return found ? base : null;
     }
 
     /**
@@ -313,7 +461,13 @@ public class TicketService {
     public boolean suspendForEntry(PosState state, Product product, BigDecimal quantity) {
         LOGGER.info("Entering method suspendForEntry with state: " + state + ", product: " + product + ", quantity: " + quantity);
         boolean needsQuantity = ProductAttributes.quantityToEnter(product);
-        boolean needsPrice = ProductAttributes.priceToEnter(product);
+        // BO-03-13-10: on a manual return — one taken WITHOUT the original
+        // ticket — the administered return type may ask the cashier to confirm
+        // or change the price given back. It is the SAME prompt: the figure
+        // comes from a person, the catalog price is shown beside it, and the
+        // line is created once.
+        boolean needsPrice = ProductAttributes.priceToEnter(product)
+                || returnPriceConfirmed(state);
         if (!needsQuantity && !needsPrice) {
             LOGGER.info("Exiting method suspendForEntry");
             return false;
@@ -325,7 +479,7 @@ public class TicketService {
                 ? PosState.EntryPromptState.QUANTITY
                 : PosState.EntryPromptState.PRICE;
         state.entryPrompt.ean = product.ean;
-        state.entryPrompt.label = product.saleLabel().toUpperCase();
+        state.entryPrompt.label = translatedLabel(product);
         state.entryPrompt.unitName = product.unitName == null ? "" : product.unitName;
         state.entryPrompt.unitPriceFormatted = price == null || price.priceIncludingTax == null
                 ? "" : String.format("%.2f", price.priceIncludingTax).replace('.', ',');
@@ -333,6 +487,26 @@ public class TicketService {
         state.touch();
         LOGGER.info("Exiting method suspendForEntry");
         return true;
+    }
+
+    /**
+     * Whether the return in progress asks for its price to be confirmed
+     * (BO-03-13-10).
+     *
+     * <p>Only in RETURN mode, and only for the administered type the operator
+     * chose: a sale is never asked to confirm a catalog price, and a return
+     * taken from its original ticket reads the price off that ticket.
+     *
+     * @param state the current POS state
+     * @return true when the price of the returned line must be confirmed
+     */
+    private boolean returnPriceConfirmed(PosState state) {
+        if (!state.returnMode) {
+            return false;
+        }
+        com.intermarche.pos.service.PosSettingsService.ReturnType type =
+                posListService.returnType(state.returnTypeLabel);
+        return type != null && type.priceConfirmed();
     }
 
     /**
@@ -415,7 +589,7 @@ public class TicketService {
         if (ProductAttributes.vatExempt(product)) {
             vatRate = BigDecimal.ZERO;
         }
-        state.ticket.addItem(product.ean, null, product.saleLabel().toUpperCase(),
+        state.ticket.addItem(product.ean, null, translatedLabel(product),
                 unitPrice, quantity, vatRate);
         // addItem always leaves at least one line (it merges into an existing one
         // or appends a new one), so the list is never empty here.
@@ -530,7 +704,11 @@ public class TicketService {
         // entry, like the cancel-by-scan mode above, so it runs ahead of every add
         // handler without disturbing their disjoint priorities. The gate is the
         // ticket selection itself, which the return screen drops when it is left.
-        if (!state.isLocked() && state.refund.isTicketSelected()) {
+        // A PENDING ENDORSEMENT takes precedence (BO-10-02): a refund awaiting a
+        // manager's aval shows the endorsement modal over the return screen, and
+        // the manager's badge must reach the badge handler to prefill it, not be
+        // swallowed as an origin-line scan.
+        if (!state.isLocked() && state.refund.isTicketSelected() && !state.endorsement.active) {
             refundService.enterArticleByCode(state, code);
             LOGGER.info("Exiting method processScan");
             return;
@@ -636,10 +814,30 @@ public class TicketService {
      * @param amount the discount amount in euros (strictly positive)
      */
     public void applyRemise(TicketState.TicketItem item, BigDecimal amount) {
+        applyRemise(item, amount, posSettingsService.discountCumulativeOnDiscounted());
+    }
+
+    /**
+     * Applies an amount remise with the cumulation rule DECIDED BY THE CALLER:
+     * a ready-made key that carries CUMUL applies on an already-reduced line
+     * whatever the default says (BO-03-07-11), while a manual gesture follows
+     * the administered default.
+     *
+     * @param item the target line
+     * @param amount the unit amount of the remise (strictly positive)
+     * @param cumulates whether the remise may pile on an already-reduced line
+     */
+    void applyRemise(TicketState.TicketItem item, BigDecimal amount, boolean cumulates) {
         LOGGER.info("Entering method applyRemise with item: " + item + ", amount: " + amount);
         if (item == null || amount == null || amount.signum() <= 0) { LOGGER.info("Exiting method applyRemise"); return; }
         if (item.moneyProduct) { LOGGER.info("Exiting method applyRemise"); return; } // money products are never discounted
         if (item.discountForbidden) { LOGGER.info("Exiting method applyRemise"); return; } // BO-02-03-09: article bans discounts
+        // BO-03-07-11: same rule as the percentage gesture — a second reduction
+        // on an already-reduced line only lands where the caller allows it.
+        if (alreadyReduced(item) && !cumulates) {
+            LOGGER.info("Exiting method applyRemise");
+            return;
+        }
         // P8: the entered amount is a UNIT remise; its effect on the line is that
         // amount times the quantity (10 articles à 10 €, remise 2 € → 80 €, not 98 €),
         // and a same article scanned afterwards rings at full price. The line
@@ -652,10 +850,27 @@ public class TicketService {
             LOGGER.info("Exiting method applyRemise");
             return;
         }
+        // LC-03-02-12: an AMOUNT gesture is bounded by the administered
+        // PERCENTAGE ceiling too — a rabais whose implied share of the line
+        // exceeds the ceiling is the same theft of margin as a keyed percentage
+        // above it, and it is refused here exactly like the euro cap above.
+        // The quantity cancels out (both figures scale with it), so the check
+        // reads the unit figures; a line priced at zero carries no percentage
+        // and stays outside it. Silent like every line-level ceiling: the
+        // ceiling that names the gesture is the GLOBAL one.
+        BigDecimal currentTotal = item.unitPrice.multiply(item.quantity);
+        if (currentTotal.signum() > 0) {
+            int percentCap = Math.min(100, posSettingsService.lineMaxDiscountPercent());
+            BigDecimal impliedPercent = lineDiscount.multiply(BigDecimal.valueOf(100))
+                    .divide(currentTotal, PRICE_SCALE, RoundingMode.HALF_UP);
+            if (impliedPercent.compareTo(BigDecimal.valueOf(percentCap)) > 0) {
+                LOGGER.info("Exiting method applyRemise");
+                return;
+            }
+        }
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
-        BigDecimal currentTotal = item.unitPrice.multiply(item.quantity);
         BigDecimal newTotal = currentTotal.subtract(lineDiscount);
         if (newTotal.signum() < 0) newTotal = BigDecimal.ZERO;
         if (item.quantity.signum() != 0) {
@@ -671,15 +886,115 @@ public class TicketService {
     }
 
     /**
+     * Whether a line already carries a reduction (BO-03-07-11 and -12): a
+     * manual gesture, or an automatic promotion the engine valued it below its
+     * own price.
+     *
+     * <p>The two cases the questionnaire names, and the only two the line can
+     * answer for: {@code modifierType} is the manual gesture, and a valued
+     * total under the local one is the engine's offer.
+     *
+     * @param item the line, never null
+     * @return true when the line is already reduced
+     */
+    private boolean alreadyReduced(TicketState.TicketItem item) {
+        if (item.modifierType != null) {
+            return true;
+        }
+        if (item.valuedTotal == null || item.unitPrice == null || item.quantity == null) {
+            return false;
+        }
+        return item.valuedTotal.compareTo(item.unitPrice.multiply(item.quantity)) < 0;
+    }
+
+    /**
+     * Whether a line already carries a reduction, read from OUTSIDE the
+     * service (LC-03-02-10): the gesture screens compose it with the
+     * administered cumulation rule to NAME the refusal — the questionnaire
+     * asks for an error message, and the refusal itself stays decided here so
+     * the two can never disagree.
+     *
+     * @param item the line, possibly null
+     * @return true when the line carries a manual reduction or an engine offer
+     */
+    public boolean isAlreadyReduced(TicketState.TicketItem item) {
+        LOGGER.info("Entering method isAlreadyReduced with item: " + item);
+        boolean reduced = item != null && alreadyReduced(item);
+        LOGGER.info("Exiting method isAlreadyReduced");
+        return reduced;
+    }
+
+    /**
+     * Applies the ready-made discount key the back office administers
+     * (BO-03-07-03 and BO-03-07-06).
+     *
+     * <p>It decides NOTHING about the arithmetic: a PERCENT key runs
+     * {@link #applyDiscount}, an AMOUNT key runs {@link #applyRemise}, so a
+     * ready-made key and a keyed figure are capped, journaled and printed
+     * exactly the same way. What the key adds is the figure — spared from the
+     * numpad — and its own cumulation rule (BO-03-07-11): a key carrying
+     * {@code CUMUL} applies on an already-reduced line whatever the default
+     * says, and a key that does not carry it is refused there even where the
+     * default allows it.
+     *
+     * @param item the target line, possibly null
+     * @param label the label of the key the operator tapped, possibly null
+     * @return true when the key was found and applied
+     */
+    public boolean applyPreset(TicketState.TicketItem item, String label) {
+        LOGGER.info("Entering method applyPreset with label: " + label);
+        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
+                posSettingsService.discountPreset(label);
+        if (item == null || preset == null) {
+            LOGGER.info("Exiting method applyPreset");
+            return false;
+        }
+        if (alreadyReduced(item) && !preset.cumulative()) {
+            LOGGER.info("Exiting method applyPreset");
+            return false;
+        }
+        if (preset.percent()) {
+            applyDiscount(item, preset.value(), preset.cumulative());
+        } else {
+            applyRemise(item, preset.value(), preset.cumulative());
+        }
+        LOGGER.info("Exiting method applyPreset");
+        return true;
+    }
+
+    /**
      * Applies a percentage discount on the unit price.
      *
      * @param item the target line
      * @param percent the discount percentage (0 exclusive to 100 inclusive)
      */
     public void applyDiscount(TicketState.TicketItem item, BigDecimal percent) {
+        applyDiscount(item, percent, posSettingsService.discountCumulativeOnDiscounted());
+    }
+
+    /**
+     * Applies a percentage discount on the unit price with the cumulation rule
+     * DECIDED BY THE CALLER: a ready-made key that carries CUMUL applies on
+     * an already-reduced line whatever the default says (BO-03-07-11), while
+     * a manual gesture follows the administered default.
+     *
+     * @param item the target line
+     * @param percent the discount percentage (0 exclusive to 100 inclusive)
+     * @param cumulates whether the discount may pile on an already-reduced line
+     */
+    void applyDiscount(TicketState.TicketItem item, BigDecimal percent, boolean cumulates) {
         LOGGER.info("Entering method applyDiscount with item: " + item + ", percent: " + percent);
         if (item != null && item.moneyProduct) { LOGGER.info("Exiting method applyDiscount"); return; } // money products are never discounted
         if (item != null && item.discountForbidden) { LOGGER.info("Exiting method applyDiscount"); return; } // BO-02-03-09: article bans discounts
+        // BO-03-07-11: the line may already carry a reduction — a manual one or
+        // an automatic promotion. Whether a second one piles on top is
+        // administered, and a ready-made key may override the default (see
+        // applyPreset). Refused here rather than silently stacked: a margin
+        // eaten twice is the defect the questionnaire names.
+        if (item != null && alreadyReduced(item) && !cumulates) {
+            LOGGER.info("Exiting method applyDiscount");
+            return;
+        }
         // The line cap is administered (LC-03-02-07); 100 stays absolute.
         int lineCap = Math.min(100, posSettingsService.lineMaxDiscountPercent());
         if (item == null || percent == null || percent.signum() <= 0
@@ -740,8 +1055,42 @@ public class TicketService {
         LOGGER.info("Entering method recalculateTotal with state: " + state);
         state.ticket.recomputeTotal();
         state.ticket.onChange();
+        applyTicketTotalControl(state);
         syncAndRevalue(state);
         LOGGER.info("Exiting method recalculateTotal");
+    }
+
+    /**
+     * Applies the TICKET TOTAL control point (BO-10-02-07).
+     *
+     * <p>Said after the total is recomputed and not before an article is
+     * registered, because the figure the shop administers is a TOTAL: it is
+     * only known once the basket is summed. The articles stay in the basket
+     * whatever the level — a line already scanned is a fact — and what changes
+     * is what the register says about it: nothing, a warning, or a refusal
+     * naming the ceiling. The point is not endorsable: see {@link
+     * com.intermarche.pos.ui.endorsement.ControlPoint#isEndorsable()}.
+     *
+     * <p>A shop administering no ceiling never reaches the level at all, which
+     * is the default and the register's historical silence.
+     *
+     * @param state the current POS state
+     */
+    private void applyTicketTotalControl(PosState state) {
+        java.math.BigDecimal ceiling = posSettingsService.controlTicketTotalMax();
+        if (ceiling == null || state.ticket.totalAmount == null
+                || state.ticket.totalAmount.compareTo(ceiling) <= 0) {
+            return;
+        }
+        com.intermarche.pos.ui.endorsement.ControlLevel level =
+                endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.TICKET_TOTAL);
+        if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN) {
+            state.ticket.setWarning(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.TICKET_TOTAL, level));
+        } else if (!level.allows()) {
+            state.ticket.setError(endorsementService.controlMessage(
+                    com.intermarche.pos.ui.endorsement.ControlPoint.TICKET_TOTAL, level));
+        }
     }
 
     // --- STANDARD ACTIONS ---
@@ -753,10 +1102,35 @@ public class TicketService {
      * @param ean the EAN code
      * @param quantity the quantity to add
      */
+    /**
+     * Whether this register REFUSES an article because a settlement is under
+     * way, saying so to the cashier (BO-10-02-15).
+     *
+     * <p>The rule is one and the same wherever an article comes in by — scan,
+     * keyed code, PLU — which is why it lives here and not in each handler.
+     * The shop that allows the gesture gets it unchanged; the shop that does
+     * not gets a refusal and a sentence, because a basket that grows while the
+     * total is being settled is a total that no longer holds.
+     *
+     * @param state the register state
+     * @return true when the article must not be rung, the message already set
+     */
+    public boolean saleRefusedDuringPayment(PosState state) {
+        LOGGER.info("Entering method saleRefusedDuringPayment");
+        if (posSettingsService.saleAllowedDuringPayment() || !state.payment.paymentInProgress) {
+            LOGGER.info("Exiting method saleRefusedDuringPayment");
+            return false;
+        }
+        state.ticket.setError(i18n.get("op.venteInterditePendantReglement"));
+        LOGGER.info("Exiting method saleRefusedDuringPayment");
+        return true;
+    }
+
     public void addItemByEan(PosState state, String ean, BigDecimal quantity) {
         LOGGER.info("Entering method addItemByEan with state: " + state + ", ean: " + ean + ", quantity: " + quantity);
         if (ean == null || ean.isEmpty()) { LOGGER.info("Exiting method addItemByEan"); return; }
         if (!requireOpenSession(state)) { LOGGER.info("Exiting method addItemByEan"); return; }
+        if (saleRefusedDuringPayment(state)) { LOGGER.info("Exiting method addItemByEan"); return; }
         state.selectedTicketIndex = -1;
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         Product p = Product.find("ean = ?1 and active = true", ean).firstResult();
@@ -771,6 +1145,15 @@ public class TicketService {
                 LOGGER.info("Exiting method addItemByEan");
                 return;
             }
+            // BO-03-01-18: an article the store took out of THIS island or
+            // THIS register is refused here and nowhere else — the same
+            // decision whatever road the article came in by.
+            if (articleScopeService != null && !articleScopeService.soldHere(p)) {
+                state.ticket.setError(i18n.get("op.articleNonVenduSurCetteCaisse"));
+                LOGGER.info("Exiting method addItemByEan");
+                return;
+            }
+
             if (ProductAttributes.recall(p)) {
                 state.ticket.setError(i18n.get("op.articleRetraitRappel"));
                 LOGGER.info("Exiting method addItemByEan");
@@ -797,7 +1180,7 @@ public class TicketService {
                 vatRate = BigDecimal.ZERO;
             }
             // PLU is null: unit sale. Line label is the checkout label when set.
-            state.ticket.addItem(p.ean, null, p.saleLabel().toUpperCase(), finalPrice, quantity, vatRate);
+            state.ticket.addItem(p.ean, null, translatedLabel(p), finalPrice, quantity, vatRate);
             TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
             if (p.giftCardAmount != null) {
                 line.moneyProduct = true;
@@ -832,9 +1215,9 @@ public class TicketService {
      * @param product the article that was just registered
      */
     private void noticeRecalledLots(PosState state, Product product) {
-        String message = ProductAttributes.recalledLotsMessage(product);
-        if (message != null) {
-            state.ticket.setNotice(message);
+        String lots = ProductAttributes.recalledLotsJoined(product);
+        if (lots != null) {
+            state.ticket.setNotice(i18n.format("op.produitRappelLots", lots));
         }
     }
 
@@ -847,6 +1230,7 @@ public class TicketService {
     public void addItemByPlu(PosState state, String pluCode) {
         LOGGER.info("Entering method addItemByPlu with state: " + state + ", pluCode: " + pluCode);
         if (!requireOpenSession(state)) { LOGGER.info("Exiting method addItemByPlu"); return; }
+        if (saleRefusedDuringPayment(state)) { LOGGER.info("Exiting method addItemByPlu"); return; }
         state.selectedTicketIndex = -1;
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         Product p = Product.findActiveByPlu(pluCode);
@@ -856,6 +1240,15 @@ public class TicketService {
                 LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
+            // BO-03-01-18: an article the store took out of THIS island or
+            // THIS register is refused here and nowhere else — the same
+            // decision whatever road the article came in by.
+            if (articleScopeService != null && !articleScopeService.soldHere(p)) {
+                state.ticket.setError(i18n.get("op.articleNonVenduSurCetteCaisse"));
+                LOGGER.info("Exiting method addItemByPlu");
+                return;
+            }
+
             if (ProductAttributes.recall(p)) {
                 state.ticket.setError(i18n.get("op.articleRetraitRappel"));
                 LOGGER.info("Exiting method addItemByPlu");
@@ -873,13 +1266,40 @@ public class TicketService {
             // register never re-deducts (non-cumulation). The punctual
             // container tare is consumed straight away: it arms one weighing.
             BigDecimal tare = tareService.resolve(p, state);
-            // The article is chosen, the plate may still be empty: wait for it to
-            // be loaded instead of refusing the weighing outright. Choosing then
-            // laying down is the order the screen asks for, and it did not work.
-            double weight = hardwareService.awaitWeighing(tare);
-            tareService.consume(state);
-            if (weight <= 0) { state.ticket.setError(i18n.get("op.poidsInvalide")); LOGGER.info("Exiting method addItemByPlu"); return; }
-            if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError(i18n.get("op.erreurPoidsIdentique")); LOGGER.info("Exiting method addItemByPlu"); return; }
+            // LC-02-02-03: a GROSS weight keyed BEFORE the article replaces the
+            // weighing. The arming is read here and not earlier so it survives
+            // the age-check parking exactly as the scale read does, and it is
+            // consumed whatever happens next — a refused weight must never land
+            // on the article that follows.
+            BigDecimal typedGross = state.pendingManualWeightKg;
+            state.pendingManualWeightKg = null;
+            double weight;
+            if (typedGross != null) {
+                // LC-14-01-08: no scale is in the loop, so the register deducts
+                // the tare it would otherwise have SENT to the scale — the same
+                // one, resolved by the same priority (container, article,
+                // administered default). The line therefore carries a NET weight,
+                // exactly as a scale would have returned it, and the duplicate-
+                // weighing guard does not apply: it watches for a plate read
+                // twice, whereas two identical punnets keyed by hand are a
+                // legitimate repetition.
+                BigDecimal net = typedGross.subtract(tare);
+                tareService.consume(state);
+                if (net.signum() <= 0) {
+                    state.ticket.setError(i18n.get("op.poidsNetInvalide"));
+                    LOGGER.info("Exiting method addItemByPlu");
+                    return;
+                }
+                weight = net.doubleValue();
+            } else {
+                // The article is chosen, the plate may still be empty: wait for it to
+                // be loaded instead of refusing the weighing outright. Choosing then
+                // laying down is the order the screen asks for, and it did not work.
+                weight = hardwareService.awaitWeighing(tare);
+                tareService.consume(state);
+                if (weight <= 0) { state.ticket.setError(i18n.get("op.poidsInvalide")); LOGGER.info("Exiting method addItemByPlu"); return; }
+                if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError(i18n.get("op.erreurPoidsIdentique")); LOGGER.info("Exiting method addItemByPlu"); return; }
+            }
 
             state.ticket.lastRecordedWeight = weight;
             Price price = Price.findCurrentPrice(p.id);
@@ -894,11 +1314,14 @@ public class TicketService {
 
             // Real PLU code carried by the line; EAN left null. Checkout label
             // when set, else the commercial name.
-            state.ticket.addItem(p.ean, pluCode, p.saleLabel().toUpperCase(), unitPrice, quantityKg, vatRate);
+            state.ticket.addItem(p.ean, pluCode, translatedLabel(p), unitPrice, quantityKg, vatRate);
             TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
             // LC-14-01-07/08: snapshot the article tare so a later MANUAL weight
             // re-entry can deduct it without a fresh catalog lookup.
             line.tareKg = ProductAttributes.tare(p);
+            // BO-10-05-04: and the tare that was actually sent to the scale,
+            // which is the one the ticket may state.
+            line.appliedTareKg = tare;
             if (ProductAttributes.discountForbidden(p)) {
                 line.discountForbidden = true;
             }
@@ -915,6 +1338,25 @@ public class TicketService {
             state.ticket.setError(i18n.get("op.pluIntrouvable"));
         }
         LOGGER.info("Exiting method addItemByPlu");
+    }
+
+    /**
+     * Raises the back-office alert for an article the referential does not
+     * know ({@code BO-04-02-06}), when the shop administers it.
+     *
+     * <p>Null-tolerant on both collaborators: a service built by hand in a
+     * unit test carries neither, and the sale must go through.
+     *
+     * @param state the current POS state
+     * @param label what the cashier typed for the unknown article
+     */
+    private void alertUnknownItem(PosState state, String label) {
+        if (posSettingsService == null || supervisorSettleService == null
+                || !posSettingsService.unknownItemAlertEnabled()) {
+            return;
+        }
+        supervisorSettleService.unknownItem(label,
+                state == null ? null : state.getOperatorName());
     }
 
     /**
@@ -936,6 +1378,11 @@ public class TicketService {
                         price, BigDecimal.ONE, defaultVatRate);
                 displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
                 syncAndRevalue(state);
+                // BO-04-02-06: the back office is told, when the shop asked
+                // for it, that a lane has just sold something the referential
+                // does not know. Fire and forget: the article is already on
+                // the ticket.
+                alertUnknownItem(state, label);
             }
         } catch (Exception e) {
             state.ticket.setError(i18n.get("op.erreurPrixSaisi"));
@@ -1037,16 +1484,32 @@ public class TicketService {
             state.ticket.addItem(line.ean(), null, line.label(),
                     line.unitPrice(), line.quantity(), line.vatRate());
         }
+        // LC-06-03-07: the ticket remembers the order it came from, so its
+        // closing can tell the store node the order was settled.
+        state.recalledOrderCode = doc.code != null && !doc.code.isBlank() ? doc.code : null;
+        PaymentState.PaymentEntry depositEntry = null;
         if (doc.hasAcompte()) {
             // EXP-85: the down-payment already collected on the order is credited
             // as a payment, so the remaining due is the balance to settle now.
-            state.payment.addPayment("ACOMPTE", doc.acompteAlreadyPaid);
+            // LC-06-03-07/-08: the credit is a settlement of its own — the
+            // "Reprise d'acompte" — and carries the deposit's per-rate VAT and
+            // the order code, so the final receipt and the node both restate
+            // the ventilation computed at collection time.
+            state.payment.addDepositPayment(doc.acompteAlreadyPaid,
+                    doc.depositVatDetail, doc.code);
+            depositEntry = state.payment.payments.get(state.payment.payments.size() - 1);
         }
         recalculateTotal(state);
         displayLastItemOrWelcome(state);
         state.ticket.setNotice(i18n.format("op.documentCharge",
                 doc.getKindLabel(), (doc.code == null ? "" : doc.code)));
         syncAndRevalue(state);
+        if (depositEntry != null && !state.trainingMode
+                && state.payment.ticketDbId != null) {
+            // The recovery is persisted like every other settlement, so a
+            // restart rebuilds it and the final ticket prints it (LC-06-03-08).
+            ticketPersistenceService.addPaymentToTicket(state.payment.ticketDbId, depositEntry);
+        }
         LOGGER.info("Exiting method loadRecalledDocument");
     }
 
@@ -1063,9 +1526,16 @@ public class TicketService {
         // witness. Training and pre-draft carts have no id — the marking is
         // skipped exactly where nothing fiscal is persisted anyway.
         if (state.payment.ticketDbId != null) {
+            // BO-06-06-04: the justification the cashier gave travels with the
+            // witness. Read from the state and not from a parameter because the
+            // gesture may have been parked for an aval between the two.
             ticketPersistenceService.markLineCancelled(
-                    state.payment.ticketDbId, uid, state.auth.operatorBadgeId);
+                    state.payment.ticketDbId, uid, state.auth.operatorBadgeId,
+                    state.ticket.pendingCancelReasonCode, state.ticket.pendingCancelReasonLabel);
         }
+        state.ticket.pendingCancelUid = null;
+        state.ticket.pendingCancelReasonCode = null;
+        state.ticket.pendingCancelReasonLabel = null;
         // The line LEAVES THE CART AND STAYS ON THE SCREEN, struck through: what
         // was cancelled is a fact of the sale the operator and the customer must
         // still be able to point at.
@@ -1177,5 +1647,22 @@ public class TicketService {
         }
         LOGGER.info("Exiting method printCardReceiptDuplicate");
         return 0;
+    }
+
+    /**
+     * The article's wording in the language the till is set to, upper-cased as
+     * every line label is (BO-03-01-20).
+     *
+     * <p>The administered translation wins; the catalog's own sale label is the
+     * fallback, which is what every line carried before translations existed.
+     *
+     * @param product the article
+     * @return the line label
+     */
+    private String translatedLabel(com.intermarche.pos.domain.catalog.Product product) {
+        String language = i18n == null ? null : i18n.getLang();
+        String label = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                .saleLabel(product, language);
+        return label == null ? "" : label.toUpperCase();
     }
 }

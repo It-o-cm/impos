@@ -338,4 +338,104 @@ class ArticleBarcodeRangeTest {
                 ArticleBarcodeRange.ValueSource.valueOf("PRICE"));
         assertEquals(2, ArticleBarcodeRange.ValueSource.values().length);
     }
+
+    /**
+     * A range is an ARTICLE range by default, and stays one when the column was
+     * never written (BO-03-06-56/-60/-61): both legs of {@code isArticlePurpose}
+     * plus the explicit ARTICLE arm.
+     */
+    @Test
+    void aRangeIsAnArticleRangeUntilItSaysOtherwise() {
+        ArticleBarcodeRange range = priceRange();
+        assertEquals(ArticleBarcodeRange.Purpose.ARTICLE, range.purpose);
+        assertTrue(range.isArticlePurpose());
+        range.purpose = null;
+        assertTrue(range.isArticlePurpose());
+        range.purpose = ArticleBarcodeRange.Purpose.ARTICLE;
+        assertTrue(range.isArticlePurpose());
+        range.purpose = ArticleBarcodeRange.Purpose.REFUND;
+        assertFalse(range.isArticlePurpose());
+        range.purpose = ArticleBarcodeRange.Purpose.TARE;
+        assertFalse(range.isArticlePurpose());
+        range.purpose = ArticleBarcodeRange.Purpose.BALANCE_TICKET;
+        assertFalse(range.isArticlePurpose());
+    }
+
+    /**
+     * The four destinations are named, so the enum body is fully covered.
+     */
+    @Test
+    void thePurposesAreNamed() {
+        assertEquals(ArticleBarcodeRange.Purpose.BALANCE_TICKET,
+                ArticleBarcodeRange.Purpose.valueOf("BALANCE_TICKET"));
+        assertEquals(ArticleBarcodeRange.Purpose.PROMOTION,
+                ArticleBarcodeRange.Purpose.valueOf("PROMOTION"));
+        assertEquals(ArticleBarcodeRange.Purpose.EXTERNAL_LOOKUP,
+                ArticleBarcodeRange.Purpose.valueOf("EXTERNAL_LOOKUP"));
+        assertEquals(ArticleBarcodeRange.Purpose.CUSTOMER_ORDER,
+                ArticleBarcodeRange.Purpose.valueOf("CUSTOMER_ORDER"));
+        assertEquals(7, ArticleBarcodeRange.Purpose.values().length);
+    }
+
+    /**
+     * {@code triggersPromotion} is true only for a PROMOTION range that NAMES a
+     * promotion: every other destination, a null name and a blank name all say
+     * no (BO-03-06-43, each leg of the compound condition).
+     */
+    @Test
+    void triggersPromotionNeedsBothTheDestinationAndTheName() {
+        ArticleBarcodeRange range = priceRange();
+        range.purpose = ArticleBarcodeRange.Purpose.ARTICLE;
+        range.promotionCode = "PROMO_RENTREE";
+        assertFalse(range.triggersPromotion());
+        range.purpose = ArticleBarcodeRange.Purpose.PROMOTION;
+        range.promotionCode = null;
+        assertFalse(range.triggersPromotion());
+        range.promotionCode = "   ";
+        assertFalse(range.triggersPromotion());
+        range.promotionCode = "PROMO_RENTREE";
+        assertTrue(range.triggersPromotion());
+        // An EXTERNAL_LOOKUP range is not a promotion range either.
+        range.purpose = ArticleBarcodeRange.Purpose.EXTERNAL_LOOKUP;
+        assertFalse(range.triggersPromotion());
+        // A promotion range is not an article range, so the weighed-label
+        // handler keeps its hands off it.
+        assertFalse(range.isArticlePurpose());
+    }
+
+    /**
+     * {@code articleSegment} keeps the leading zeros {@code articleCode} strips
+     * (BO-03-06-56), and refuses a code too short for the segment.
+     */
+    @Test
+    void articleSegmentKeepsTheLeadingZeros() {
+        ArticleBarcodeRange range = priceRange();
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        assertEquals("00123", range.articleSegment("2100123012345"));
+        assertEquals("123", range.articleCode("2100123012345"));
+        assertNull(range.articleSegment("21"));
+        assertNull(range.articleSegment(null));
+    }
+
+    /**
+     * {@code hasExternalLookup} is true only for an EXTERNAL_LOOKUP range that
+     * NAMES a service: every other destination, a null URL and a blank URL all
+     * say no (BO-03-06-41, each leg of the compound condition).
+     */
+    @Test
+    void hasExternalLookupNeedsBothTheDestinationAndTheUrl() {
+        ArticleBarcodeRange range = priceRange();
+        range.purpose = ArticleBarcodeRange.Purpose.ARTICLE;
+        range.lookupUrl = "https://partenaire.test/bons/{code}";
+        assertFalse(range.hasExternalLookup());
+        range.purpose = ArticleBarcodeRange.Purpose.EXTERNAL_LOOKUP;
+        range.lookupUrl = null;
+        assertFalse(range.hasExternalLookup());
+        range.lookupUrl = "   ";
+        assertFalse(range.hasExternalLookup());
+        range.lookupUrl = "https://partenaire.test/bons/{code}";
+        assertTrue(range.hasExternalLookup());
+        assertFalse(range.isArticlePurpose());
+    }
 }

@@ -592,4 +592,74 @@ class ReprintResourceTest {
         assertSame(listView, resource.searchReprint(null));
         verify(resource.reprintService).search(null);
     }
+
+    /**
+     * LC-03-06-02: the reassignment-mode routes delegate to the service and
+     * render the LIST template both ways — entering and leaving the mode.
+     */
+    @Test
+    void reassignModeRoutesDelegateAndRenderTheList() {
+        ReprintResource resource = newResource();
+        TemplateInstance list = mock(TemplateInstance.class);
+        when(resource.reprintTicketPage.data("state", resource.state)).thenReturn(list);
+        assertSame(list, resource.startReassignMode());
+        verify(resource.reprintService).startReassignMode();
+        assertSame(list, resource.cancelReassignMode());
+        verify(resource.reprintService).cancelReassignMode();
+    }
+
+    /**
+     * LC-03-06-03: opening the card mask on the VIEWED ticket renders the
+     * detail view; a stale id — another ticket, or none — reloads the detail
+     * instead, exactly as the paging routes do.
+     */
+    @Test
+    void beginReassignRendersTheDetailOrReloadsAStaleOne() {
+        ReprintResource resource = newResource();
+        TemplateInstance detail = mock(TemplateInstance.class);
+        when(resource.reprintDetailPage.data("state", resource.state)).thenReturn(detail);
+        Ticket viewed = mock(Ticket.class);
+        viewed.id = 7L;
+        resource.state.reprint.viewedTicket = viewed;
+        assertSame(detail, resource.beginReassign(7L));
+        verify(resource.reprintService).beginReassign(7L);
+        Ticket other = mock(Ticket.class);
+        other.id = 9L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(9L)).thenReturn(other);
+            assertSame(detail, resource.beginReassign(9L));
+        }
+        verify(resource.state.reprint).setViewedTicket(other);
+        verify(resource.reprintService, org.mockito.Mockito.never()).beginReassign(9L);
+    }
+
+    /**
+     * LC-03-06-03: leaving the mask closes it and reloads the detail.
+     */
+    @Test
+    void cancelReassignClosesTheMaskAndReloads() {
+        ReprintResource resource = newResource();
+        TemplateInstance detail = mock(TemplateInstance.class);
+        when(resource.reprintDetailPage.data("state", resource.state)).thenReturn(detail);
+        Ticket viewed = mock(Ticket.class);
+        viewed.id = 7L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(7L)).thenReturn(viewed);
+            assertSame(detail, resource.cancelReassign(7L));
+        }
+        verify(resource.reprintService).cancelReassignMask();
+    }
+
+    /**
+     * LC-03-06-01: the reassignment POST delegates to the service and lands
+     * back on the detail view (PRG, so a reload never replays it).
+     */
+    @Test
+    void applyReassignDelegatesAndRedirectsToTheDetail() {
+        ReprintResource resource = newResource();
+        Response response = resource.applyReassign(7L, "2990000000019");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/reprint/view/7", response.getLocation().toString());
+        verify(resource.reprintService).applyReassign(7L, "2990000000019");
+    }
 }

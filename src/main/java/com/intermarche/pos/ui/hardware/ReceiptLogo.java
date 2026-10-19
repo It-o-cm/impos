@@ -67,6 +67,23 @@ public final class ReceiptLogo {
     /** The logo as a data URI, computed once; empty when there is no logo file. */
     private static String dataUri;
 
+    /**
+     * The administered image the cached directive was rasterised from, or
+     * null when none has been asked for yet ({@code BO-03-03-15}).
+     *
+     * <p>ONE entry and not a map: a register prints the logo of its own
+     * store, so the administered image changes when the back office replaces
+     * it and not from one document to the next. Caching the last one asked
+     * for is therefore caching all of them, and it cannot grow.
+     */
+    private static String administeredSource;
+
+    /** The width the cached administered directive was rasterised at. */
+    private static int administeredWidth;
+
+    /** The cached directive of the administered image, possibly empty. */
+    private static String administeredDirective;
+
     /** Whether the data URI has been built already. */
     private static boolean dataUriLoaded;
 
@@ -107,6 +124,111 @@ public final class ReceiptLogo {
         String computed = read(width).orElse("");
         DIRECTIVES.put(width, computed);
         return computed;
+    }
+
+    /**
+     * The print directive carrying the ADMINISTERED logo of this store
+     * ({@code BO-03-03-15}), at the width the shop administers.
+     *
+     * <p>The administered image wins over the installation's file, and an
+     * empty one falls back on it: a store that has imported no logo prints
+     * exactly what it printed before, and one whose import is unreadable
+     * prints that too rather than nothing.
+     *
+     * @param imageData the administered image as a {@code data:} URI or a
+     *        bare base64 payload, possibly null or empty
+     * @param widthDots the width to print at, in thermal-head dots
+     * @return the directive line WITHOUT its newline, or empty when neither
+     *         the administered image nor the installation's file is printable
+     */
+    public static synchronized String directive(String imageData, int widthDots) {
+        if (imageData == null || imageData.isBlank()) {
+            return directive(widthDots);
+        }
+        int width = widthDots < DOTS_PER_BYTE ? PRINT_WIDTH : widthDots;
+        if (imageData.equals(administeredSource) && width == administeredWidth) {
+            return administeredDirective;
+        }
+        administeredSource = imageData;
+        administeredWidth = width;
+        administeredDirective = rasterise(imageData, width);
+        return administeredDirective;
+    }
+
+    /**
+     * The print directive carrying the ADMINISTERED logo of this store, at
+     * the default width ({@code BO-03-03-15}) — the width the documents that
+     * do not read the administered head width print at.
+     *
+     * @param imageData the administered image, possibly null or empty
+     * @return the directive line WITHOUT its newline, or empty when neither
+     *         the administered image nor the installation's file is printable
+     */
+    public static synchronized String directive(String imageData) {
+        return directive(imageData, PRINT_WIDTH);
+    }
+
+    /**
+     * Rasterises an administered image at a width, an unreadable or entirely
+     * white one answering the empty string.
+     *
+     * @param imageData the administered image
+     * @param width the width to rasterise at, in dots
+     * @return the directive, or an empty string
+     */
+    private static String rasterise(String imageData, int width) {
+        BufferedImage source = decode(imageData);
+        if (source == null) {
+            return "";
+        }
+        BufferedImage fitted = fit(source, width);
+        if (fitted == null) {
+            LOGGER.warnf("Logo administre entierement blanc : en-tete texte seul");
+            return "";
+        }
+        return encode(fitted);
+    }
+
+    /**
+     * Decodes an administered image, which travels as a {@code data:} URI or
+     * as a bare base64 payload.
+     *
+     * @param imageData the administered image
+     * @return the decoded image, or null when it cannot be read
+     */
+    private static BufferedImage decode(String imageData) {
+        String payload = imageData.trim();
+        int comma = payload.indexOf(',');
+        if (payload.startsWith("data:") && comma >= 0) {
+            payload = payload.substring(comma + 1);
+        }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(payload);
+            BufferedImage source = ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            if (source == null) {
+                LOGGER.warnf("Image administree illisible : en-tete texte seul");
+            }
+            return source;
+        } catch (IllegalArgumentException | IOException e) {
+            LOGGER.warnf(e, "Image administree illisible : en-tete texte seul");
+            return null;
+        }
+    }
+
+    /**
+     * The ADMINISTERED logo as a {@code data:} URI, for a document rendered
+     * as a page ({@code BO-03-03-15}); an empty administered image falls back
+     * on the installation's file.
+     *
+     * @param imageData the administered image, possibly null or empty
+     * @return the data URI, or empty when there is no logo at all
+     */
+    public static synchronized String dataUri(String imageData) {
+        if (imageData == null || imageData.isBlank()) {
+            return dataUri();
+        }
+        String payload = imageData.trim();
+        return payload.startsWith("data:") ? payload : "data:image/png;base64," + payload;
     }
 
     /**

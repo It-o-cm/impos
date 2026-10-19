@@ -41,6 +41,10 @@ public class TareService {
     @Inject
     PosSettingsService posSettingsService;
 
+    /** The administered lists: tare containers (BO-04-02-07). */
+    @Inject
+    com.intermarche.pos.service.PosListService posListService;
+
     /**
      * Resolves the software tare to send to the scale for a live weighing of
      * the given product: the punctual container tare when one is armed, else
@@ -136,7 +140,7 @@ public class TareService {
         if (state == null || code == null || code.isBlank()) {
             return false;
         }
-        for (PosSettingsService.TareContainer container : posSettingsService.tareContainers()) {
+        for (PosSettingsService.TareContainer container : posListService.tareContainers()) {
             if (container.code().equals(code.trim())) {
                 state.tare.containerTare = container.tareKg();
                 state.tare.containerLabel = container.label();
@@ -168,6 +172,6 @@ public class TareService {
     public java.util.List<PosSettingsService.TareContainer> containers() {
         LOGGER.info("Entering method containers");
         LOGGER.info("Exiting method containers");
-        return posSettingsService.tareContainers();
+        return posListService.tareContainers();
     }
 }

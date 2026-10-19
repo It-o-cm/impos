@@ -60,6 +60,9 @@ public class ArticleInfoResource {
     /** Whether a session is open, the other half of "a ticket can exist". */
     @Inject CashSessionService cashSessionService;
 
+    /** The electronic journal this screen writes its price checks to (BO-04-01-38). */
+    @Inject com.intermarche.pos.service.TechnicalEventService technicalEventService;
+
     /**
      * Shows the article-info screen: a lookup form, and — when a code is given —
      * the found article read-only, or a not-found message.
@@ -75,6 +78,15 @@ public class ArticleInfoResource {
         LOGGER.info("Entering method infoPage with code: " + code);
         ArticleInfo info = (code == null || code.isBlank()) ? null : lookup(code.trim());
         boolean notFound = code != null && !code.isBlank() && info == null;
+        // BO-04-01-38: the check itself is the event, found or not — a code
+        // nobody recognises is exactly what a shop looks for afterwards. The
+        // empty form is not a check and writes nothing.
+        if (code != null && !code.isBlank()) {
+            technicalEventService.log(
+                    com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_CHECKED,
+                    info == null ? code.trim() + " (inconnu)" : code.trim() + " " + info.label,
+                    state.auth.operatorBadgeId);
+        }
         LOGGER.info("Exiting method infoPage");
         return articleInfo
                 .data("code", code == null ? "" : code)

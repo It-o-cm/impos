@@ -107,20 +107,45 @@ public class BackOfficeMessagePoller {
             LOGGER.info("Exiting method pollOnce");
             return;
         }
-        PosState.BackOfficeSurvey survey = null;
-        if (message.question() != null && !message.question().isBlank()) {
-            survey = new PosState.BackOfficeSurvey();
-            survey.question = message.question().trim();
-            if (message.options() != null) {
-                for (String raw : message.options().split(";")) {
-                    if (!raw.isBlank()) {
-                        survey.options.add(raw.trim());
-                    }
+        homeService.receiveBackOfficeMessage(message.text(), surveyOf(message));
+        state.touch();
+        LOGGER.info("Exiting method pollOnce");
+    }
+
+    /**
+     * Builds the survey object of a fetched message, or null for a plain
+     * notice — question and options as the channel always carried them, plus
+     * the answer machinery of LC-03-07-06 to -10 the node now administers.
+     *
+     * @param message the message pulled from the node
+     * @return the survey, or null when the message is a plain notice
+     */
+    PosState.BackOfficeSurvey surveyOf(BackOfficeMessageClient.PendingMessage message) {
+        LOGGER.info("Entering method surveyOf with message: " + message);
+        if (message.question() == null || message.question().isBlank()) {
+            LOGGER.info("Exiting method surveyOf");
+            return null;
+        }
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = message.question().trim();
+        if (message.options() != null) {
+            for (String raw : message.options().split(";")) {
+                if (!raw.isBlank()) {
+                    survey.options.add(raw.trim());
                 }
             }
         }
-        homeService.receiveBackOfficeMessage(message.text(), survey);
-        state.touch();
-        LOGGER.info("Exiting method pollOnce");
+        survey.responseType = message.responseType();
+        survey.required = message.required();
+        survey.postalFormat = message.postalFormat();
+        if (message.postalCodes() != null) {
+            for (String raw : message.postalCodes().split(";")) {
+                if (!raw.isBlank()) {
+                    survey.postalCodes.add(raw.trim());
+                }
+            }
+        }
+        LOGGER.info("Exiting method surveyOf");
+        return survey;
     }
 }

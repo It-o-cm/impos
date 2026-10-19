@@ -11,11 +11,13 @@ caisse reste en mode autonome (le stub ne résout rien) — c'est le câblage im
 
 | Fonction | Propriété de conf caisse | Contrat attendu |
 |---|---|---|
-| **Rappel de document (EXP-90/91/92)** | `pos.recall.document-url` | `fetch(code)` → JSON `RecalledDocument` : `{ kind: DEVIS\|COMMANDE\|BON_VENTE\|CLICK_COLLECT, code, lines: [ {ean, label, quantity, unitPrice, vatRate} ], acompteAlreadyPaid }`. imedge **émet les codes** remis au client et **stocke** devis, commandes, bons de vente et paniers click&collect. `null`/inconnu → la caisse affiche « DOCUMENT INTROUVABLE ». |
+| **Rappel de document (EXP-90/91/92)** | `pos.recall.document-url` | `fetch(code)` → JSON `RecalledDocument` : `{ kind: DEVIS\|COMMANDE\|BON_VENTE\|CLICK_COLLECT, code, lines: [ {ean, label, quantity, unitPrice, vatRate} ], acompteAlreadyPaid }`. imedge **émet les codes** remis au client et **stocke** devis, commandes, bons de vente et paniers click&collect. `null`/inconnu → la caisse affiche « DOCUMENT INTROUVABLE ». Depuis LC-06-03, la réponse porte aussi `depositVatDetail` (ventilation TVA par taux de l'acompte perçu en caisse, forme compacte `rate:amount;...`, null sinon) et `totalAmount`, que le ticket final restitue (LC-06-03-08). |
 | **Reprise inter-caisses (EXP-46)** | `pos.parking.node-url` | lookup d'un ticket en attente **par code, toutes caisses confondues** → renvoie le ticket `PARKED` (avec ses lignes) posé sur une autre caisse. Suppose qu'imedge **consolide les tickets PARKED** remontés par l'outbox des caisses. Hors ligne, la caisse ne reprend que ses propres tickets (règle assumée). |
 | **Carte cadeau fournisseur (EXP-66)** | `pos.giftcard.issuer-url` | `query(cardNumber)` → `IssuerVerdict { valid: bool, balance: BigDecimal }` (interrogation du registre de l'émetteur : validité + solde). La caisse accepte le paiement à hauteur du solde. |
 | **Resto Flash (EXP-67)** | `pos.restoflash.url` | `confirm(token, amount)` → booléen accepté/refusé (paiement titre-restaurant mobile). |
 | **Passerelle SMS (EXP-48)** | `pos.sms.gateway-url` | `send(ticket, phone)` → envoie le ticket dématérialisé par SMS. (Le mail fonctionne déjà côté caisse.) |
+| **Création de commande en caisse (LC-06-03-01)** | `pos.recall.document-url` | `pushOrder(order)` → `POST <url>/api/orders` avec le corps `RecalledDocument` (`kind=COMMANDE`, `code`, `lines`, `totalAmount`, `depositVatDetail`). imedge **stocke** la commande créée à la caisse : le back-office la liste (`/admin/orders`) et toute caisse du magasin la rappelle par son code (LC-06-03-07). La poussée est idempotente par code (même code = même ligne rafraîchie). L'acompte lui-même ne voyage PAS ici : c'est le mouvement `CUSTOMER_DEPOSIT` référencé (C) qui le porte. |
+| **Règlement de la commande (LC-06-03-07)** | `pos.recall.document-url` | `settleOrder(code)` → `POST <url>/api/orders/{code}/settled`. À la clôture de la vente qui solde la commande, la caisse prévient le nœud, qui marque la commande payée puis retirée — le code ne peut plus être rappelé et payé deux fois. Tolérant : un échec de poussée n'entrave jamais la vente. |
 
 ## B. Message descendant EXP-20/89 — désormais en PULL (résout ta remarque topologie)
 
@@ -47,6 +49,11 @@ Ces champs voyagent sur les upserts déjà synchronisés (CashMovement, CardPaym
   du `RecalledDocument` (A) au rappel de la commande.
 - **`CardPayment.card_entry_mode` (SANS_CONTACT / CODE) — EXP-54** : mode CB réel tracé sur le
   ticket → à exposer dans les états/reporting back-office.
+- **`PaymentDto.depositVatDetail` + `PaymentDto.depositOrderCode` (LC-06-03-07/-08)** : le
+  règlement « REPRISE ACOMPTE » d'un ticket qui solde une commande porte la ventilation TVA
+  par taux de l'acompte perçu (calculée au moment de la perception, jamais recalculée) et le
+  code de la commande — les comptes d'attente par taux que le back-office remonte en fin de
+  période (LC-06-03-08) se lisent sur la ligne elle-même.
 - **Événement `SOGEC_COMPENSATION` + `SogecPayment` — EXP-58** : à router vers la **compensation
   fournisseur SOGEC** (circuit distinct du coupon GS1 générique).
 - **`SessionDto` — nouveaux champs de clôture opposable (EXP-82/83/95)** : `varianceEndorsedBy`

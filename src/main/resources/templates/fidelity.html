@@ -86,16 +86,24 @@
                 <button class="fid-toggle" id="btnVille" onclick="setFidMode('ville', this)">{inject:i18n.get('fidelity.ville')}</button>
             </div>
 
-            <!-- Card mode ATTACHES directly (/action/fidelity) ; the three
-                 identity modes SEARCH the imfid holder directory
+            <!-- Card mode ATTACHES directly (/action/fidelity) ; the identity
+                 modes SEARCH the imfid holder directory
                  (/action/fidelity-lookup, addendum v1.1 — phone and e-mail
                  EXACT after imfid's normalization, name and first name by
-                 PREFIX: "dur" finds Durand). In name mode type "NOM PRENOM":
-                 the server splits on the first space, both parts prefixes. -->
+                 PREFIX: "dur" finds Durand). LC-03-04-17 : the name mode
+                 carries TWO fields — the last name searches as itself (a
+                 compound name never splits again), the first name is its own
+                 criterion, and the server refuses a search missing either. -->
             <form action="/action/fidelity" method="POST" id="fidForm">
                 <input type="hidden" name="card" id="fidHiddenInput" value="">
                 <input type="hidden" name="mode" id="fidMode" value="card">
+                <input type="hidden" name="firstName" id="fidHiddenFirstName" value="">
+                <div id="fidNameLabel" style="display:none; text-align:center; color: var(--text-muted); font-size: var(--fs-label); margin-top:8px;">{inject:i18n.get('fidelity.nom')}</div>
                 <div id="fidDisplay" class="fid-display pad-display"></div>
+                <div id="fidFirstNameRow" style="display:none; margin-top:8px;">
+                    <div style="text-align:center; color: var(--text-muted); font-size: var(--fs-label);">{inject:i18n.get('fidelity.prenom')}</div>
+                    <div id="fidDisplayFirstName" class="fid-display pad-display" onclick="showKeyboardFirstName()" style="margin-top:4px;"></div>
+                </div>
                 <div id="fidHint" style="text-align:center; color: var(--text-muted); font-size: var(--fs-label); min-height: 1.2em;"></div>
 
                 <div class="fid-keyboard-area pos-kb-compact" id="fidKeyboardArea"></div>
@@ -200,13 +208,21 @@
 </div>
 
 <!-- Search echo: after a lookup POST the page must come back in the SAME
-     mode with the typed criterion still displayed (Qute HTML-escapes the
-     attribute values, so free-text names are safe here). -->
-<div id="fidInit" data-mode="{searchMode}" data-value="{searchValue}" style="display:none;"></div>
+     mode with the typed criteria still displayed (Qute HTML-escapes the
+     attribute values, so free-text names are safe here). LC-03-04-17 : the
+     first name is echoed on its own, so a refused search shows both halves of
+     what was typed. -->
+<div id="fidInit" data-mode="{searchMode}" data-value="{searchValue}" data-firstname="{searchFirstName}" style="display:none;"></div>
 
     {#include keyboard-lib /}
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    // The keyboard of the current mode and the two fields the name mode
+    // carries. The pad retargets when the operator taps the other field —
+    // one keyboard, two inputs, never two pads on the 600px screen.
+    var fidKb = { kb: 'numpad', im: 'integer', max: 15, upper: false };
+    var fidTarget = { displayId: 'fidDisplay', hiddenId: 'fidHiddenInput' };
 
     // Unfolds the keyboard and folds the result list away — the two never
     // share the 600px screen (the operator is either typing or picking).
@@ -214,9 +230,35 @@
         document.getElementById('fidKeyboardArea').style.display = 'flex';
         var results = document.getElementById('fidResultsWrap');
         if (results) results.style.display = 'none';
+        fidTarget = { displayId: 'fidDisplay', hiddenId: 'fidHiddenInput' };
+        fidMountInput();
     }
 
-    function setFidMode(mode, btn, initialValue) {
+    // LC-03-04-17 : the FIRST-NAME field of the name mode owns the pad while
+    // it is tapped, so the two criteria are typed one after the other.
+    function showKeyboardFirstName() {
+        showKeyboard();
+        fidTarget = { displayId: 'fidDisplayFirstName', hiddenId: 'fidHiddenFirstName' };
+        fidMountInput();
+    }
+
+    // Mounts the shared pad onto the current target, carrying what the target
+    // already holds — switching fields never clears what was typed.
+    function fidMountInput() {
+        PosInput.setup({
+            displayId: fidTarget.displayId,
+            hiddenId: fidTarget.hiddenId,
+            containerId: 'fidKeyboardArea',
+            keyboardType: fidKb.kb,
+            mode: fidKb.im,
+            uppercase: fidKb.upper,
+            placeholder: "",
+            maxLength: fidKb.max,
+            initialValue: document.getElementById(fidTarget.hiddenId).value || ""
+        });
+    }
+
+    function setFidMode(mode, btn, initialValue, initialFirstName) {
         document.querySelectorAll('.fid-toggle').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         showKeyboard();
@@ -231,36 +273,34 @@
             card: 'Numéro complet de la carte (299…)',
             tel: 'Numéro complet, format libre : 06 12 34 56 78, +33…',
             email: 'Adresse complète, la casse est ignorée',
-            name: 'Quelques lettres suffisent : « DUR », ou « DURAND J »',
+            name: 'Le NOM dans le premier champ, le PRÉNOM dans le second — quelques lettres suffisent',
             ville: 'Nom de la ville, quelques lettres suffisent'
         };
         document.getElementById('fidHint').textContent = hints[mode];
 
-        var kb = 'numpad', im = 'integer', max = 15;
-        if (mode === 'name')  { kb = 'alpha'; im = 'text'; max = 40; }
-        if (mode === 'email') { kb = 'email'; im = 'text'; max = 60; }
-        if (mode === 'tel')   { kb = 'numpad'; im = 'text'; max = 20; }
-        if (mode === 'ville') { kb = 'alpha'; im = 'text'; max = 40; }
+        fidKb = { kb: 'numpad', im: 'integer', max: 15, upper: false };
+        if (mode === 'name')  { fidKb.kb = 'alpha'; fidKb.im = 'text'; fidKb.max = 40; fidKb.upper = true; }
+        if (mode === 'email') { fidKb.kb = 'email'; fidKb.im = 'text'; fidKb.max = 60; }
+        if (mode === 'tel')   { fidKb.kb = 'numpad'; fidKb.im = 'text'; fidKb.max = 20; }
+        if (mode === 'ville') { fidKb.kb = 'alpha'; fidKb.im = 'text'; fidKb.max = 40; }
 
-        PosInput.setup({
-            displayId: 'fidDisplay',
-            hiddenId: 'fidHiddenInput',
-            containerId: 'fidKeyboardArea',
-            keyboardType: kb,
-            mode: im,
-            uppercase: (mode === 'name'),
-            placeholder: "",
-            maxLength: max,
-            initialValue: initialValue || ""
-        });
+        // LC-03-04-17 : the second field exists in the NAME mode only — the
+        // other modes never send it and never show it.
+        var firstNameRow = document.getElementById('fidFirstNameRow');
+        var nameLabel = document.getElementById('fidNameLabel');
+        firstNameRow.style.display = (mode === 'name') ? 'block' : 'none';
+        nameLabel.style.display = (mode === 'name') ? 'block' : 'none';
+        document.getElementById('fidHiddenFirstName').value = (mode === 'name' ? (initialFirstName || '') : '');
+        fidTarget = { displayId: 'fidDisplay', hiddenId: 'fidHiddenInput' };
+        fidMountInput();
     }
 
     // Reopen the keyboard when the operator taps the input field while a
     // result list is displayed (the list folds away to make room).
     document.getElementById('fidDisplay').addEventListener('click', showKeyboard);
 
-    // Restore the mode and criterion echoed by the server (card/empty on a
-    // plain GET) instead of always resetting to card mode. When the server
+    // Restore the mode and both criteria echoed by the server (card/empty on
+    // a plain GET) instead of always resetting to card mode. When the server
     // sent a result list, FOLD the keyboard so the chrome plus the list fit
     // the 600px screen — never scroll the page chrome away.
     (function() {
@@ -268,7 +308,7 @@
         var mode = init.dataset.mode || 'card';
         var btns = { card: 'btnCard', tel: 'btnTel', email: 'btnEmail', name: 'btnName', ville: 'btnVille' };
         if (!btns[mode]) mode = 'card';
-        setFidMode(mode, document.getElementById(btns[mode]), init.dataset.value || '');
+        setFidMode(mode, document.getElementById(btns[mode]), init.dataset.value || '', init.dataset.firstname || '');
         var results = document.getElementById('fidResultsWrap');
         if (results) {
             document.getElementById('fidKeyboardArea').style.display = 'none';

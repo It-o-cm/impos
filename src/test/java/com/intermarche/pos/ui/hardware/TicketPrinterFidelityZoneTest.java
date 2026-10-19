@@ -55,7 +55,22 @@ class TicketPrinterFidelityZoneTest {
         service.posSettingsService = mock(PosSettingsService.class);
         when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(true);
         when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(true);
+        // The currency defaults of the catalogue, which print exactly what the
+        // register printed before the symbol became administrable: the symbol
+        // E, after the amount (BO-10-07-04/-05/-06).
+        when(service.posSettingsService.currencySymbolPrinted()).thenReturn(true);
+        when(service.posSettingsService.currencySymbol()).thenReturn("E");
+        when(service.posSettingsService.currencySymbolPosition()).thenReturn("RIGHT");
         when(service.posSettingsService.fidelityProjectedLabel()).thenReturn("CAGNOTTE PREVISIONNELLE");
+        // BO-03-03-15 / BO-10-03-09: the distributed images. Nothing is
+        // administered by default, so the receipt prints exactly what it
+        // printed before the visuals existed.
+        service.storeImageService =
+                mock(com.intermarche.pos.service.StoreImageService.class);
+        when(service.storeImageService.receiptLogo()).thenReturn("");
+        when(service.storeImageService.advantageVisual(
+                org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.nullable(String.class))).thenReturn("");
         return service;
     }
 
@@ -70,8 +85,35 @@ class TicketPrinterFidelityZoneTest {
      */
     private String render(TicketPrinterService service, Ticket ticket) {
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            silenceCatalog(panache);
             return service.renderTicket(ticket, false, 0);
         }
+    }
+
+    /**
+     * Neutralises the catalog lookups a rendering makes without the test's
+     * knowledge, inside a {@code MockedStatic<PanacheEntityBase>} scope and
+     * BEFORE the test's own stubs — the most recently registered stub wins, so
+     * the exact stubs must come after these catch-alls. {@code find} is reached
+     * by the VAT legal mentions ({@code VatRate.findByRate}), {@code list} by
+     * the per-line valuation lookup and the administered document names: a
+     * plain unit test has no persistence context to answer either with.
+     *
+     * @param panache the static mock the test holds open
+     */
+    private static void silenceCatalog(MockedStatic<PanacheEntityBase> panache) {
+        @SuppressWarnings("unchecked")
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> nothing =
+                mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
+                .thenReturn(java.util.List.of());
     }
 
     /**
@@ -199,5 +241,326 @@ class TicketPrinterFidelityZoneTest {
         String receipt = render(service, ticket);
         assertTrue(receipt.toLowerCase().contains("auriez gagne"));
         assertFalse(receipt.contains("CAGNOTTE DU JOUR"));
+    }
+
+    /**
+     * Builds one frozen advantage line carrying a CATEGORY and no type, for the
+     * grouping of BO-03-03-33.
+     *
+     * @param label the printable label
+     * @param amount the earn amount
+     * @param category the advantage category code
+     * @param categoryLabel the advantage category label
+     * @return the frozen line
+     */
+    private TicketFidelityLine categoryLine(String label, String amount, String category,
+            String categoryLabel) {
+        return new TicketFidelityLine("R-" + label, label, new BigDecimal(amount),
+                null, null, null, category, categoryLabel);
+    }
+
+    /**
+     * BO-03-03-32, the three legs of the guard held false one at a time: the
+     * shop not asking, a sale carrying no card, and a sale carrying a blank
+     * one. None of them names a card.
+     */
+    @Test
+    void theCardIsNotNamedUnlessTheShopAsksAndACardWasPresented() {
+        TicketPrinterService silent = newService();
+        when(silent.posSettingsService.fidelityPrintCardNumber()).thenReturn(false);
+        assertFalse(render(silent, sale()).contains("CARTE FIDELITE"));
+
+        TicketPrinterService noCard = newService();
+        when(noCard.posSettingsService.fidelityPrintCardNumber()).thenReturn(true);
+        Ticket cardless = sale();
+        cardless.fidelityCard = null;
+        assertFalse(render(noCard, cardless).contains("CARTE FIDELITE"));
+
+        TicketPrinterService blankCard = newService();
+        when(blankCard.posSettingsService.fidelityPrintCardNumber()).thenReturn(true);
+        Ticket blank = sale();
+        blank.fidelityCard = "   ";
+        assertFalse(render(blankCard, blank).contains("CARTE FIDELITE"));
+    }
+
+    /**
+     * BO-03-03-32, the guard's true arm: the mention and the number come out,
+     * and they come out BEFORE the day's earn — the card names the zone the
+     * advantages are read in.
+     */
+    @Test
+    void theCardIsNamedWhenTheShopAsksForIt() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityPrintCardNumber()).thenReturn(true);
+        String out = render(service, sale());
+        assertTrue(out.contains("CARTE FIDELITE"));
+        assertTrue(out.contains("2990000000019"));
+        assertTrue(out.indexOf("CARTE FIDELITE") < out.indexOf("CAGNOTTE DU JOUR"));
+    }
+
+    /**
+     * BO-03-03-31 / BO-03-03-34, the guard's true arm: the four figures of the
+     * balance zone, each under its own label — what was available, what the day
+     * earned, what this sale took on the balance and what is left after it.
+     */
+    @Test
+    void theBalanceZoneStatesTheFourFigures() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityPrintBalances()).thenReturn(true);
+        Ticket ticket = sale();
+        ticket.fidelityAvailableBalance = new BigDecimal("42.30");
+        ticket.fidelityBalanceAfter = new BigDecimal("40.20");
+        ticket.payments.add(new com.intermarche.pos.domain.payment.FidelityPayment(
+                new BigDecimal("3.00")));
+        String out = render(service, ticket);
+        assertTrue(out.contains("SOLDES CARTE"));
+        assertTrue(out.contains("SOLDE DISPONIBLE"));
+        assertTrue(out.contains("42,30"));
+        assertTrue(out.contains("TOTAL AVANTAGES JOUR"));
+        assertTrue(out.contains("MONTANT UTILISE"));
+        assertTrue(out.contains("3,00"));
+        assertTrue(out.contains("NOUVEAU SOLDE"));
+        assertTrue(out.contains("40,20"));
+    }
+
+    /**
+     * BO-03-03-31, the three legs of the guard held false one at a time: the
+     * shop not asking, a sale carrying no card, and an ANONYMOUS projection —
+     * that last one has no balance to state, only what a card would have
+     * earned, so stating one would be an invention.
+     */
+    @Test
+    void theBalanceZoneStaysOutOnEachLegOfItsGuard() {
+        TicketPrinterService silent = newService();
+        when(silent.posSettingsService.fidelityPrintBalances()).thenReturn(false);
+        Ticket asked = sale();
+        asked.fidelityAvailableBalance = new BigDecimal("42.30");
+        assertFalse(render(silent, asked).contains("SOLDES CARTE"));
+
+        TicketPrinterService noCard = newService();
+        when(noCard.posSettingsService.fidelityPrintBalances()).thenReturn(true);
+        Ticket cardless = sale();
+        cardless.fidelityCard = "  ";
+        cardless.fidelityAvailableBalance = new BigDecimal("42.30");
+        assertFalse(render(noCard, cardless).contains("SOLDES CARTE"));
+
+        TicketPrinterService anonymous = newService();
+        when(anonymous.posSettingsService.fidelityPrintBalances()).thenReturn(true);
+        Ticket projected = sale();
+        projected.fidelityAnonymousProjection = true;
+        projected.fidelityAvailableBalance = new BigDecimal("42.30");
+        assertFalse(render(anonymous, projected).contains("SOLDES CARTE"));
+    }
+
+    /**
+     * The four null guards of the balance zone, all false at once: a sale whose
+     * balances the programme never answered prints the heading and no figure.
+     * A figure the register did not vouch for is left out rather than printed
+     * as a zero, because a zero on a receipt is a statement and not a silence.
+     */
+    @Test
+    void theBalanceZonePrintsNoFigureItDoesNotHold() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityPrintBalances()).thenReturn(true);
+        Ticket ticket = sale();
+        ticket.fidelityEarnTotal = null;
+        ticket.fidelityAvailableBalance = null;
+        ticket.fidelityBalanceAfter = null;
+        String out = render(service, ticket);
+        assertFalse(out.contains("SOLDE DISPONIBLE"));
+        assertFalse(out.contains("TOTAL AVANTAGES JOUR"));
+        assertFalse(out.contains("MONTANT UTILISE"));
+        assertFalse(out.contains("NOUVEAU SOLDE"));
+    }
+
+    /**
+     * BO-03-03-33: with the CATEGORY grouping administered, the headings are the
+     * category labels and the advantages come out under them.
+     */
+    @Test
+    void theAdvantagesAreGroupedByCategoryWhenAdministered() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityAdvantageGrouping()).thenReturn("CATEGORY");
+        Ticket ticket = sale();
+        ticket.fidelityLines.add(categoryLine("SOCLE", "1.00", "ALIM", "ALIMENTAIRE"));
+        ticket.fidelityLines.add(categoryLine("BIO", "0.50", "ALIM", "ALIMENTAIRE"));
+        ticket.fidelityLines.add(categoryLine("TEXTILE", "0.40", "NONALIM", "NON ALIMENTAIRE"));
+        String out = render(service, ticket);
+        assertTrue(out.contains("ALIMENTAIRE"));
+        assertTrue(out.contains("NON ALIMENTAIRE"));
+        assertTrue(out.contains("SOCLE"));
+        assertTrue(out.contains("TEXTILE"));
+    }
+
+    /**
+     * BO-03-03-25, the NONE arm: the shop asking for no grouping gets the flat
+     * list, headings and all gone, even though every line carries a type.
+     */
+    @Test
+    void theAdvantagesArePrintedFlatWhenNoGroupingIsAdministered() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityAdvantageGrouping()).thenReturn("NONE");
+        Ticket ticket = sale();
+        ticket.fidelityLines.add(advLine("SOCLE", "1.00", "REMISE", "REMISES IMMEDIATES", 10));
+        String out = render(service, ticket);
+        assertTrue(out.contains("SOCLE"));
+        assertFalse(out.contains("REMISES IMMEDIATES"));
+    }
+
+    /**
+     * The CATEGORY grouping over lines that carry no category: the output is the
+     * flat list, exactly as for a type nobody sent — a shop that administered a
+     * grouping the programme does not fill must still read its advantages.
+     */
+    @Test
+    void theCategoryGroupingFallsFlatWhenNoLineCarriesOne() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityAdvantageGrouping()).thenReturn("CATEGORY");
+        Ticket ticket = sale();
+        ticket.fidelityLines.add(advLine("SOCLE", "1.00", "REMISE", "REMISES IMMEDIATES", 10));
+        String out = render(service, ticket);
+        assertTrue(out.contains("SOCLE"));
+        assertFalse(out.contains("REMISES IMMEDIATES"));
+    }
+
+    /**
+     * A grouping value this register does not know falls back to the type,
+     * which is the historical print — the false arm of both comparisons in
+     * {@code normalizeAdvantageGrouping}.
+     */
+    @Test
+    void anUnknownGroupingFallsBackToTheAdvantageType() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityAdvantageGrouping()).thenReturn("RAYON");
+        Ticket ticket = sale();
+        ticket.fidelityLines.add(advLine("SOCLE", "1.00", "REMISE", "REMISES IMMEDIATES", 10));
+        assertTrue(render(service, ticket).contains("REMISES IMMEDIATES"));
+    }
+
+    /**
+     * BO-03-03-28, the guard's true arm: a sale carrying no card and no offline
+     * message prints the shop's word to a non-holder.
+     */
+    @Test
+    void theNonHolderMessagePrintsOnACardlessSale() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityNonHolderMessage())
+                .thenReturn("PENSEZ A VOTRE CARTE");
+        Ticket ticket = sale();
+        ticket.fidelityCard = null;
+        assertTrue(render(service, ticket).contains("PENSEZ A VOTRE CARTE"));
+    }
+
+    /**
+     * BO-03-03-28, the three legs held false one at a time: a sale carrying a
+     * card, a shop administering no text, and a sale already carrying the
+     * OFFLINE message — the two say different things and the receipt says one
+     * of them, not both.
+     */
+    @Test
+    void theNonHolderMessageStaysOutOnEachLegOfItsGuard() {
+        TicketPrinterService withCard = newService();
+        when(withCard.posSettingsService.fidelityNonHolderMessage())
+                .thenReturn("PENSEZ A VOTRE CARTE");
+        assertFalse(render(withCard, sale()).contains("PENSEZ A VOTRE CARTE"));
+
+        TicketPrinterService silent = newService();
+        when(silent.posSettingsService.fidelityNonHolderMessage()).thenReturn("   ");
+        Ticket cardless = sale();
+        cardless.fidelityCard = null;
+        assertFalse(render(silent, cardless).contains("PENSEZ A VOTRE CARTE"));
+
+        TicketPrinterService offline = newService();
+        when(offline.posSettingsService.fidelityNonHolderMessage())
+                .thenReturn("PENSEZ A VOTRE CARTE");
+        when(offline.posSettingsService.fidelityOfflineMessageNoCard())
+                .thenReturn("FIDELITE INDISPONIBLE");
+        Ticket unavailable = sale();
+        unavailable.fidelityCard = null;
+        unavailable.fidelityUnavailable = true;
+        String out = render(offline, unavailable);
+        assertTrue(out.contains("FIDELITE INDISPONIBLE"));
+        assertFalse(out.contains("PENSEZ A VOTRE CARTE"));
+    }
+
+    /**
+     * The null arm of the administered non-holder text: a parameter nobody
+     * answered prints nothing and fails nothing.
+     */
+    @Test
+    void aMissingNonHolderMessagePrintsNothing() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityNonHolderMessage()).thenReturn(null);
+        Ticket ticket = sale();
+        ticket.fidelityCard = null;
+        assertFalse(render(service, ticket).isBlank());
+    }
+
+    /**
+     * BO-10-03-09: an advantage whose visual the back office administered
+     * prints that picture ABOVE its line — the image illustrates the
+     * advantage, it does not replace it, so the label and the amount are
+     * still there for a printer that drops images.
+     *
+     * @throws Exception when the picture cannot be built
+     */
+    @Test
+    void anAdministeredVisualPrintsAboveItsAdvantage() throws Exception {
+        TicketPrinterService service = newService();
+        when(service.storeImageService.advantageVisual("SOCLE", null))
+                .thenReturn(blackSquareDataUri());
+        Ticket ticket = sale();
+        ticket.fidelityLines.add(
+                new TicketFidelityLine("SOCLE", "Cagnotte socle", new BigDecimal("0.28")));
+        String receipt = render(service, ticket);
+        assertTrue(receipt.contains("[[IMAGE "));
+        assertTrue(receipt.contains("Cagnotte socle"));
+        assertTrue(receipt.indexOf("[[IMAGE ") < receipt.indexOf("Cagnotte socle"),
+                "le visuel doit precéder la ligne de l'avantage");
+    }
+
+    /**
+     * BO-10-03-09: an advantage the back office illustrated with nothing
+     * prints the line it has always printed, and no image directive.
+     */
+    @Test
+    void anAdvantageWithoutAVisualPrintsAsBefore() {
+        TicketPrinterService service = newService();
+        Ticket ticket = sale();
+        ticket.fidelityLines.add(
+                new TicketFidelityLine("SOCLE", "Cagnotte socle", new BigDecimal("0.28")));
+        String receipt;
+        // The build's classpath carries a real logo file, whose directive
+        // would print in the header and defeat the assertion below: silenced
+        // here so the only image this test can see is the advantage's —
+        // there is none (BO-10-03-09).
+        try (org.mockito.MockedStatic<ReceiptLogo> logo = mockStatic(ReceiptLogo.class)) {
+            logo.when(() -> ReceiptLogo.directive(
+                            org.mockito.ArgumentMatchers.any(),
+                            org.mockito.ArgumentMatchers.anyInt())).thenReturn("");
+            receipt = render(service, ticket);
+        }
+        assertFalse(receipt.contains("[[IMAGE "));
+        assertTrue(receipt.contains("Cagnotte socle"));
+    }
+
+    /**
+     * Builds a printable picture — a black square — as the PNG
+     * {@code data:} URI the back office distributes.
+     *
+     * @return the data URI
+     * @throws Exception when the picture cannot be written
+     */
+    private String blackSquareDataUri() throws Exception {
+        java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                16, 16, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D canvas = image.createGraphics();
+        canvas.setColor(java.awt.Color.BLACK);
+        canvas.fillRect(0, 0, 16, 16);
+        canvas.dispose();
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "png", png);
+        return "data:image/png;base64,"
+                + java.util.Base64.getEncoder().encodeToString(png.toByteArray());
     }
 }

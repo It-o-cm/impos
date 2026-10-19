@@ -75,6 +75,10 @@ class HomeResourceTest {
         // scan, so it reads the auth state on every answer. A pristine state
         // asks for nothing, which is the ordinary case.
         resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        // LC-01-07-03/-04, LC-01-08-04: the poll carries the lane's request
+        // state on every answer too, and a mocked PosState leaves the enum
+        // field null — seed it at NONE, the lane that has asked nothing.
+        resource.state.serviceRequest = PosState.ServiceRequestStatus.NONE;
         resource.homeService = mock(HomeService.class);
         resource.ticketService = mock(TicketService.class);
         resource.hardwareService = mock(HardwareService.class);
@@ -82,7 +86,13 @@ class HomeResourceTest {
         resource.main = mock(Template.class);
         resource.supervisor = mock(Template.class);
         resource.ticket = mock(Template.class);
+        resource.boMessage = mock(Template.class);
         resource.drawerError = mock(Template.class);
+        resource.manualWeight = mock(Template.class);
+        // LC-02-02-03: the manual-weight screen reads the punctual container
+        // tare, and a mocked PosState leaves that holder null — a pristine one
+        // arms nothing, which is the ordinary case.
+        resource.state.tare = new com.intermarche.pos.ui.balance.TareState();
         resource.exchangeHealthService = mock(com.intermarche.pos.ui.supervision.ExchangeHealthService.class);
         // The ticket-fragment poll settles a finished cheque reading on every
         // answer (the register writes its draft from one thread at a time), so it
@@ -251,6 +261,71 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.home());
+    }
+
+    /**
+     * LC-01-08-04: the consult page renders the back-office message seeded with
+     * the state.
+     */
+    @Test
+    void boMessagePageRendersTheConsultScreen() {
+        HomeResource resource = newResource();
+        TemplateInstance view = stubChain(resource.boMessage, resource.state);
+        assertSame(view, resource.boMessagePage());
+    }
+
+    /**
+     * LC-01-08-05: the acknowledgement route delegates to the service and
+     * returns to the sale screen.
+     */
+    @Test
+    void ackBoMessageDelegatesAndRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.ackBoMessage();
+        verify(resource.homeService).ackBackOfficeMessage();
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+    }
+
+    /**
+     * LC-01-07-05: the cancellation route delegates to the service and returns
+     * to the supervisor page, where the lane's indicators live.
+     */
+    @Test
+    void cancelServiceRequestDelegatesAndRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.cancelServiceRequest();
+        verify(resource.homeService).cancelServiceRequest();
+        assertEquals("/supervisor", response.getLocation().toString());
+    }
+
+    /**
+     * LC-01-07-06: the validation route delegates to the service and returns
+     * to the supervisor page.
+     */
+    @Test
+    void validateServiceRequestDelegatesAndRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.validateServiceRequest();
+        verify(resource.homeService).validateServiceRequest();
+        assertEquals("/supervisor", response.getLocation().toString());
+    }
+
+    /**
+     * LC-01-07-03/-04, LC-01-08-04: the fragment poll carries the lane's
+     * request state and the message-arrived flag on EVERY answer, version match
+     * included — they are how the indicator zone learns it must reload.
+     */
+    @Test
+    void getTicketFragmentCarriesTheSupervisionIndicators() {
+        HomeResource resource = newResource();
+        resource.state.version = 7L;
+        resource.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        resource.state.boMessageArrived = true;
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(7L);
+        assertEquals("PENDING", result.get("serviceRequest"));
+        assertEquals(true, result.get("boArrived"));
     }
 
     /**
@@ -968,6 +1043,74 @@ class HomeResourceTest {
     // --- Entry prompt & quantity arming (parseAmount branches) ---
 
     /**
+     * LC-02-02-03: {@code manualWeightPage()} renders the weighing screen and,
+     * with no container armed, states no container tare (hasContainer false
+     * arm).
+     */
+    @Test
+    void manualWeightPageRendersWithoutContainer() {
+        HomeResource resource = newResource();
+        TemplateInstance view = stubChain(resource.manualWeight, resource.state);
+        assertSame(view, resource.manualWeightPage());
+        verify(view).data("containerLabel", null);
+        verify(view).data("containerTare", null);
+    }
+
+    /**
+     * LC-02-02-03/LC-14-01-04: with a container armed, the screen states which
+     * one and how much it will take off (hasContainer true arm) — the only part
+     * of the deduction known before the article is named.
+     */
+    @Test
+    void manualWeightPageStatesTheArmedContainer() {
+        HomeResource resource = newResource();
+        resource.state.tare.containerLabel = "Barquette S";
+        resource.state.tare.containerTare = new BigDecimal("0.035");
+        TemplateInstance view = stubChain(resource.manualWeight, resource.state);
+        assertSame(view, resource.manualWeightPage());
+        verify(view).data("containerLabel", "Barquette S");
+        verify(view).data("containerTare", "0.035");
+    }
+
+    /**
+     * LC-02-02-03: {@code armManualWeight()} parses a French-comma weight, arms
+     * it and sends the operator back to the sale screen to name the article.
+     */
+    @Test
+    void armManualWeightArmsParsedWeight() {
+        HomeResource resource = newResource();
+        Response response = resource.armManualWeight("1,250");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).armManualWeight(new BigDecimal("1.250"));
+    }
+
+    /**
+     * {@code armManualWeight()} arms null on a blank raw value, which the
+     * service refuses out loud (parseAmount blank arm).
+     */
+    @Test
+    void armManualWeightArmsNullWhenRawValueBlank() {
+        HomeResource resource = newResource();
+        Response response = resource.armManualWeight("   ");
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).armManualWeight(null);
+    }
+
+    /**
+     * {@code cancelManualWeight()} gives the armed weight up and returns to the
+     * sale screen.
+     */
+    @Test
+    void cancelManualWeightDisarmsAndRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.cancelManualWeight();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).clearManualWeight();
+    }
+
+    /**
      * {@code armQuantity()} parses a French-comma figure and arms it, then
      * redirects to the sale screen (parseAmount: non-null, non-blank, parseable).
      */
@@ -1066,9 +1209,10 @@ class HomeResourceTest {
     @Test
     void repeatLastItemRepeatsAndReturnsHome() {
         HomeResource resource = newResource();
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.repeatLastItem());
+        Response response = resource.repeatLastItem();
         verify(resource.homeService).repeatLastItem();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals(java.net.URI.create("/"), response.getLocation());
     }
 
     /**

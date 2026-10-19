@@ -27,6 +27,16 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.MockedStatic;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests of {@link InvoiceDocument}.
@@ -38,6 +48,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * line, the three quantity shapes and the cancelled-line exclusion.
  */
 class InvoiceDocumentTest {
+    /** The static mock silencing the catalog for every test, closed after each. */
+    private MockedStatic<PanacheEntityBase> panache;
+
+    /**
+     * The document funnels of this class read the VAT referential (the legal
+     * mentions, {@code VatRate.findByRate}) and, in places, the administered
+     * document names — plain unit tests have no persistence context to
+     * answer either with, so the catalog is silent for every test: no rate
+     * resolves to a regime, so no mention prints, and every layout falls
+     * back to the register's own wording.
+     */
+    @BeforeEach
+    void silenceTheCatalog() {
+        panache = mockStatic(PanacheEntityBase.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Object> nothing = mock(PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(anyString(), any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(anyString(), any(Object[].class)))
+                .thenReturn(java.util.List.of());
+    }
+
+    /**
+     * Closes the static mock the {@code @BeforeEach} opened, on the same
+     * thread Mockito requires.
+     */
+    @AfterEach
+    void closeTheCatalog() {
+        panache.close();
+    }
+
 
     /**
      * Builds a ticket line.
@@ -196,6 +238,46 @@ class InvoiceDocumentTest {
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
                 ticket, false, TestMessages.french());
         assertEquals("", document.lines.get(0).ean());
+    }
+
+    /**
+     * The ADMINISTERED store logo wins over the installation's file
+     * ({@code BO-03-03-15}): a bare base64 payload comes back as a data URI,
+     * and a payload that already is one comes back untouched.
+     */
+    @Test
+    void carriesTheAdministeredLogo() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        InvoiceDocument bare = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, null, TestMessages.french(), InvoiceDocument.Decimals.standard(),
+                "iVBORw0KGgo=");
+        assertEquals("data:image/png;base64,iVBORw0KGgo=", bare.getLogo());
+        InvoiceDocument uri = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, null, TestMessages.french(), InvoiceDocument.Decimals.standard(),
+                "data:image/png;base64,iVBORw0KGgo=");
+        assertEquals("data:image/png;base64,iVBORw0KGgo=", uri.getLogo());
+        assertEquals("data:image/png;base64,iVBORw0KGgo=", uri.logoImage);
+    }
+
+    /**
+     * No administered logo leaves the document on the installation's file, the
+     * conduct of every call that does not name one — a blank payload falling
+     * back exactly like a null one.
+     */
+    @Test
+    void fallsBackOnTheInstallationLogo() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        InvoiceDocument absent = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, TestMessages.french());
+        InvoiceDocument blank = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, null, TestMessages.french(), InvoiceDocument.Decimals.standard(), "   ");
+        assertNull(absent.logoImage);
+        assertEquals(com.intermarche.pos.ui.hardware.ReceiptLogo.dataUri(), absent.getLogo());
+        assertEquals(absent.getLogo(), blank.getLogo());
     }
 
     /**
@@ -757,5 +839,43 @@ class InvoiceDocumentTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> head = (Map<String, Object>) data.get("document");
         assertEquals("", head.get("number"));
+    }
+
+    /**
+     * BO-10-02-19: each figure carries the decimals the shop administered for
+     * it — three on the unit price excluding tax and on the tax-included total,
+     * two on the rest — and the counts are independent of one another.
+     */
+    @Test
+    void laysOutEachFigureOnItsAdministeredDecimals() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "C04-00000417";
+        ticket.creationDate = LocalDateTime.of(2026, 9, 9, 16, 12);
+        ticket.lines.add(line("A", "3178530403022", "2", "12.90", "25.80", "0.055", null, "EPICERIE"));
+
+        InvoiceDocument document = InvoiceDocument.of(
+                invoice(ticket, fullCustomer(), "C04-F000123"), ticket, true,
+                null, TestMessages.french(),
+                new InvoiceDocument.Decimals(3, 2, 2, 2, 3));
+
+        assertEquals("12,227", document.lines.get(0).unitExcludingTax());
+        assertEquals("50,79", document.totalExcludingTax);
+        assertEquals("56,600", document.totalIncludingTax);
+    }
+
+    /**
+     * BO-10-02-19: the standard counts are two everywhere, which is what the
+     * shorter factory hands over and what every document stated before the keys
+     * existed.
+     */
+    @Test
+    void theStandardDecimalsAreTwoEverywhere() {
+        InvoiceDocument.Decimals standard = InvoiceDocument.Decimals.standard();
+        assertEquals(2, standard.unitExcludingTax());
+        assertEquals(2, standard.vatBase());
+        assertEquals(2, standard.vatAmount());
+        assertEquals(2, standard.totalExcludingTax());
+        assertEquals(2, standard.totalIncludingTax());
     }
 }

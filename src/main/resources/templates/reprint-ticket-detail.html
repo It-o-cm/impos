@@ -140,12 +140,65 @@
       <a href="/reprint" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.retourListe')}</a>
       <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.bonEchange')}</a>
       <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimer')}</a>
+      {#if state.reprint.reassignMode && !state.reprint.viewedTicket.fidelityCard}
+      <!-- LC-03-06-01 / -02 : LA TOUCHE DE RÉAFFECTATION n'existe que dans le
+           mode réaffectation ET sur un ticket NON AFFECTÉ — un ticket qui
+           porte déjà une carte a eu ses avantages. L'aval superviseur, quand
+           le paramétrage l'exige, est servi par la modale d'autorisation. -->
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/reassign" class="btn btn-warning" style="color:#000;">{inject:i18n.get('reprintticketdetail.reaffecterClient')}</a>
+      {/if}
     {/if}
   </div>
+
+  {#if state.reprint.reassignMaskOpen}
+  <!-- LC-03-06-03 : LE MASQUE DE LA CARTE. Le numéro se tape — la saisie
+       manuelle est le chemin de repli de toute la fidélité — et VALIDER
+       enchaîne les quatre gestes : attachement, recalcul des avantages,
+       enregistrement pour le reporting, impression du nouveau ticket. -->
+  <div style="position:absolute; top:3.75rem; left:0; right:0; bottom:0; background:var(--scrim); -webkit-backdrop-filter:blur(var(--scrim-blur)); backdrop-filter:blur(var(--scrim-blur)); z-index:40; display:flex; justify-content:center; align-items:center;">
+    <form action="/reprint/view/{state.reprint.viewedTicket.id}/reassign" method="POST"
+          style="background:var(--bg-panel); border:2px solid var(--warning); border-radius:10px; padding:20px; width:24rem; display:flex; flex-direction:column; gap:12px;">
+      <div style="color:var(--warning); font-weight:bold; text-align:center; font-size:var(--fs-title);">{inject:i18n.get('reprintticketdetail.reaffecterClient')}</div>
+      {#if state.reprint.reassignError}
+      <div style="color:var(--danger); font-weight:bold; text-align:center;">{state.reprint.reassignError}</div>
+      {/if}
+      <input type="hidden" name="card" id="reassignHidden" value="{state.reprint.reassignCard}">
+      <div id="reassignDisplay" class="pad-display"
+           style="border:3px solid var(--warning); border-radius:6px; padding:10px; font-size:var(--fs-field-num); text-align:center; color:var(--warning); background:var(--bg-page);"></div>
+      <div id="reassignKbArea" class="pos-kb-compact" style="min-height:200px;"></div>
+      <div style="display:flex; gap:10px;">
+        <a href="/reprint/view/{state.reprint.viewedTicket.id}/reassign/cancel" class="btn btn-muted" style="width:50%;">{inject:i18n.get('common.cancel')}</a>
+        <button type="submit" class="btn btn-warning" style="width:50%; color:#000;">{inject:i18n.get('common.validate')}</button>
+      </div>
+    </form>
+  </div>
+  {/if}
+
+  {#if !state.reprint.reassignMaskOpen && state.reprint.reassignError}
+  <!-- LC-03-06-04 : le résultat nommé du dernier geste — la réussite ET son
+       écart de montant éventuel, ou le refus et sa raison. -->
+  <div style="position:absolute; top:3.75rem; left:0; right:0; padding:8px; text-align:center; background:var(--warning); color:#000; font-weight:bold; z-index:30;">{state.reprint.reassignError}</div>
+  {/if}
+
+  {#include endorsement /}
 </div>
+
+{#include keyboard-lib /}
 
 <script>
   setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  var reassignMask = document.getElementById('reassignKbArea');
+  if (reassignMask) {
+    PosInput.setup({
+      displayId: 'reassignDisplay',
+      hiddenId: 'reassignHidden',
+      containerId: 'reassignKbArea',
+      keyboardType: 'numpad',
+      mode: 'text',
+      maxLength: 15,
+      initialValue: document.getElementById('reassignHidden').value || ''
+    });
+  }
 </script>
 </body>
 </html>

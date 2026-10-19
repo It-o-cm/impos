@@ -80,6 +80,14 @@ public class RefundState implements Serializable {
      */
     public String returnReason = null;
 
+    /**
+     * Code of that administered reason ({@code BO-06-06-05}), or null when
+     * none is chosen — kept beside the label and cleared with it, because a
+     * state that groups by code must never read a code the chosen reason no
+     * longer carries.
+     */
+    public String returnReasonCode = null;
+
     /** The in-account customer selected for a credit refund (LC-05-06-05), or null. */
     public String creditAccountNumber = null;
 
@@ -244,6 +252,7 @@ public class RefundState implements Serializable {
         manualTotalAmount = null;
         errorMessage = null;
         returnReason = null;
+        returnReasonCode = null;
         creditAccountNumber = null;
         creditAccountName = null;
     }
@@ -263,6 +272,7 @@ public class RefundState implements Serializable {
         manualTotalAmount = null;
         errorMessage = null;
         returnReason = null;
+        returnReasonCode = null;
         creditAccountNumber = null;
         creditAccountName = null;
     }

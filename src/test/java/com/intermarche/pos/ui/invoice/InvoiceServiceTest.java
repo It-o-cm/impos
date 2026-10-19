@@ -27,6 +27,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import org.junit.jupiter.api.AfterEach;
+import org.mockito.MockedStatic;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests of {@link InvoiceService}, the invoice flow.
@@ -42,6 +51,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the training refusal.
  */
 class InvoiceServiceTest {
+    /** The static mock silencing the catalog for every test, closed after each. */
+    private MockedStatic<PanacheEntityBase> panache;
+
+    /**
+     * The document funnels of this class read the VAT referential (the legal
+     * mentions, {@code VatRate.findByRate}) and, in places, the administered
+     * document names — plain unit tests have no persistence context to
+     * answer either with, so the catalog is silent for every test: no rate
+     * resolves to a regime, so no mention prints, and every layout falls
+     * back to the register's own wording.
+     */
+    @BeforeEach
+    void silenceTheCatalog() {
+        panache = mockStatic(PanacheEntityBase.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Object> nothing = mock(PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(anyString(), any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(anyString(), any(Object[].class)))
+                .thenReturn(java.util.List.of());
+    }
+
+    /**
+     * Closes the static mock the {@code @BeforeEach} opened, on the same
+     * thread Mockito requires.
+     */
+    @AfterEach
+    void closeTheCatalog() {
+        panache.close();
+    }
+
 
     /** A repository that answers from lists set by each test, and records the writes. */
     private static class FakeRepository extends InvoiceRepository {
@@ -1896,19 +1937,15 @@ class InvoiceServiceTest {
         com.intermarche.pos.domain.setting.DocumentTemplate template = administer(
                 com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE,
                 "{document.title} {document.number}\nCLIENT {customer.name}");
-        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
-                     org.mockito.Mockito.mockStatic(
-                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
-            panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
-                            "active = true and documentType = ?1 order by priority, code",
-                            com.intermarche.pos.domain.setting.DocumentTemplate
-                                    .DocumentType.INVOICE))
-                    .thenReturn(List.of(template));
-            List<String> lines = service.renderLines(laidOut());
-            assertEquals(2, lines.size());
-            assertEquals("FACTURE ", lines.get(0));
-            assertEquals("CLIENT " + laidOut().customer.name(), lines.get(1));
-        }
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE))
+                .thenReturn(List.of(template));
+        List<String> lines = service.renderLines(laidOut());
+        assertEquals(2, lines.size());
+        assertEquals("FACTURE ", lines.get(0));
+        assertEquals("CLIENT " + laidOut().customer.name(), lines.get(1));
     }
 
     /**
@@ -1919,16 +1956,90 @@ class InvoiceServiceTest {
     void anUnadministeredInvoiceKeepsTheBuiltInRendering() {
         administer(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE, "x");
         InvoiceDocument document = laidOut();
-        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
-                     org.mockito.Mockito.mockStatic(
-                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
-            panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
-                            "active = true and documentType = ?1 order by priority, code",
-                            com.intermarche.pos.domain.setting.DocumentTemplate
-                                    .DocumentType.INVOICE))
-                    .thenReturn(List.of());
-            assertEquals(InvoiceRenderer.render(document, TestMessages.french()), service.renderLines(document));
-        }
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE))
+                .thenReturn(List.of());
+        // BO-03-05-02 and -04: the built-in path now also asks for a head
+        // and a foot; a shop that administers neither gets the document
+        // unchanged, which is what this case states.
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE_HEADER))
+                .thenReturn(List.of());
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE_FOOTER))
+                .thenReturn(List.of());
+        assertEquals(InvoiceRenderer.render(document, TestMessages.french()), service.renderLines(document));
+    }
+
+    /**
+     * BO-03-05-02 and -04: the administered head and foot WRAP the built-in
+     * document — the head before the seller block, the foot after the tenders
+     * — without touching a line of what is between them.
+     */
+    @Test
+    void administeredBannersWrapTheBuiltInInvoice() {
+        com.intermarche.pos.domain.setting.DocumentTemplate head = administer(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_HEADER,
+                "SERVICE FACTURATION");
+        com.intermarche.pos.domain.setting.DocumentTemplate foot = administer(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_FOOTER,
+                "A CONSERVER");
+        InvoiceDocument document = laidOut();
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE))
+                .thenReturn(List.of());
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE_HEADER))
+                .thenReturn(List.of(head));
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE_FOOTER))
+                .thenReturn(List.of(foot));
+        List<String> lines = service.renderLines(document);
+        List<String> builtIn = InvoiceRenderer.render(document, TestMessages.french());
+        assertEquals("SERVICE FACTURATION", lines.get(0));
+        assertEquals("A CONSERVER", lines.get(lines.size() - 1));
+        assertEquals(builtIn.size() + 2, lines.size());
+        assertEquals(builtIn, lines.subList(1, lines.size() - 1));
+    }
+
+    /**
+     * A shop that restates the WHOLE invoice gets no banner around it: the head
+     * and the foot are inside that author's source, and printing them again
+     * would state the head twice.
+     */
+    @Test
+    void anAdministeredInvoiceWearsNoBanner() {
+        com.intermarche.pos.domain.setting.DocumentTemplate whole = administer(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE,
+                "{document.title}");
+        com.intermarche.pos.domain.setting.DocumentTemplate head = administer(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_HEADER,
+                "SERVICE FACTURATION");
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE))
+                .thenReturn(List.of(whole));
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE_HEADER))
+                .thenReturn(List.of(head));
+        List<String> lines = service.renderLines(laidOut());
+        assertEquals(1, lines.size());
+        assertEquals("FACTURE", lines.get(0));
     }
 
     /**

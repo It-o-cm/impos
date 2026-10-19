@@ -88,6 +88,42 @@ public class CheckoutPoint extends PanacheEntity {
     public String customerDisplayResolution;
 
     /**
+     * The protocol of the scale attached to this register (BO-03-09-15), the
+     * CD-06 the register already drove included.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scale_protocol", length = 16)
+    public ScaleProtocol scaleProtocol = ScaleProtocol.NONE;
+
+    /** Where the scale answers — a host name or an IP (BO-03-09-15), or null. */
+    @Column(name = "scale_address", length = 100)
+    public String scaleAddress;
+
+    /** The port the scale answers on (BO-03-09-15), or null when it has none. */
+    @Column(name = "scale_port")
+    public Integer scalePort;
+
+    /**
+     * The protocol of the coin machine attached to this register
+     * (BO-03-09-24 Gunnebo, -25 Glory, -26 Toshiba).
+     *
+     * <p>ONE field for the three lines: they ask for the same protocol, address
+     * and port and differ only by the name, so a store that changes supplier
+     * changes a value rather than waiting for a screen.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "coin_machine_protocol", length = 16)
+    public CoinMachineProtocol coinMachineProtocol = CoinMachineProtocol.NONE;
+
+    /** Where the coin machine answers — a host name or an IP, or null. */
+    @Column(name = "coin_machine_address", length = 100)
+    public String coinMachineAddress;
+
+    /** The port the coin machine answers on, or null when it has none. */
+    @Column(name = "coin_machine_port")
+    public Integer coinMachinePort;
+
+    /**
      * The code of the cash-menu model assigned to this register (BO-03-10-16),
      * or null when none is assigned. The model LIBRARY is the template chantier
      * 03-03/03-04; what descends here is only the assignment.

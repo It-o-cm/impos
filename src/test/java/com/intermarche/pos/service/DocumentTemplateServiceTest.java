@@ -463,7 +463,10 @@ class DocumentTemplateServiceTest {
      */
     @Test
     void everyKindOffersAStarterThatParsesAndRenders() {
-        DocumentTemplateService service = newService();
+        // The starters typeset with fmt, which the running application resolves
+        // through the generated @TemplateData resolver: the engine here must do
+        // as much, or the test would condemn layouts that print perfectly.
+        DocumentTemplateService service = newReflectiveService();
         for (DocumentTemplate.DocumentType type : DocumentTemplate.DocumentType.values()) {
             String source = service.defaultSource(type);
             assertNotNull(source, type + " offers no starter");
@@ -860,4 +863,258 @@ class DocumentTemplateServiceTest {
         assertEquals(2, references.size());
     }
 
+    /**
+     * Reads a block of the demonstration document.
+     *
+     * @param service the service under test
+     * @param type the document type
+     * @param key the block's name
+     * @return the block
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> block(DocumentTemplateService service,
+            DocumentTemplate.DocumentType type, String key) {
+        return (Map<String, Object>) service.sampleData(type).get(key);
+    }
+
+    /**
+     * Reads the first row of a repeating block of the demonstration document.
+     *
+     * @param service the service under test
+     * @param type the document type
+     * @param key the list's name
+     * @return the first row
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> firstRow(DocumentTemplateService service,
+            DocumentTemplate.DocumentType type, String key) {
+        return ((List<Map<String, Object>>) service.sampleData(type).get(key)).get(0);
+    }
+
+    /**
+     * BO-03-03-02 / BO-03-03-03 / BO-03-03-04: the INVOICE advertises the keys
+     * the invoice itself hands — the due date, the addressee's tax id, both
+     * unit prices, the attributes line and the tax-included column of the VAT
+     * table. They were all served by the renderer and advertised by nobody, so
+     * a paramétreur could not discover them.
+     */
+    @Test
+    void theInvoiceSampleAdvertisesTheInvoicesOwnKeys() {
+        DocumentTemplateService service = newService();
+        assertEquals("15/10/2026",
+                block(service, DocumentTemplate.DocumentType.INVOICE, "document").get("dueDate"));
+        assertNotNull(
+                block(service, DocumentTemplate.DocumentType.INVOICE, "customer").get("taxId"));
+        Map<String, Object> line = firstRow(service, DocumentTemplate.DocumentType.INVOICE, "lines");
+        assertNotNull(line.get("unitExcludingTax"));
+        assertNotNull(line.get("unitIncludingTax"));
+        assertNotNull(line.get("attributes"));
+        assertNotNull(firstRow(service, DocumentTemplate.DocumentType.INVOICE, "vatRows")
+                .get("includingTax"));
+    }
+
+    /**
+     * The same keys on the A4 format, which is the SAME document in another
+     * shape: a paramétreur who learns one knows the other.
+     */
+    @Test
+    void theA4InvoiceSampleAdvertisesTheSameKeys() {
+        DocumentTemplateService service = newService();
+        assertEquals("15/10/2026",
+                block(service, DocumentTemplate.DocumentType.INVOICE_A4, "document").get("dueDate"));
+        assertNotNull(firstRow(service, DocumentTemplate.DocumentType.INVOICE_A4, "lines")
+                .get("unitIncludingTax"));
+    }
+
+    /**
+     * The invoice does NOT advertise the receipt's own line keys: its rows name
+     * neither a family nor a unit nor a {@code unitPrice}, because the invoice
+     * renderer hands none of the three. Advertising them would promise values
+     * that render empty on a real invoice.
+     */
+    @Test
+    void theInvoiceSampleDoesNotAdvertiseTheReceiptsLineKeys() {
+        DocumentTemplateService service = newService();
+        Map<String, Object> line = firstRow(service, DocumentTemplate.DocumentType.INVOICE, "lines");
+        assertNull(line.get("family"));
+        assertNull(line.get("unit"));
+        assertNull(line.get("unitPrice"));
+    }
+
+    /**
+     * The REFUND carries neither a settlement list nor a loyalty zone — the
+     * refund renderer hands neither — and it carries the two blocks that are
+     * its own: the return reason and the recalculation of the kept basket.
+     */
+    @Test
+    void theRefundSampleCarriesOnlyWhatARefundHands() {
+        DocumentTemplateService service = newService();
+        Map<String, Object> data = service.sampleData(DocumentTemplate.DocumentType.REFUND_RECEIPT);
+        assertNull(data.get("payments"));
+        assertNull(data.get("fidelity"));
+        assertNotNull(data.get("recalculation"));
+        assertNotNull(block(service, DocumentTemplate.DocumentType.REFUND_RECEIPT, "document")
+                .get("returnReason"));
+    }
+
+    /**
+     * BO-03-03-03 / BO-03-03-22 / BO-03-03-24: the RECEIPT advertises the
+     * tax-excluded unit price, the line's own modification and the cumulated
+     * immediate discounts.
+     */
+    @Test
+    void theReceiptSampleAdvertisesThePricesAndTheDiscounts() {
+        DocumentTemplateService service = newService();
+        Map<String, Object> line = firstRow(service,
+                DocumentTemplate.DocumentType.SALE_RECEIPT, "lines");
+        assertNotNull(line.get("unitExcludingTax"));
+        assertNotNull(line.get("discountLabel"));
+        assertNotNull(line.get("discount"));
+        assertNotNull(block(service, DocumentTemplate.DocumentType.SALE_RECEIPT, "totals")
+                .get("immediateDiscount"));
+    }
+
+    /**
+     * BO-03-03-25 / BO-03-03-33 / BO-03-03-34: the loyalty zone advertises the
+     * grouping that travels with each advantage line and the balances of imfid
+     * responses B and C — the register hands all of them.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theLoyaltySampleAdvertisesTheGroupingAndTheBalances() {
+        DocumentTemplateService service = newService();
+        Map<String, Object> fidelity = block(service,
+                DocumentTemplate.DocumentType.SALE_RECEIPT, "fidelity");
+        assertNotNull(fidelity.get("projectedAfterEarn"));
+        assertNotNull(fidelity.get("projectedLabel"));
+        assertNotNull(fidelity.get("balanceAfter"));
+        assertNotNull(fidelity.get("anonymousProjection"));
+        Map<String, Object> line =
+                ((List<Map<String, Object>>) fidelity.get("lines")).get(0);
+        assertNotNull(line.get("advantageType"));
+        assertNotNull(line.get("advantageTypeLabel"));
+        assertNotNull(line.get("advantageTypeOrder"));
+        assertNotNull(line.get("advantageCategory"));
+        assertNotNull(line.get("advantageCategoryLabel"));
+    }
+
+    /**
+     * BO-03-03-08: the credit note advertises its end of validity and its
+     * barcode directive; the gift card advertises the same keys and states no
+     * expiry, because the registry holds one only for a note.
+     */
+    @Test
+    void theInstrumentSampleAdvertisesTheExpiryAndTheBarcode() {
+        DocumentTemplateService service = newService();
+        Map<String, Object> note = block(service,
+                DocumentTemplate.DocumentType.CREDIT_NOTE_VOUCHER, "instrument");
+        assertEquals("15/03/2027", note.get("validUntil"));
+        assertEquals("[[BARCODE 297000000000042]]", note.get("barcode"));
+        Map<String, Object> card = block(service,
+                DocumentTemplate.DocumentType.GIFT_CARD_VOUCHER, "instrument");
+        assertEquals("", card.get("validUntil"));
+        assertEquals("[[BARCODE 296000000000042]]", card.get("barcode"));
+    }
+
+    /**
+     * BO-03-04-03: a document NAMES its zones and the renderer puts them in
+     * place before parsing — the zones of a document are the placeholders its
+     * source carries, in the order it carries them.
+     */
+    @Test
+    void aDocumentIsComposedOfTheZonesItNames() {
+        DocumentTemplateService service = newService();
+        DocumentTemplate zone = new DocumentTemplate();
+        zone.code = "TOTAUX";
+        zone.documentType = DocumentTemplate.DocumentType.FRAGMENT;
+        zone.active = true;
+        zone.source = "TOTAL {totals.includingTax}";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> DocumentTemplate.find("code", "TOTAUX"))
+                    .thenReturn(query(zone));
+            assertEquals("DEBUT\nTOTAL {totals.includingTax}\nFIN",
+                    service.expandZones("DEBUT\n[[ZONE TOTAUX]]\nFIN"));
+        }
+    }
+
+    /**
+     * BO-03-04-04: the SAME zone name may be carried by several models, and a
+     * zone may itself name another — composition to a bounded depth.
+     */
+    @Test
+    void aZoneMayNameAnotherZone() {
+        DocumentTemplateService service = newService();
+        DocumentTemplate outer = new DocumentTemplate();
+        outer.code = "A";
+        outer.source = "<[[ZONE B]]>";
+        DocumentTemplate inner = new DocumentTemplate();
+        inner.code = "B";
+        inner.source = "coeur";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> DocumentTemplate.find("code", "A")).thenReturn(query(outer));
+            panache.when(() -> DocumentTemplate.find("code", "B")).thenReturn(query(inner));
+            assertEquals("<coeur>", service.expandZones("[[ZONE A]]"));
+        }
+    }
+
+    /**
+     * A zone that names ITSELF stops at the bounded depth and prints its own
+     * placeholder rather than hanging the register — the loop arm.
+     */
+    @Test
+    void aZoneThatNamesItselfStopsAtTheBound() {
+        DocumentTemplateService service = newService();
+        DocumentTemplate loop = new DocumentTemplate();
+        loop.code = "BOUCLE";
+        loop.source = "x[[ZONE BOUCLE]]";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> DocumentTemplate.find("code", "BOUCLE")).thenReturn(query(loop));
+            String out = service.expandZones("[[ZONE BOUCLE]]");
+            assertEquals("xxxxx[[ZONE BOUCLE]]", out);
+        }
+    }
+
+    /**
+     * A zone NOBODY administers expands to nothing: a document whose zone was
+     * deleted prints without it, rather than printing the placeholder onto the
+     * customer's paper — the unknown-code arm.
+     */
+    @Test
+    void anUnknownZoneExpandsToNothing() {
+        DocumentTemplateService service = newService();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> DocumentTemplate.find("code", "ABSENTE"))
+                    .thenReturn(query(null));
+            assertEquals("DEBUT\n\nFIN", service.expandZones("DEBUT\n[[ZONE ABSENTE]]\nFIN"));
+        }
+    }
+
+    /**
+     * A source naming NO zone is answered untouched, and a null source stays
+     * null — the two short-circuit arms, which every ordinary template takes.
+     */
+    @Test
+    void aSourceWithoutZonesIsUntouched() {
+        DocumentTemplateService service = newService();
+        assertEquals("rien a etendre", service.expandZones("rien a etendre"));
+        assertNull(service.expandZones(null));
+    }
+
+    /**
+     * A Panache query answering one template, for the zone lookups.
+     *
+     *
+     * <p>Built with an ANSWER and not with {@code when(...)}: this helper is
+     * called INSIDE the argument list of an outer {@code thenReturn(...)}, and a
+     * second stubbing started while the first is unfinished is what Mockito
+     * refuses with {@code UnfinishedStubbingException}.
+     * @param result the template the lookup answers, or null for none
+     * @return the stubbed query
+     */
+    @SuppressWarnings("unchecked")
+    private io.quarkus.hibernate.orm.panache.PanacheQuery<DocumentTemplate> query(
+            DocumentTemplate result) {
+        return mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class, invocation ->
+                "firstResult".equals(invocation.getMethod().getName()) ? result : null);
+    }
 }

@@ -66,6 +66,21 @@ public final class ProductAttributeCatalog {
     /** The software tare in kilograms sent to the scale when this article is weighed, replacing the default tare (LC-14-01-07). */
     public static final String TARE = "TARE";
 
+    /** Whether the article is a dematerialised product whose activation code must be scanned after its EAN (BO-03-06-44). */
+    public static final String ACTIVATION_REQUIRED = "ACTIVATION_REQUIRED";
+
+    /** The provider that owes the activation of the dematerialised article (BO-03-06-44). */
+    public static final String ACTIVATION_PROVIDER = "ACTIVATION_PROVIDER";
+
+    /** The islands the article is NOT sold on, semicolon-separated (BO-03-01-18). */
+    public static final String DISABLED_ISLANDS = "DISABLED_ISLANDS";
+
+    /** The registers the article is NOT sold on, semicolon-separated (BO-03-01-18). */
+    public static final String DISABLED_TERMINALS = "DISABLED_TERMINALS";
+
+    /** The article's label in other languages, as {@code lang=libellé} pairs (BO-03-01-20). */
+    public static final String TRANSLATED_LABELS = "TRANSLATED_LABELS";
+
     /**
      * The declared well-known attributes, in admin-render order. Each entry is
      * the contract of a code the register understands.
@@ -96,7 +111,17 @@ public final class ProductAttributeCatalog {
             new ProductAttributeDef(ECO_TAX, ProductAttributeType.DECIMAL,
                     "Éco-taxe unitaire", "0"),
             new ProductAttributeDef(TARE, ProductAttributeType.DECIMAL,
-                    "Tare logicielle article (kg)", "0"));
+                    "Tare logicielle article (kg)", "0"),
+            new ProductAttributeDef(ACTIVATION_REQUIRED, ProductAttributeType.BOOL,
+                    "Produit dématérialisé : code d'activation à scanner", "false"),
+            new ProductAttributeDef(ACTIVATION_PROVIDER, ProductAttributeType.TEXT,
+                    "Fournisseur du produit dématérialisé", ""),
+            new ProductAttributeDef(DISABLED_ISLANDS, ProductAttributeType.TEXT,
+                    "Îlots où l'article n'est pas vendu", ""),
+            new ProductAttributeDef(DISABLED_TERMINALS, ProductAttributeType.TEXT,
+                    "Caisses où l'article n'est pas vendu", ""),
+            new ProductAttributeDef(TRANSLATED_LABELS, ProductAttributeType.TEXT,
+                    "Libellés traduits (langue=libellé)", ""));
 
     /** Fast lookup of a definition by its code, preserving catalog order. */
     private static final Map<String, ProductAttributeDef> BY_CODE = index();

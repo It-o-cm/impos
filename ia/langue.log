@@ -1,0 +1,25 @@
+I've grounded myself in the actual state, and there's a material discrepancy with the campaign brief's stated starting point that I need to flag before generating ~600 keys and ~50 commits on top of it.
+
+## What's actually in the tree
+
+The committed `HEAD` does match the brief's baseline: **39 keys** in each bundle, only **3 templates** using `inject:i18n`. The label-conversion campaign (Lots 1–3) genuinely hasn't been started. Good.
+
+But the working tree carries a large pile of **uncommitted** changes that is *not* part of this campaign — it's **two unrelated bodies of work mixed together**:
+
+1. **Langue-machinery finalization** — the thing the brief calls "already built": `Messages.java` (+176), the `language.fr/nl/pt` → `language.self` bundle refactor, `LanguageResource`, `PosMenu`, `HomeService`, `AuthService`, `LockCheckFilter`, plus their tests. It's uncommitted, not committed as the brief implies.
+
+2. **A separate "cents-mode / pad-entry" feature** — `PosInput.prefill()`, `PosPrefill.consumeAmount()`, `mode:'cents'`, the `pad-display` zero-width-space fix — spread across **~15 templates** (`pay`, `cash-count`, `manual`, `withdrawal`, `apport`, `session`, `theme`, `keyboard-lib`…), plus `harness.js` and a new untracked `pad-entry.spec.js`. Nothing to do with localization.
+
+## Why this blocks me
+
+The campaign requires **one clean commit per template** ("message naming the template and key count"). But `pay.html` (79 labels — the first and biggest Lot 1 target), `cash-count`, `manual`, `session`, `withdrawal`, etc. already carry uncommitted pad-entry edits. If I add localization to those files and commit, **every commit silently folds the pad-entry feature into a "localization" commit** — entangling three concerns in history irreversibly. Committing or stashing your in-progress work for you is exactly the kind of hard-to-reverse action on code I didn't write that I shouldn't do unprompted.
+
+## What I recommend
+
+Get to a clean base first, then run the campaign on top. Concretely, one of:
+
+- **A — you (or I, on your go-ahead) land the WIP first:** commit the pad-entry feature and the langue-machinery as their own two commits (I can verify `MessageBundleExhaustivenessTest`/`MessagesTest` + the pad-entry spec are green first), *then* I start Lot 1 from a clean tree with pure per-template commits. **← my recommendation.**
+- **B — you stash the pad-entry work** (`git stash`), leaving only the langue machinery, and I fold that machinery into the campaign's first commit as "the mechanic," then proceed.
+- **C — proceed now anyway**, and I scope each commit by explicit file paths, accepting that the ~15 entangled templates will mix pad-entry edits into their localization commits.
+
+Which do you want? If you confirm **A**, tell me whether to make those two WIP commits myself (I'll show you the exact `git add` file lists and run the relevant tests before committing nothing-but-those-paths), and I'll then launch Lot 1 starting with `pay.html`.

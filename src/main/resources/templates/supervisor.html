@@ -86,8 +86,29 @@
         </div>
 
         <div class="content-area" style="display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px;">
+            {! LC-01-07-03/-04/-05/-06 : l'état de la demande de service de
+             ! cette caisse — l'indicateur de la barre du haut y mène, les
+             ! gestes qui ferment le cycle vivent ici. !}
+            {#if state.serviceRequest.name() == 'PENDING'}
+            <div style="display:flex; gap:14px; align-items:center; background:rgba(211,47,47,0.12); border:1px solid var(--warning); border-radius:8px; padding:12px 18px;">
+                <span style="font-weight:bold; color:var(--warning);">{inject:i18n.get('supervisor.demandeEnCours')}{#if state.serviceRequestReason} : {state.serviceRequestReason}{/if}</span>
+                <form method="post" action="/action/service-request/cancel" style="margin-left:auto;">
+                    <button type="submit" class="btn btn-danger">{inject:i18n.get('supervisor.annulerDemande')}</button>
+                </form>
+            </div>
+            {/if}
+            {#if state.serviceRequest.name() == 'ACKED'}
+            <div style="display:flex; gap:14px; align-items:center; background:rgba(56,142,60,0.12); border:1px solid var(--success); border-radius:8px; padding:12px 18px;">
+                <span style="font-weight:bold; color:var(--success);">{inject:i18n.get('supervisor.demandeAcquittee')}</span>
+                <form method="post" action="/action/service-request/validate" style="margin-left:auto;">
+                    <button type="submit" class="btn btn-success">{inject:i18n.get('supervisor.validerDemande')}</button>
+                </form>
+            </div>
+            {/if}
             <div style="color:var(--text-muted); font-size:var(--fs-section); text-transform:uppercase;">{inject:i18n.get('supervisor.motifLAppel')}</div>
-            {! EXP-84 : la liste des motifs est administrée (supervisor.service-reasons),
+            {! EXP-84 / BO-04-02-07 : la liste des motifs est administrée — le référentiel
+             ! des types de demande de service quand le noeud en distribue un, la clé
+             ! supervisor.service-reasons sinon —
              ! plus les quatre boutons figés. EXP-19 : un message libre facultatif
              ! accompagne le motif ; chaque bouton motif soumet le formulaire avec le
              ! message éventuellement saisi. !}
@@ -100,8 +121,8 @@
                 <input type="hidden" name="message" id="supMessageValue" value="">
                 <div id="supMessageKbArea" class="pos-kb-compact" style="width:39rem;"></div>
                 <div style="display:grid; grid-template-columns:repeat(2, 18.75rem); gap:14px;">
-                    {#for reason in serviceReasons}
-                    <button type="submit" name="reason" value="{reason}" class="btn btn-warning" style="color:black; height: 5rem; line-height: 3.125rem;">{reason}</button>
+                    {#for type in serviceReasons}
+                    <button type="submit" name="reason" value="{type.label}" class="btn btn-warning" style="color:black; height: 5rem; line-height: 3.125rem;">{type.label}</button>
                     {/for}
                 </div>
             </form>

@@ -283,7 +283,11 @@ public class AuthResource {
     private Response openLane() {
         // The unlock pulse opens the drawer to install the float, unless
         // the back office disabled the drawer-open-on-login rule (BO-10-02-25).
-        if (posSettingsService.drawerOpenOnLogin()) {
+        // BO-10-02-04: opening the drawer settles no sale here. A shop that
+        // watches that gesture keeps it shut — and is told why — rather than
+        // opening it and complaining afterwards.
+        if (posSettingsService.drawerOpenOnLogin()
+                && endorsementService.drawerOutOfSaleAllowed(state)) {
             hardwareService.openDrawer();
         }
         // Prise de poste: the drawer just opened to install the float —

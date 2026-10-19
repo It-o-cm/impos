@@ -100,7 +100,7 @@ public class GroupR5IT {
         Page page = freshSale();
         scan(EAN_HUILE);
         goPay(page);
-        payThroughScreen(page, "ESPÈCES", "cashForm", "6", false);
+        payThroughScreen(page, "ESPÈCES", "cashForm", "600", false);
         waitForSettlement();
         finishSale(page);
         page.close();
@@ -281,6 +281,9 @@ public class GroupR5IT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

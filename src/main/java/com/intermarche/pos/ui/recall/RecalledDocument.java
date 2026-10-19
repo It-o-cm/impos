@@ -15,6 +15,10 @@ import java.util.List;
  * and, for an order, the down-payment already collected — because the campaign
  * builds them on the SAME recall-by-code mechanism; only the {@link Kind} and
  * the label differ.
+ *
+ * <p>Since LC-06-03 the register CREATES orders too: the shape above doubles as
+ * the push payload of a till-created order ({@code BackOfficeDocumentClient#pushOrder}),
+ * the node storing it and any register of the store recalling it by its code.
  */
 public class RecalledDocument {
 
@@ -57,6 +61,22 @@ public class RecalledDocument {
      * amount due when the order is recalled; ZERO when none.
      */
     public BigDecimal acompteAlreadyPaid = BigDecimal.ZERO;
+
+    /**
+     * The per-rate VAT of the down-payment already collected, in the compact
+     * {@code DepositVat} form ({@code rate:amount;...}), or null when the
+     * node carried none (LC-06-03-05/-08). The register computes it when the
+     * order is CREATED at the till and the node hands it back at recall, so
+     * the final ticket restates the ventilation printed on the deposit slip.
+     */
+    public String depositVatDetail;
+
+    /**
+     * The total amount of the order (TTC), or null when the node did not
+     * state one. Set by the till when the order is created there
+     * (LC-06-03-01) and pushed to the node with the order.
+     */
+    public BigDecimal totalAmount;
 
     /**
      * Creates an empty document (fields set by the client after a fetch).

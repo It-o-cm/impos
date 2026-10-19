@@ -615,6 +615,125 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * BO-03-07-03/-06/-11: a ready-made discount key is a label, a kind, a
+     * value and an optional cumulation permission. Both kinds are read, the
+     * comma decimal is accepted, and the permission is read whatever its case.
+     */
+    @Test
+    void discountPresetsReadsBothKindsAndTheCumulPermission() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("discount.presets",
+                    "-20%>PERCENT:20 ; 2 euros>amount:2,5 , cumul ")));
+            List<PosSettingsService.DiscountPreset> presets =
+                    new PosSettingsService().discountPresets();
+            assertEquals(2, presets.size());
+            assertEquals("-20%", presets.get(0).label());
+            assertTrue(presets.get(0).percent());
+            assertEquals(new java.math.BigDecimal("20"), presets.get(0).value());
+            assertFalse(presets.get(0).cumulative());
+            assertEquals("2 euros", presets.get(1).label());
+            assertFalse(presets.get(1).percent());
+            assertEquals(new java.math.BigDecimal("2.5"), presets.get(1).value());
+            assertTrue(presets.get(1).cumulative());
+        }
+    }
+
+    /**
+     * Every malformed entry is DROPPED rather than guessed: no marker, no label,
+     * an unknown kind, no value, an unparsable value, a value at zero and a
+     * negative one. A key that takes off a figure nobody administered is worse
+     * than a key that is not offered.
+     */
+    @Test
+    void discountPresetsDropsEveryMalformedEntry() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("discount.presets",
+                    "sans marqueur;>PERCENT:10; A>VOLUME:10; B>PERCENT; C>PERCENT:abc;"
+                    + " D>PERCENT:0; E>AMOUNT:-3;  ;F>PERCENT:5")));
+            List<PosSettingsService.DiscountPreset> presets =
+                    new PosSettingsService().discountPresets();
+            assertEquals(1, presets.size());
+            assertEquals("F", presets.get(0).label());
+        }
+    }
+
+    /**
+     * An empty setting offers no key at all, and {@code discountPreset} answers
+     * null for a null label, a blank one and one the list does not name.
+     */
+    @Test
+    void discountPresetResolvesALabelOrAnswersNull() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(new PosSettingsService().discountPresets().isEmpty());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("discount.presets", "-20%>PERCENT:20")));
+            PosSettingsService service = new PosSettingsService();
+            assertEquals("-20%", service.discountPreset(" -20% ").label());
+            assertNull(service.discountPreset(null));
+            assertNull(service.discountPreset("  "));
+            assertNull(service.discountPreset("-30%"));
+        }
+    }
+
+    /**
+     * BO-03-07-11 and -12: both cumulation keys default to TRUE — the register's
+     * behaviour before they existed — and are read as administered.
+     */
+    @Test
+    void theTwoCumulationKeysDefaultToTrue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            PosSettingsService service = new PosSettingsService();
+            assertTrue(service.discountCumulativeOnDiscounted());
+            assertTrue(service.discountGlobalOnDiscounted());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("discount.cumulative-on-discounted", "false"),
+                    row("discount.global-on-discounted", "false")));
+            PosSettingsService service = new PosSettingsService();
+            assertFalse(service.discountCumulativeOnDiscounted());
+            assertFalse(service.discountGlobalOnDiscounted());
+        }
+    }
+
+    /**
+     * BO-03-13-06/-08/-10: the three OPTIONS of a return type are read after the
+     * marker, separated by commas and whatever the case, beside the historical
+     * TICKET one. A type that names none carries none.
+     */
+    @Test
+    void returnTypesReadsTheThreeOptions() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("return.types",
+                    "Echange>NOENDORSE;Sans ticket>ticket, noorigin ,PRICE;Simple")));
+            List<PosSettingsService.ReturnType> types = new PosSettingsService().returnTypes();
+            assertEquals(3, types.size());
+
+            assertEquals("Echange", types.get(0).label());
+            assertFalse(types.get(0).dedicatedTicket());
+            assertTrue(types.get(0).endorsementExempt());
+            assertFalse(types.get(0).originOptional());
+            assertFalse(types.get(0).priceConfirmed());
+
+            assertEquals("Sans ticket", types.get(1).label());
+            assertTrue(types.get(1).dedicatedTicket());
+            assertFalse(types.get(1).endorsementExempt());
+            assertTrue(types.get(1).originOptional());
+            assertTrue(types.get(1).priceConfirmed());
+
+            assertEquals("Simple", types.get(2).label());
+            assertFalse(types.get(2).dedicatedTicket());
+            assertFalse(types.get(2).endorsementExempt());
+            assertFalse(types.get(2).originOptional());
+            assertFalse(types.get(2).priceConfirmed());
+        }
+    }
+
+    /**
      * Blank entries and entries with no label before the marker are dropped
      * (LC-05-04-01).
      */
@@ -2115,6 +2234,794 @@ class PosSettingsServiceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
             assertEquals(2, service.collectVoucherCopies());
+        }
+    }
+
+    /**
+     * The BO-03-03 accessors each project their stored row: the text ones
+     * ({@code ticketLineAttribute}, {@code ticketLineAttributeIsolate},
+     * {@code fidelityAdvantageGrouping}, {@code fidelityNonHolderMessage}) and
+     * the boolean ones ({@code ticketFamilyAlphabetical},
+     * {@code ticketLineDiscountPrint}, {@code ticketImmediateDiscountTotal},
+     * {@code creditNotePrintExpiry}, {@code fidelityPrintCardNumber},
+     * {@code fidelityPrintBalances}).
+     */
+    @Test
+    void documentLayoutAccessorsProjectStoredValues() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("ticket.family-alphabetical", "false"),
+                    row("ticket.line-attribute", "RAYON"),
+                    row("ticket.line-attribute-isolate", "START"),
+                    row("ticket.line-discount-print", "true"),
+                    row("ticket.immediate-discount-total", "true"),
+                    row("credit-note.print-expiry", "true"),
+                    row("fidelity.print-card-number", "true"),
+                    row("fidelity.print-balances", "true"),
+                    row("fidelity.advantage-grouping", "CATEGORY"),
+                    row("fidelity.non-holder-message", "PENSEZ A VOTRE CARTE")));
+            assertFalse(service.ticketFamilyAlphabetical());
+            assertEquals("RAYON", service.ticketLineAttribute());
+            assertEquals("START", service.ticketLineAttributeIsolate());
+            assertTrue(service.ticketLineDiscountPrint());
+            assertTrue(service.ticketImmediateDiscountTotal());
+            assertTrue(service.creditNotePrintExpiry());
+            assertTrue(service.fidelityPrintCardNumber());
+            assertTrue(service.fidelityPrintBalances());
+            assertEquals("CATEGORY", service.fidelityAdvantageGrouping());
+            assertEquals("PENSEZ A VOTRE CARTE", service.fidelityNonHolderMessage());
+        }
+    }
+
+    /**
+     * The same accessors on a register that administered NOTHING answer the
+     * catalog defaults — which are the register's historical behaviour: the
+     * family headings alphabetical, no attribute criterion, no new zone
+     * printed, and the advantages grouped by type.
+     */
+    @Test
+    void documentLayoutAccessorsDefaultToTheHistoricalBehaviour() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(service.ticketFamilyAlphabetical());
+            assertEquals("", service.ticketLineAttribute());
+            assertEquals("NONE", service.ticketLineAttributeIsolate());
+            assertFalse(service.ticketLineDiscountPrint());
+            assertFalse(service.ticketImmediateDiscountTotal());
+            assertFalse(service.creditNotePrintExpiry());
+            assertFalse(service.fidelityPrintCardNumber());
+            assertFalse(service.fidelityPrintBalances());
+            assertEquals("TYPE", service.fidelityAdvantageGrouping());
+            assertEquals("", service.fidelityNonHolderMessage());
+        }
+    }
+
+    /**
+     * BO-03-10-05/-13/-14: the three island keys are OFF by default, so a store
+     * that administers nothing keeps the unknown code on the screen only and
+     * every message it had.
+     */
+    @Test
+    void theThreeIslandKeysAreOffByDefault() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(service.islandUnknownArticleTicket());
+            assertFalse(service.islandBlockArticlePopups());
+            assertFalse(service.islandBlockPaymentPopups());
+        }
+    }
+
+    /**
+     * Administered by the island, each of the three is read as administered.
+     */
+    @Test
+    void theThreeIslandKeysAreReadAsAdministered() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("island.unknown-article-ticket", "true"),
+                    row("island.block-article-popups", "true"),
+                    row("island.block-payment-popups", "true")));
+            assertTrue(service.islandUnknownArticleTicket());
+            assertTrue(service.islandBlockArticlePopups());
+            assertTrue(service.islandBlockPaymentPopups());
+        }
+    }
+
+    /**
+     * BO-03-03-37, -36 and -07: the three new ticket parameters are OFF by
+     * default, so a store that administers nothing prints exactly what it
+     * printed before, and the exit ticket names three articles.
+     */
+    @Test
+    void theNewTicketParametersAreOffByDefault() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(service.ticketVatCode());
+            assertFalse(service.exitTicketEnabled());
+            assertFalse(service.parkingPrintResume());
+            assertEquals(3, service.exitTicketArticles());
+        }
+    }
+
+    /**
+     * Administered, each of the three is read as administered (the true arms).
+     */
+    @Test
+    void theNewTicketParametersAreReadAsAdministered() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("ticket.vat-code", "true"),
+                    row("ticket.exit-ticket", "true"),
+                    row("parking.print-resume", "true"),
+                    row("ticket.exit-ticket-articles", "5")));
+            assertTrue(service.ticketVatCode());
+            assertTrue(service.exitTicketEnabled());
+            assertTrue(service.parkingPrintResume());
+            assertEquals(5, service.exitTicketArticles());
+        }
+    }
+
+    /**
+     * BO-03-03-36: {@code exitTicketArticles} refuses a count that would make
+     * the exit ticket longer than the receipt it replaces — both legs of its
+     * guard, below one and past twenty — and keeps the two bounds themselves.
+     */
+    @Test
+    void exitTicketArticlesRefusesACountOutsideItsBounds() {
+        PosSettingsService tooFew = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("ticket.exit-ticket-articles", "0")));
+            assertEquals(3, tooFew.exitTicketArticles());
+        }
+        PosSettingsService tooMany = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("ticket.exit-ticket-articles", "21")));
+            assertEquals(3, tooMany.exitTicketArticles());
+        }
+        PosSettingsService lowBound = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("ticket.exit-ticket-articles", "1")));
+            assertEquals(1, lowBound.exitTicketArticles());
+        }
+        PosSettingsService highBound = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("ticket.exit-ticket-articles", "20")));
+            assertEquals(20, highBound.exitTicketArticles());
+        }
+    }
+
+    /**
+     * BO-03-03-14: {@code logoWidthDots} refuses a width the head cannot print
+     * — both legs of its guard, below one packed byte and past an 80 mm roll —
+     * and keeps a width inside the paper, which is the guard's false arm.
+     */
+    @Test
+    void logoWidthDotsRefusesAWidthThePaperCannotHold() {
+        PosSettingsService tooNarrow = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("print.logo-width-dots", "4")));
+            assertEquals(384, tooNarrow.logoWidthDots());
+        }
+        PosSettingsService tooWide = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("print.logo-width-dots", "600")));
+            assertEquals(384, tooWide.logoWidthDots());
+        }
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("print.logo-width-dots", "576")));
+            assertEquals(576, administered.logoWidthDots());
+        }
+    }
+
+    /**
+     * The two bounds themselves are accepted: eight dots is one packed byte and
+     * 576 is the roll edge to edge, so neither is "outside the paper".
+     */
+    @Test
+    void logoWidthDotsAcceptsItsOwnBounds() {
+        PosSettingsService smallest = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("print.logo-width-dots", "8")));
+            assertEquals(8, smallest.logoWidthDots());
+        }
+        PosSettingsService defaulted = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(384, defaulted.logoWidthDots());
+        }
+    }
+    /**
+     * BO-10-02-01 to -10: the control accessors project their stored row — the
+     * level read as text, the quantity ceiling as an integer, the ticket
+     * ceiling as an amount.
+     */
+    @Test
+    void controlAccessorsProjectStoredValues() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("control.cancel-line", "WARN"),
+                    row("control.card-payment", "BLOCK"),
+                    row("control.quantity-max", "24"),
+                    row("control.ticket-total-max", "1500.00")));
+            assertEquals("WARN", service.controlLevel("control.cancel-line"));
+            assertEquals("BLOCK", service.controlLevel("control.card-payment"));
+            assertEquals(24, service.controlQuantityMax());
+            assertEquals(0, new java.math.BigDecimal("1500.00")
+                    .compareTo(service.controlTicketTotalMax()));
+        }
+    }
+
+    /**
+     * The catalogue defaults of the control points reproduce the register's
+     * historical behaviour: an aval on the two gestures that already carried
+     * one, no control at all on the six others, no ticket ceiling, and the
+     * quantity ceiling at the absolute bound the code already enforced.
+     */
+    @Test
+    void controlAccessorsDefaultToTheHistoricalBehaviour() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("ENDORSE", service.controlLevel("control.cancel-line"));
+            assertEquals("ENDORSE", service.controlLevel("control.refund"));
+            assertEquals("NONE", service.controlLevel("control.cancel-payment"));
+            assertEquals("NONE", service.controlLevel("control.drawer-out-of-sale"));
+            assertEquals("NONE", service.controlLevel("control.quantity"));
+            assertEquals("NONE", service.controlLevel("control.ticket-total"));
+            assertEquals("NONE", service.controlLevel("control.parked-at-close"));
+            assertEquals("NONE", service.controlLevel("control.card-payment"));
+            assertEquals("NONE", service.controlLevel("control.item-amount"));
+            assertEquals("NONE", service.controlLevel("control.payment-amount"));
+            assertEquals(999, service.controlQuantityMax());
+            assertNull(service.controlTicketTotalMax());
+            assertNull(service.controlItemAmountMax());
+            assertNull(service.controlPaymentAmountMax());
+        }
+    }
+
+    /**
+     * BO-10-02-07: a ticket ceiling nobody can read is NO ceiling — the blank
+     * arm, which is the default, and the malformed arm, which is a typo. A
+     * ceiling read as zero would alert on every sale of the day.
+     */
+    @Test
+    void theTicketCeilingIsNoCeilingWhenItCannotBeRead() {
+        PosSettingsService blank = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.ticket-total-max", "   ")));
+            assertNull(blank.controlTicketTotalMax());
+        }
+        PosSettingsService malformed = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.ticket-total-max", "mille")));
+            assertNull(malformed.controlTicketTotalMax());
+        }
+    }
+
+    /**
+     * BO-10-02-07: the ceiling is typed by a person, so the French decimal
+     * comma is read as a decimal point and the surrounding blanks are ignored.
+     */
+    @Test
+    void theTicketCeilingReadsAFrenchAmount() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.ticket-total-max", " 1500,50 ")));
+            assertEquals(0, new java.math.BigDecimal("1500.50")
+                    .compareTo(service.controlTicketTotalMax()));
+        }
+    }
+
+    /**
+     * BO-10-02-16 and -17: the two amount ceilings project their stored row,
+     * French comma and surrounding blanks included.
+     */
+    @Test
+    void theTwoAmountCeilingsProjectStoredValues() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("control.item-amount", "BLOCK"),
+                    row("control.payment-amount", "WARN"),
+                    row("control.item-amount-max", " 299,99 "),
+                    row("control.payment-amount-max", "5000.00")));
+            assertEquals("BLOCK", service.controlLevel("control.item-amount"));
+            assertEquals("WARN", service.controlLevel("control.payment-amount"));
+            assertEquals(0, new java.math.BigDecimal("299.99")
+                    .compareTo(service.controlItemAmountMax()));
+            assertEquals(0, new java.math.BigDecimal("5000.00")
+                    .compareTo(service.controlPaymentAmountMax()));
+        }
+    }
+
+    /**
+     * BO-10-02-16 and -17: an amount ceiling nobody can read is NO ceiling —
+     * the blank arm and the malformed arm, for each of the two keys, because a
+     * ceiling read as zero would refuse every article and every settlement.
+     */
+    @Test
+    void anAmountCeilingIsNoCeilingWhenItCannotBeRead() {
+        PosSettingsService blankItem = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.item-amount-max", "   ")));
+            assertNull(blankItem.controlItemAmountMax());
+        }
+        PosSettingsService malformedItem = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.item-amount-max", "cent")));
+            assertNull(malformedItem.controlItemAmountMax());
+        }
+        PosSettingsService blankPayment = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.payment-amount-max", "")));
+            assertNull(blankPayment.controlPaymentAmountMax());
+        }
+        PosSettingsService malformedPayment = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("control.payment-amount-max", "5 000 €")));
+            assertNull(malformedPayment.controlPaymentAmountMax());
+        }
+    }
+
+    /**
+     * BO-03-09-31: the Label Point De Vente and its activation key project
+     * their stored rows, and both fall back to the catalog defaults — off, and
+     * no label — when nothing is administered.
+     */
+    @Test
+    void thePdvLabelAndItsActivationProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("terminal.pdv-label-enabled", "true"),
+                    row("terminal.pdv-label", "{LPDV}MAGASIN 34")));
+            assertTrue(administered.terminalPdvLabelEnabled());
+            assertEquals("{LPDV}MAGASIN 34", administered.terminalPdvLabel());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(bare.terminalPdvLabelEnabled());
+            assertEquals("", bare.terminalPdvLabel());
+        }
+    }
+
+    /**
+     * BO-03-02-06/-07 and BO-03-02-43: the locally modifiable range and the
+     * cheque endorsement project their stored rows, and both fall back to the
+     * catalog default — empty — when nothing is administered.
+     */
+    @Test
+    void theTenderRangeAndTheChequeEndorsementProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("tender.local-range", "500-599,900"),
+                    row("cheque.endorsement-lines", "{date} {heure};{montant} EUR;CAISSE {caisse}")));
+            assertEquals("500-599,900", administered.tenderLocalRange());
+            assertEquals("{date} {heure};{montant} EUR;CAISSE {caisse}",
+                    administered.chequeEndorsementLines());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("", bare.tenderLocalRange());
+            assertEquals("", bare.chequeEndorsementLines());
+        }
+    }
+
+    /**
+     * BO-03-09-27: the third-party applications are read in administered order,
+     * and every malformed entry is DROPPED rather than refused — one typo must
+     * not cost the cashier the others. Each leg: no arrow, nothing before the
+     * arrow, nothing after it, and an entry that is only spaces.
+     */
+    @Test
+    void theExternalApplicationsDropEveryMalformedEntry() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("touch.external-apps",
+                    "  Fid > https://fid.magasin/caisse  ;sans fleche;>sans libelle;"
+                            + "sans adresse>;   ;Photo>https://photo.magasin/")));
+            List<PosSettingsService.ExternalApp> apps = service.externalApps();
+            assertEquals(2, apps.size());
+            assertEquals("Fid", apps.get(0).label());
+            assertEquals("https://fid.magasin/caisse", apps.get(0).url());
+            assertEquals("Photo", apps.get(1).label());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(bare.externalApps().isEmpty());
+        }
+    }
+
+    /**
+     * BO-03-12-02: the point of sale's period-end actions are read in
+     * administered order, an unknown name is DROPPED rather than refused (a typo
+     * must not leave a store unable to close its day), a duplicate is kept once,
+     * and nothing administered answers an empty list.
+     */
+    @Test
+    void thePeriodEndActionsAreReadInAdministeredOrder() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("period.pdv-actions",
+                    " z_report ; CLOSE_REGISTERS ; danser ;  ; Z_REPORT ; BANK_DEPOSIT ")));
+            assertEquals(List.of(PosSettingsService.PeriodAction.Z_REPORT,
+                            PosSettingsService.PeriodAction.CLOSE_REGISTERS,
+                            PosSettingsService.PeriodAction.BANK_DEPOSIT),
+                    service.periodPdvActions());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(bare.periodPdvActions().isEmpty());
+        }
+        PosSettingsService blank = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("period.pdv-actions", "   ")));
+            assertTrue(blank.periodPdvActions().isEmpty());
+        }
+        // The four names are all understood, and SAFE_COUNT is the one the
+        // cases above do not exercise.
+        assertEquals(4, PosSettingsService.PeriodAction.values().length);
+        assertEquals(PosSettingsService.PeriodAction.SAFE_COUNT,
+                PosSettingsService.PeriodAction.valueOf("SAFE_COUNT"));
+    }
+
+    /**
+     * BO-03-06-53: the range of customer numbers reserved to the point of sale
+     * projects its stored row, and falls back to the catalog default — empty —
+     * when nothing is administered.
+     */
+    @Test
+    void theCustomerCodeRangeProjectsItsRow() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(
+                    List.of(row("customer.local-code-range", "CLI:500000-599999")));
+            assertEquals("CLI:500000-599999", administered.customerLocalCodeRange());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("", bare.customerLocalCodeRange());
+        }
+    }
+
+    /**
+     * BO-10-03-05 / BO-10-03-11 / BO-10-03-12 / BO-10-03-21: the gabarit of the
+     * loyalty zone is chosen by the SALE'S CASE — a card was presented or not,
+     * the programme answered or not — and the grouped gabarit takes precedence
+     * over the holder-online one when the advantages are grouped by category.
+     */
+    @Test
+    void theLoyaltyZoneGabaritFollowsTheCase() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("fidelity.template-online", "FID-ON"),
+                    row("fidelity.template-offline", "FID-OFF"),
+                    row("fidelity.template-non-holder-online", "FID-NH-ON"),
+                    row("fidelity.template-non-holder-offline", "FID-NH-OFF"),
+                    row("fidelity.template-grouped", "  FID-CAT  ")));
+            // All three legs of the grouped guard true, and the code trimmed.
+            assertEquals("FID-CAT", service.fidelityTemplateCode(true, false, true));
+            // Grouping off: the holder-online gabarit answers.
+            assertEquals("FID-ON", service.fidelityTemplateCode(true, false, false));
+            // Grouping asked for, but the programme did not answer: the
+            // grouped guard falls on its middle leg.
+            assertEquals("FID-OFF", service.fidelityTemplateCode(true, true, true));
+            // Grouping asked for, but no card: it falls on its first leg.
+            assertEquals("FID-NH-ON", service.fidelityTemplateCode(false, false, true));
+            assertEquals("FID-NH-OFF", service.fidelityTemplateCode(false, true, true));
+        }
+    }
+
+    /**
+     * A blank gabarit code is the ABSENCE of a gabarit and not a gabarit named
+     * by the empty string: the register prints its built-in loyalty zone, which
+     * is what every shop does until a paramétreur has been there (BO-10-03-05).
+     */
+    @Test
+    void anUnadministeredLoyaltyGabaritIsNoGabarit() {
+        PosSettingsService grouped = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            // Grouping asked for and no grouped gabarit administered: the
+            // holder-online gabarit answers instead of nothing.
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("fidelity.template-grouped", "   "),
+                    row("fidelity.template-online", "FID-ON")));
+            assertEquals("FID-ON", grouped.fidelityTemplateCode(true, false, true));
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertNull(bare.fidelityTemplateCode(true, false, true));
+            assertNull(bare.fidelityTemplateCode(true, false, false));
+            assertNull(bare.fidelityTemplateCode(true, true, false));
+            assertNull(bare.fidelityTemplateCode(false, false, false));
+            assertNull(bare.fidelityTemplateCode(false, true, false));
+        }
+    }
+
+    /**
+     * BO-10-07-04 / BO-10-07-05 / BO-10-07-06: the three currency parameters
+     * project their rows, and fall back to the catalogue defaults — the symbol
+     * E, printed, after the amount — which is what the register printed before
+     * they existed.
+     */
+    @Test
+    void theCurrencyParametersProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("currency.symbol", "€"),
+                    row("currency.symbol-print", "false"),
+                    row("currency.symbol-position", "LEFT")));
+            assertEquals("€", administered.currencySymbol());
+            assertFalse(administered.currencySymbolPrinted());
+            assertEquals("LEFT", administered.currencySymbolPosition());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("E", bare.currencySymbol());
+            assertTrue(bare.currencySymbolPrinted());
+            assertEquals("RIGHT", bare.currencySymbolPosition());
+        }
+    }
+
+    /**
+     * BO-10-02-13 / -15 / -20 / -28 / -32: the five register rules of this lot
+     * project their rows, and fall back to the catalogue defaults — which are
+     * in every case the behaviour the register had before the key existed.
+     */
+    @Test
+    void theFiveRegisterRulesProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("keyboard.enter-as-total", "true"),
+                    row("sale.allow-during-payment", "true"),
+                    row("ticket.second-code-print", "true"),
+                    row("auth.idle-action", "CLOSE"),
+                    row("scan.supervisor-prefix", "SUP")));
+            assertTrue(administered.enterAsTotal());
+            assertTrue(administered.saleAllowedDuringPayment());
+            assertTrue(administered.secondCodePrinted());
+            assertEquals("CLOSE", administered.idleAction());
+            assertEquals("SUP", administered.supervisorBadgePrefix());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(bare.enterAsTotal());
+            assertFalse(bare.saleAllowedDuringPayment());
+            assertFalse(bare.secondCodePrinted());
+            assertEquals("LOCK", bare.idleAction());
+            assertEquals("", bare.supervisorBadgePrefix());
+        }
+    }
+
+    /**
+     * BO-10-02-19: each figure of a commercial document carries its own
+     * administered number of decimals, and anything but three answers two —
+     * which is what every document printed before the keys existed.
+     */
+    @Test
+    void theDocumentDecimalsAreTwoOrThreeAndNothingElse() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("invoice.decimals-unit-ht", "3"),
+                    row("invoice.decimals-vat-base", "3"),
+                    row("invoice.decimals-vat-amount", "7"),
+                    row("invoice.decimals-total-ht", "0"),
+                    row("invoice.decimals-total-ttc", "3")));
+            assertEquals(3, administered.invoiceUnitExcludingTaxDecimals());
+            assertEquals(3, administered.invoiceVatBaseDecimals());
+            assertEquals(2, administered.invoiceVatAmountDecimals());
+            assertEquals(2, administered.invoiceTotalExcludingTaxDecimals());
+            assertEquals(3, administered.invoiceTotalIncludingTaxDecimals());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(2, bare.invoiceUnitExcludingTaxDecimals());
+            assertEquals(2, bare.invoiceVatBaseDecimals());
+            assertEquals(2, bare.invoiceVatAmountDecimals());
+            assertEquals(2, bare.invoiceTotalExcludingTaxDecimals());
+            assertEquals(2, bare.invoiceTotalIncludingTaxDecimals());
+        }
+    }
+
+    /**
+     * BO-10-07-10 / BO-10-07-11: the article-count placement and the
+     * unknown-article barcode project their rows, and fall back to the
+     * catalogue defaults — nowhere, and no barcode.
+     */
+    @Test
+    void theTicketCountAndUnknownBarcodeProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("ticket.item-count-print", "OWN_LINE"),
+                    row("ticket.unknown-article-barcode", "true")));
+            assertEquals("OWN_LINE", administered.ticketItemCountPrint());
+            assertTrue(administered.unknownArticleBarcodePrinted());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("NONE", bare.ticketItemCountPrint());
+            assertFalse(bare.unknownArticleBarcodePrinted());
+        }
+    }
+
+    /**
+     * BO-10-07-16 and BO-10-08-13/-14/-15: the search depth and the three
+     * barcode retention delays project their rows, and fall back to the
+     * catalogue defaults — thirty days of search, and no purge at all.
+     */
+    @Test
+    void theSearchDepthAndBarcodeDelaysProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("ticket.search-days", "90"),
+                    row("retention.barcodes-expired-unused-days", "365"),
+                    row("retention.barcodes-expired-used-days", "180"),
+                    row("retention.barcodes-undated-days", "730")));
+            assertEquals(90, administered.ticketSearchDays());
+            assertEquals(365, administered.barcodeExpiredUnusedDays());
+            assertEquals(180, administered.barcodeExpiredUsedDays());
+            assertEquals(730, administered.barcodeUndatedDays());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(30, bare.ticketSearchDays());
+            assertEquals(0, bare.barcodeExpiredUnusedDays());
+            assertEquals(0, bare.barcodeExpiredUsedDays());
+            assertEquals(0, bare.barcodeUndatedDays());
+        }
+    }
+
+    /**
+     * BO-10-03-03 / BO-10-05-04: the customer-display holder rule and the
+     * printed tare project their rows, and both default to off — the viseur
+     * client names nobody and the ticket states only the net weight, which is
+     * what they did before the keys existed.
+     */
+    @Test
+    void theCustomerHolderAndTareRulesProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("fidelity.show-holder-name-customer", "true"),
+                    row("balance.print-tare", "true")));
+            assertTrue(administered.fidelityShowHolderNameOnCustomerDisplay());
+            assertTrue(administered.tarePrinted());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(bare.fidelityShowHolderNameOnCustomerDisplay());
+            assertFalse(bare.tarePrinted());
+        }
+    }
+
+    /**
+     * BO-10-06-03: the fiscal certification number projects its row, and is
+     * blank by default — no country but the one that asks for it pays for it.
+     */
+    @Test
+    void theFiscalCertificateNumberProjectsItsRow() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(
+                    List.of(row("fiscal.certificate-number", "0000/AT")));
+            assertEquals("0000/AT", administered.fiscalCertificateNumber());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("", bare.fiscalCertificateNumber());
+        }
+    }
+
+    /**
+     * BO-10-03-19 / BO-10-07-14: the nomenclature sending and the enlarged
+     * amount due project their rows, and both default to off.
+     */
+    @Test
+    void theNomenclatureAndLargeAmountRulesProjectTheirRows() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("fidelity.send-subfamily", "true"),
+                    row("ticket.due-amount-large", "true")));
+            assertTrue(administered.fidelitySendSubFamily());
+            assertTrue(administered.dueAmountLarge());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(bare.fidelitySendSubFamily());
+            assertFalse(bare.dueAmountLarge());
+        }
+    }
+
+    /**
+     * BO-10-06-06: the eco-participation placement projects its row and falls
+     * back to nowhere, which is what every ticket printed before the key.
+     */
+    @Test
+    void theEcoTaxPlacementProjectsItsRow() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(
+                    List.of(row("ticket.ecotax-print", "TOTAL")));
+            assertEquals("TOTAL", administered.ecoTaxPrint());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("NONE", bare.ecoTaxPrint());
+        }
+    }
+
+    /**
+     * BO-09-03-04: the counter reset projects its row and is off by default —
+     * a numbering that restarts without anyone asking would be a numbering
+     * nobody could follow.
+     */
+    @Test
+    void theTicketCounterResetProjectsItsRow() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(
+                    List.of(row("period.reset-ticket-counter", "true")));
+            assertTrue(administered.resetTicketCounterAtPeriodEnd());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(bare.resetTicketCounterAtPeriodEnd());
+        }
+    }
+
+    /**
+     * BO-01-02-12: the expiry delay projects its row and is zero by default —
+     * no policy, and no account caught by one nobody posed.
+     */
+    @Test
+    void thePasswordExpiryDelayProjectsItsRow() {
+        PosSettingsService administered = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(
+                    List.of(row("auth.password-expiry-days", "90")));
+            assertEquals(90, administered.passwordExpiryDays());
+        }
+        PosSettingsService bare = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(0, bare.passwordExpiryDays());
         }
     }
 }

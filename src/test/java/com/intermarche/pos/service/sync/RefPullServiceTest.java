@@ -706,11 +706,12 @@ class RefPullServiceTest {
     }
 
     /**
-     * Covers the four remaining switch arms of {@code applyDomain}
-     * (TOUCH_GROUPS, TENDERS, DOCUMENT_TEMPLATES, POSTAL_CODES) together with
-     * their anonymous {@link TypeReference} deserialization lines: none of the
-     * four belongs to {@code FILE_DOMAINS}, so each is pulled page by page
-     * through the snapshot switch and applied, then its fingerprint recorded.
+     * Covers the six remaining switch arms of {@code applyDomain}
+     * (TOUCH_GROUPS, TENDERS, DOCUMENT_TEMPLATES, POSTAL_CODES, POS_LISTS and
+     * STORE_IMAGES) together with their anonymous {@link TypeReference}
+     * deserialization lines: none of the six belongs to {@code FILE_DOMAINS},
+     * so each is pulled page by page through the snapshot switch and applied,
+     * then its fingerprint recorded.
      */
     @Test
     void pullOnceAppliesRemainingSwitchDomains() throws Exception {
@@ -733,7 +734,8 @@ class RefPullServiceTest {
         }).when(client).send(any(HttpRequest.class), any());
         Map<String, String> versions = Map.of(
                 "TOUCH_GROUPS", "t1", "TENDERS", "t2",
-                "DOCUMENT_TEMPLATES", "t3", "POSTAL_CODES", "t4");
+                "DOCUMENT_TEMPLATES", "t3", "POSTAL_CODES", "t4",
+                "POS_LISTS", "t5", "STORE_IMAGES", "t6");
         doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
@@ -744,10 +746,14 @@ class RefPullServiceTest {
         verify(apply).applyTenders(any());
         verify(apply).applyDocumentTemplates(any());
         verify(apply).applyPostalCodes(any());
+        verify(apply).applyPosLists(any());
+        verify(apply).applyStoreImages(any());
         verify(apply).recordApplied("TOUCH_GROUPS", "t1");
         verify(apply).recordApplied("TENDERS", "t2");
         verify(apply).recordApplied("DOCUMENT_TEMPLATES", "t3");
         verify(apply).recordApplied("POSTAL_CODES", "t4");
+        verify(apply).recordApplied("POS_LISTS", "t5");
+        verify(apply).recordApplied("STORE_IMAGES", "t6");
     }
 
     // --------------------------------------------------

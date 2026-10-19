@@ -425,6 +425,34 @@ class TicketStateTest {
 
 
     /**
+     * LC-14-02-03: getTareFormatted states the tare REALLY applied, in
+     * kilograms with the French comma (applied, strictly positive arm).
+     */
+    @Test
+    void getTareFormattedStatesTheAppliedTare() {
+        TicketItem item = new TicketItem("1", "1234", "Pommes", new BigDecimal("3.00"),
+                new BigDecimal("1.240"), null);
+        item.appliedTareKg = new BigDecimal("0.035");
+        assertEquals("0,035", item.getTareFormatted());
+    }
+
+    /**
+     * LC-14-02-03: a line with no tare says nothing — null and zero are both
+     * silent, because "0,000 kg" under every fruit is noise, not information
+     * (both arms of the guard).
+     */
+    @Test
+    void getTareFormattedSaysNothingWithoutTare() {
+        TicketItem none = new TicketItem("1", "1234", "Pommes", new BigDecimal("3.00"),
+                new BigDecimal("1.240"), null);
+        assertNull(none.getTareFormatted());
+        TicketItem zero = new TicketItem("1", "1234", "Pommes", new BigDecimal("3.00"),
+                new BigDecimal("1.240"), null);
+        zero.appliedTareKg = BigDecimal.ZERO;
+        assertNull(zero.getTareFormatted());
+    }
+
+    /**
      * getHtml returns the raw label for a code-less span line (both arms true).
      */
     @Test
@@ -731,6 +759,79 @@ class TicketStateTest {
         assertEquals(0, new BigDecimal("1.00").compareTo(sum));
         assertEquals(0, new BigDecimal("1.00").compareTo(ts.globalDiscountApplied));
         assertEquals(0, new BigDecimal("29.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * BO-03-07-12: where the store spares the already-reduced lines, they leave
+     * the BASE as well as the allocation — so the 10 % lands entirely on the
+     * untouched line and the discount costs exactly what it says. Both ways a
+     * line can be reduced are exercised: a manual modifier and an engine-valued
+     * total under the local price.
+     */
+    @Test
+    void allocateSparesTheReducedLinesWhenTheStoreSaysSo() {
+        TicketState ts = new TicketState();
+        TicketItem plain = addLine(ts, "10.00", "1");
+        TicketItem manual = addLine(ts, "30.00", "1");
+        manual.modifierType = com.intermarche.pos.ui.PriceModType.REMISE;
+        TicketItem promoted = addLine(ts, "20.00", "1");
+        promoted.valuedTotal = new BigDecimal("15.00");
+        ts.globalDiscountSparesReducedLines = true;
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        // Base = the 10 € line alone: 1,00 € of discount, all of it on that line.
+        assertEquals(0, new BigDecimal("1.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(plain.globalDiscountShare));
+        assertNull(manual.globalDiscountShare);
+        assertNull(promoted.globalDiscountShare);
+    }
+
+    /**
+     * The other leg: left ON — the catalogue default — the reduced lines are in
+     * the base and receive their share, exactly as before the key existed.
+     */
+    @Test
+    void allocateCoversTheReducedLinesByDefault() {
+        TicketState ts = new TicketState();
+        TicketItem plain = addLine(ts, "10.00", "1");
+        TicketItem manual = addLine(ts, "30.00", "1");
+        manual.modifierType = com.intermarche.pos.ui.PriceModType.REMISE;
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("4.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(plain.globalDiscountShare));
+        assertEquals(0, new BigDecimal("3.00").compareTo(manual.globalDiscountShare));
+    }
+
+    /**
+     * A line the engine valued AT or ABOVE its local price is not a reduced
+     * line, and one it never valued is not either — the two false legs of the
+     * promotion test.
+     */
+    @Test
+    void aLineTheEngineDidNotReduceIsNotSpared() {
+        TicketState ts = new TicketState();
+        TicketItem valuedUp = addLine(ts, "10.00", "1");
+        valuedUp.valuedTotal = new BigDecimal("10.00");
+        TicketItem unvalued = addLine(ts, "30.00", "1");
+        ts.globalDiscountSparesReducedLines = true;
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("4.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(valuedUp.globalDiscountShare));
+        assertEquals(0, new BigDecimal("3.00").compareTo(unvalued.globalDiscountShare));
+    }
+
+    /**
+     * BO-03-07-12: the rule leaves with the ticket, like every other decision
+     * taken for one sale.
+     */
+    @Test
+    void clearForgetsTheSparingRule() {
+        TicketState ts = new TicketState();
+        ts.globalDiscountSparesReducedLines = true;
+        ts.clear();
+        assertFalse(ts.globalDiscountSparesReducedLines);
     }
 
     /**
@@ -1670,5 +1771,125 @@ class TicketStateTest {
         ts.clear();
         assertTrue(ts.items.isEmpty());
         assertTrue(ts.cancelledItems.isEmpty());
+    }
+
+    /**
+     * An announced container tare is read ONCE (BO-03-06-60): the second reader
+     * gets nothing, so the tare lightens one line and not the next.
+     */
+    @Test
+    void thePendingTareIsReadOnce() {
+        TicketState ts = new TicketState();
+        assertNull(ts.consumePendingTare());
+        ts.pendingTareKg = new BigDecimal("0.250");
+        assertEquals(new BigDecimal("0.250"), ts.consumePendingTare());
+        assertNull(ts.pendingTareKg);
+        assertNull(ts.consumePendingTare());
+    }
+
+    /**
+     * A tare leaves with the ticket: the next customer does not inherit the
+     * previous one's bowl.
+     */
+    @Test
+    void clearForgetsTheAnnouncedTare() {
+        TicketState ts = new TicketState();
+        ts.pendingTareKg = new BigDecimal("0.250");
+        ts.clear();
+        assertNull(ts.pendingTareKg);
+    }
+
+    /**
+     * Arming a promotion by barcode (BO-03-06-43): a name is armed once, the
+     * same name a second time changes nothing, and a null or blank name is
+     * refused rather than armed — the engine would have nothing to resolve.
+     */
+    @Test
+    void armPromotionTakesANameOnceAndRefusesAnEmptyOne() {
+        TicketState ts = new TicketState();
+        assertTrue(ts.scannedPromotions.isEmpty());
+        assertFalse(ts.armPromotion(null));
+        assertFalse(ts.armPromotion("   "));
+        assertTrue(ts.scannedPromotions.isEmpty());
+        assertTrue(ts.armPromotion("  PROMO_RENTREE  "));
+        assertEquals(java.util.List.of("PROMO_RENTREE"), ts.scannedPromotions);
+        assertFalse(ts.armPromotion("PROMO_RENTREE"));
+        assertEquals(1, ts.scannedPromotions.size());
+        assertTrue(ts.armPromotion("PROMO_NOEL"));
+        assertEquals(java.util.List.of("PROMO_RENTREE", "PROMO_NOEL"), ts.scannedPromotions);
+    }
+
+    /**
+     * {@code storePendingActivation} (BO-03-06-44) stores the code on the
+     * awaited line, trimmed, and CLOSES the wait whatever the outcome: nothing
+     * awaited, a null code, a blank code, a line that no longer exists and a
+     * null entry in the list all answer null without leaving the next scan
+     * hostage.
+     */
+    @Test
+    void storePendingActivationFindsTheAwaitedLineAndAlwaysClosesTheWait() {
+        TicketState ts = new TicketState();
+        assertNull(ts.storePendingActivation("ACT-1"));
+        TicketItem line = new TicketItem("1", null, "CARTE", BigDecimal.ONE,
+                BigDecimal.ONE, null);
+        ts.items.add(null);
+        ts.items.add(line);
+
+        ts.pendingActivationUid = line.uid;
+        assertNull(ts.storePendingActivation(null));
+        assertNull(ts.pendingActivationUid);
+        assertNull(line.activationCode);
+
+        ts.pendingActivationUid = line.uid;
+        assertNull(ts.storePendingActivation("   "));
+        assertNull(ts.pendingActivationUid);
+        assertNull(line.activationCode);
+
+        ts.pendingActivationUid = "autre";
+        assertNull(ts.storePendingActivation("ACT-1"));
+        assertNull(ts.pendingActivationUid);
+        assertNull(line.activationCode);
+
+        ts.pendingActivationUid = line.uid;
+        assertSame(line, ts.storePendingActivation("  ACT-1  "));
+        assertEquals("ACT-1", line.activationCode);
+        assertNull(ts.pendingActivationUid);
+    }
+
+    /**
+     * An awaited activation leaves with the ticket: the next customer's first
+     * scan is not swallowed as the previous customer's gift-card code
+     * (BO-03-06-44).
+     */
+    @Test
+    void clearForgetsTheAwaitedActivation() {
+        TicketState ts = new TicketState();
+        ts.pendingActivationUid = "une-ligne";
+        ts.clear();
+        assertNull(ts.pendingActivationUid);
+    }
+
+    /**
+     * A recalled order leaves with the ticket: the order one customer came for
+     * is not the next customer's (BO-03-06-58).
+     */
+    @Test
+    void clearForgetsTheRecalledOrder() {
+        TicketState ts = new TicketState();
+        ts.recalledOrderReference = "01234";
+        ts.clear();
+        assertNull(ts.recalledOrderReference);
+    }
+
+    /**
+     * A promotion leaves with the ticket: the promotion one customer triggered
+     * is not the next customer's (BO-03-06-43).
+     */
+    @Test
+    void clearForgetsTheArmedPromotions() {
+        TicketState ts = new TicketState();
+        assertTrue(ts.armPromotion("PROMO_RENTREE"));
+        ts.clear();
+        assertTrue(ts.scannedPromotions.isEmpty());
     }
 }

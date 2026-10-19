@@ -553,4 +553,48 @@ class TicketRecoveryServiceTest {
         assertFalse(service.state.payment.transactionComplete);
     }
 
+    /**
+     * Covers the deposit arm of {@code restorePayments} (LC-06-03-07/-08): a
+     * persisted {@code DepositPayment} is rebuilt through its own PaymentState
+     * entry carrying the deposit's per-rate VAT detail and the order code, and
+     * the sale remembers the order it settles so the closing can tell the node.
+     * A recovery with no order code restores the entry without remembering any
+     * order (null and blank arms of the order-code guard).
+     */
+    @Test
+    void restoreDraftRestoresDepositRecoveryAndOrderCode() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(16L, Ticket.TicketStatus.OPEN);
+        draft.lines = new ArrayList<>(List.of(line(1, "U1", "100.00", null, null)));
+        com.intermarche.pos.domain.payment.DepositPayment acompte =
+                new com.intermarche.pos.domain.payment.DepositPayment(new BigDecimal("10.00"));
+        acompte.paymentIndex = 1;
+        acompte.vatDetail = "0.2:1;0.055:0.21";
+        acompte.orderCode = "C04-CMD000001";
+        draft.payments = new ArrayList<>(List.of(acompte));
+        service.restoreDraft(draft);
+        List<com.intermarche.pos.ui.payment.PaymentState.PaymentEntry> entries =
+                service.state.payment.payments;
+        assertEquals(1, entries.size());
+        assertEquals("ACOMPTE", entries.get(0).method);
+        assertEquals("0.2:1;0.055:0.21", entries.get(0).depositVatDetail);
+        assertEquals("C04-CMD000001", entries.get(0).depositOrderCode);
+        assertEquals("C04-CMD000001", service.state.recalledOrderCode);
+        com.intermarche.pos.domain.payment.DepositPayment unnamed =
+                new com.intermarche.pos.domain.payment.DepositPayment(new BigDecimal("4.00"));
+        unnamed.paymentIndex = 1;
+        unnamed.vatDetail = null;
+        unnamed.orderCode = "   ";
+        Ticket second = draft(17L, Ticket.TicketStatus.OPEN);
+        second.lines = new ArrayList<>(List.of(line(1, "U1", "100.00", null, null)));
+        second.payments = new ArrayList<>(List.of(unnamed));
+        service.state.recalledOrderCode = null;
+        service.restoreDraft(second);
+        // restoreDraft rebuilds on the state it is handed without clearing the
+        // registered payments, so the second recovery adds its own entry.
+        assertEquals(2, service.state.payment.payments.size());
+        assertEquals("   ", service.state.payment.payments.get(1).depositOrderCode);
+        assertNull(service.state.recalledOrderCode);
+    }
+
 }

@@ -138,14 +138,26 @@ public class MockHardwareResource {
      * Reads the next gross weight the simulated scale reports: the preset
      * weight when one was armed (consumed once), else a random 0,5–5,0 kg.
      *
+     * <p>A PRESET ZERO IS AN EMPTY PLATE, and it is not consumed. A weighing no
+     * longer reads the scale once: it waits for the article to be laid down and
+     * re-reads every few dozen milliseconds ({@code
+     * HardwareService.awaitWeighing}). A zero consumed by the first read would
+     * be followed by the random fallback, so a plate declared empty would end up
+     * weighing an article nobody put on it. Declaring zero therefore keeps the
+     * plate empty until another weight is armed, which is what an empty plate
+     * does; a positive weight is still consumed by the reading it was armed for.
+     *
      * @return the gross weight in kilograms
      */
     private double nextGross() {
-        Double manualWeight = pendingWeight.getAndSet(null);
-        if (manualWeight != null) {
-            return manualWeight;
+        Double armed = pendingWeight.get();
+        if (armed == null) {
+            return 0.5 + (random.nextDouble() * 4.5);
         }
-        return 0.5 + (random.nextDouble() * 4.5);
+        if (armed > 0) {
+            pendingWeight.set(null);
+        }
+        return armed;
     }
 
     /**

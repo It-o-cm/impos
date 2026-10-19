@@ -31,7 +31,12 @@
     .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
     .form-row { display: flex; align-items: center; gap: 15px; margin: 18px 0; justify-content: space-between; }
     .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
-    .form-row select, .form-row input { width: 20rem; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    /* LES AFFICHEURS DU PAVE PORTENT LA BOITE DES CHAMPS QU'ILS REMPLACENT.
+       Un <input> tirait sa largeur de la regle ci-dessous ; un <div> vide, lui,
+       se reduit a rien dans une ligne flex — la case de la reference de
+       commande, qui n'a pas de valeur de depart, faisait 0 px de large et
+       aucun doigt ne pouvait la toucher pour y brancher le pave. */
+    .form-row select, .form-row input, .form-row .kb-display { width: 20rem; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
     .hint { color: var(--text-muted); font-size: var(--fs-body); margin-top: 12px; }
     .kb-display { text-align: right; }
     .keyboard { max-width: 22rem; margin: 0 auto; }

@@ -26,6 +26,10 @@ import java.math.BigDecimal;
 @Priority(2)
 public class EanScanHandler implements ScanContext.ScanHandler {
 
+    /** Whether an article may be rung on THIS register (BO-03-01-18). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.ticket.ArticleScopeService articleScopeService;
+
     /**
      * The localised operator messages: every sentence this class stamps on the
      * register's message band is a bundle key, never a French literal (LC-13-06).
@@ -58,6 +62,14 @@ public class EanScanHandler implements ScanContext.ScanHandler {
         if (ctx.handled) return;
 
         if (ctx.code.matches("\\d{8,13}")) {
+            // BO-10-02-15: an article scanned while a settlement is under way,
+            // where the shop forbids it. Said and consumed: a code refused here
+            // must not walk on to the handlers behind, which would ring it by
+            // another road.
+            if (ticketService.saleRefusedDuringPayment(ctx.state)) {
+                ctx.handled = true;
+                return;
+            }
             // BO-10-02-21: when the check-digit control is active, a 13-digit
             // code whose EAN13 key is wrong is refused before any lookup.
             if (posSettingsService.ean13CheckDigitEnabled() && ctx.code.length() == 13
@@ -70,6 +82,15 @@ public class EanScanHandler implements ScanContext.ScanHandler {
             if (p != null) {
                 if (p.forbiddenToSale) {
                     ctx.state.ticket.setError(i18n.get("op.produitInterditVente"));
+                    ctx.handled = true;
+                    return;
+                }
+
+                // BO-03-01-18: an article the store took out of THIS island or
+                // THIS register is refused here and nowhere else.
+                if (articleScopeService != null && !articleScopeService.soldHere(p)) {
+                    ctx.state.ticket.setError(
+                            i18n.get("op.articleNonVenduSurCetteCaisse"));
                     ctx.handled = true;
                     return;
                 }
@@ -107,7 +128,7 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 }
 
                 // Line label is the checkout label when set, else the name.
-                ctx.state.ticket.addItem(ctx.code, null, p.saleLabel().toUpperCase(), finalPrice, BigDecimal.ONE, vatRate);
+                ctx.state.ticket.addItem(ctx.code, null, translatedLabel(p), finalPrice, BigDecimal.ONE, vatRate);
                 // Only reach into the line when there is a snapshot to carry —
                 // a plain product leaves the freshly added line untouched.
                 com.intermarche.pos.ui.ticket.TicketState.TicketItem line =
@@ -125,9 +146,20 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 // LC-02-03-13: a plain EAN names no lot, so the register cannot tell
                 // whether this pack is one of the recalled ones. It lists them and lets
                 // the sale go on — the cashier reads the lot printed on the pack.
-                String recalledLots = ProductAttributes.recalledLotsMessage(p);
+                String recalledLots = ProductAttributes.recalledLotsJoined(p);
                 if (recalledLots != null) {
-                    ctx.state.ticket.setNotice(recalledLots);
+                    ctx.state.ticket.setNotice(i18n.format("op.produitRappelLots", recalledLots));
+                }
+
+                // BO-03-06-44: a DEMATERIALISED article is sold by its code and
+                // not by its packet. The line is rung first — the customer is
+                // paying for it — and the register then asks for the activation
+                // code, which the next scan answers. The provider is
+                // snapshotted on the line beside the code it owes.
+                if (ProductAttributes.activationRequired(p)) {
+                    line.activationProvider = ProductAttributes.activationProvider(p);
+                    ctx.state.ticket.pendingActivationUid = line.uid;
+                    ctx.state.ticket.setWarning(i18n.get("op.codeActivationAttendu"));
                 }
 
                 ctx.handled = true;
@@ -151,5 +183,22 @@ public class EanScanHandler implements ScanContext.ScanHandler {
         }
         int expected = (10 - (sum % 10)) % 10;
         return expected == (code.charAt(12) - '0');
+    }
+
+    /**
+     * The article's wording in the language the till is set to, upper-cased as
+     * every line label is (BO-03-01-20).
+     *
+     * <p>The administered translation wins; the catalog's own sale label is the
+     * fallback, which is what every line carried before translations existed.
+     *
+     * @param product the article
+     * @return the line label
+     */
+    private String translatedLabel(com.intermarche.pos.domain.catalog.Product product) {
+        String language = i18n == null ? null : i18n.getLang();
+        String label = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                .saleLabel(product, language);
+        return label == null ? "" : label.toUpperCase();
     }
 }

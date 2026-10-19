@@ -356,6 +356,9 @@ public class SyncOutboxService {
         dto.terminalId = ticket.terminalId;
         dto.status = ticket.status.name();
         dto.creationDate = iso(ticket.creationDate);
+        dto.parkedAt = iso(ticket.parkedAt);
+        dto.resumedAt = iso(ticket.resumedAt);
+        dto.resumedTerminalId = ticket.resumedTerminalId;
         dto.closingDate = iso(ticket.closingDate);
         dto.storeCode = ticket.store != null ? ticket.store.code : null;
         dto.cashierLogin = ticket.cashier != null ? ticket.cashier.loginName : null;
@@ -382,6 +385,16 @@ public class SyncOutboxService {
             earnDto.advantageCategory = earnLine.advantageCategory;
             earnDto.advantageCategoryLabel = earnLine.advantageCategoryLabel;
             dto.fidelityLines.add(earnDto);
+        }
+        // GB-01-07-05/06: the offer messages the sale showed, frozen at closing.
+        // The node prints duplicata of sales made on other registers, and a
+        // duplicata that dropped them would not be the same document either.
+        for (com.intermarche.pos.domain.sale.TicketMessage message : ticket.messages) {
+            SyncPayloads.MessageDto messageDto = new SyncPayloads.MessageDto();
+            messageDto.code = message.code;
+            messageDto.text = message.text;
+            messageDto.printMode = message.printMode;
+            dto.messages.add(messageDto);
         }
         dto.digitalKey = ticket.digitalKey;
         dto.customerEmail = ticket.customerEmail;
@@ -419,6 +432,8 @@ public class SyncOutboxService {
             lineDto.cancelled = line.cancelled;
             lineDto.cancellationDate = iso(line.cancellationDate);
             lineDto.cancelledBy = line.cancelledBy;
+            lineDto.cancellationReasonCode = line.cancellationReasonCode;
+            lineDto.cancellationReasonLabel = line.cancellationReasonLabel;
             // Money-instrument flag (R12) and last-line-cancellation flag (R10):
             // both are needed by the store node's financial states — the first to
             // keep gift cards out of the turnover, the second to tell a corrected
@@ -464,6 +479,13 @@ public class SyncOutboxService {
                 paymentDto.creditAccountName = credit.accountName;
                 paymentDto.creditOverLimit = credit.overLimit;
             }
+            if (payment instanceof com.intermarche.pos.domain.payment.DepositPayment acompte) {
+                // LC-06-03-08: the deposit recovery rides with its per-rate VAT
+                // detail and its order code, so the store node accounts it by
+                // rate against the order it settles.
+                paymentDto.depositVatDetail = acompte.vatDetail;
+                paymentDto.depositOrderCode = acompte.orderCode;
+            }
             dto.payments.add(paymentDto);
         }
         return dto;
@@ -489,6 +511,12 @@ public class SyncOutboxService {
         dto.totalAmount = refund.totalAmount;
         dto.totalExcludingTax = refund.totalExcludingTax;
         dto.totalVat = refund.totalVat;
+        dto.returnReason = refund.returnReason;
+        dto.returnReasonCode = refund.returnReasonCode;
+        dto.returnTypeCode = refund.returnTypeCode;
+        dto.returnTypeLabel = refund.returnTypeLabel;
+        dto.cashierBadgeId = refund.cashierBadgeId;
+        dto.supervisorBadgeId = refund.supervisorBadgeId;
         for (RefundLine line : refund.lines) {
             SyncPayloads.RefundLineDto lineDto = new SyncPayloads.RefundLineDto();
             TicketLine originalLine = TicketLine.findById(line.originalLineId);

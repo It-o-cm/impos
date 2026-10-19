@@ -500,4 +500,59 @@ class PrintPolicyTest {
     void decisionIsNotEmptyWithTheVoucher() {
         assertFalse(new PrintPolicy.Decision(false, false, true).isEmpty());
     }
+
+    /**
+     * BO-03-03-01, first arm: with conditional printing OFF every associated
+     * document comes out, forced list or not — the register's historical
+     * behaviour, which the option must not change while it is inactive.
+     */
+    @Test
+    void everyAssociatedDocumentPrintsWhileConditionalPrintingIsOff() {
+        settings.conditional = false;
+        settings.forced = List.of();
+        assertTrue(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_CREDIT_NOTE));
+        assertTrue(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_LOYALTY));
+        assertTrue(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_COLLECTION));
+        assertTrue(policy.isAssociatedDocumentPrinted(null));
+    }
+
+    /**
+     * BO-03-03-01, second arm: with conditional printing ON an associated
+     * document comes out ONLY when the shop named it — the end-of-transaction
+     * screen cannot ask for it, so nothing else can speak for it.
+     */
+    @Test
+    void anAssociatedDocumentPrintsOnlyWhenTheShopNamedIt() {
+        settings.conditional = true;
+        settings.forced = List.of(PrintPolicy.DOCUMENT_LOYALTY);
+        assertTrue(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_LOYALTY));
+        assertFalse(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_CREDIT_NOTE));
+        assertFalse(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_COLLECTION));
+    }
+
+    /**
+     * The null-key leg of the same guard: a caller naming no document is
+     * answered no rather than reaching the forced list, which a null would
+     * search for nothing.
+     */
+    @Test
+    void anUnnamedAssociatedDocumentDoesNotPrint() {
+        settings.conditional = true;
+        settings.forced = List.of(PrintPolicy.DOCUMENT_LOYALTY);
+        assertFalse(policy.isAssociatedDocumentPrinted(null));
+    }
+
+    /**
+     * An empty forced list with conditional printing ON silences every
+     * associated document — the configuration a shop lands on by activating the
+     * option and administering nothing.
+     */
+    @Test
+    void anEmptyForcedListSilencesEveryAssociatedDocument() {
+        settings.conditional = true;
+        settings.forced = List.of();
+        assertFalse(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_CREDIT_NOTE));
+        assertFalse(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_LOYALTY));
+        assertFalse(policy.isAssociatedDocumentPrinted(PrintPolicy.DOCUMENT_COLLECTION));
+    }
 }

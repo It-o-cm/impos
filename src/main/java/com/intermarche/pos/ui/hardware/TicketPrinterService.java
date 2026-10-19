@@ -67,6 +67,10 @@ public class TicketPrinterService {
     @jakarta.inject.Inject
     PosSettingsService posSettingsService;
 
+    /** The distributed images: receipt logo and advantage visuals (BO-03-03-15). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.StoreImageService storeImageService;
+
     @Inject
     HardwareService hardwareService;
 
@@ -80,6 +84,17 @@ public class TicketPrinterService {
      */
     @Inject
     com.intermarche.pos.service.DocumentTemplateService documentTemplateService;
+
+    /** The symbol a register prints when no settings service answers for it. */
+    private static final String BUILT_IN_CURRENCY_SYMBOL = "E";
+
+    /**
+     * The register's own identifier, for the documents that name the register
+     * without naming a sale (BO-03-10-05). Null on a bare instance built
+     * without CDI, in which case the slip simply does not state it.
+     */
+    @Inject
+    com.intermarche.pos.service.TicketNumberService ticketNumberService;
 
     /**
      * Renders a document through its ADMINISTERED layout, when there is one
@@ -98,11 +113,85 @@ public class TicketPrinterService {
         return documentTemplateService.render(type, data);
     }
 
+    /**
+     * The NAME a document carries when printed, administered or the
+     * register's own (BO-03-04-12).
+     *
+     * @param type the document being printed
+     * @param builtIn the wording this register prints when none is administered
+     * @return the name to print, never null
+     */
+    private String documentTitle(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type, String builtIn) {
+        String administered = com.intermarche.pos.domain.setting.DocumentTemplate.titleFor(type);
+        return administered == null ? builtIn : administered;
+    }
+
+    /**
+     * The name a document carries WHEN REPRINTED, administered or the
+     * register's own (BO-03-04-13).
+     *
+     * <p>The rank is appended by the caller, not here: a shop renames the
+     * document, it does not renumber its reprints.
+     *
+     * @param type the document being reprinted
+     * @param builtIn the wording this register prints when none is administered
+     * @return the name to print, never null
+     */
+    private String duplicateTitle(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type, String builtIn) {
+        String administered = com.intermarche.pos.domain.setting.DocumentTemplate.duplicateTitleFor(type);
+        return administered == null ? builtIn : administered;
+    }
+
+    /**
+     * Renders an administered BANNER — the head or the foot of a document —
+     * as the lines it prints (BO-03-05-01 to -04, BO-03-04-02 and -08).
+     *
+     * <p>A banner is a document like any other to the renderer, which is the
+     * point: it is a named, coded, previewed, distributed template, so a shop
+     * writes as many lines as it wants, aligns each of them with
+     * {@code fmt.centre}, {@code fmt.right} or plain text, and keeps more than
+     * ten of them side by side under different codes. The single centred line
+     * of {@code ticket.header-message} could do none of that.
+     *
+     * <p>It applies to the BUILT-IN document only. Where the shop administers
+     * the whole layout, the head and the foot are inside that author's source,
+     * and printing a banner around it would state the head twice.
+     *
+     * <p>A trailing empty line is dropped: a text block almost always ends on a
+     * newline, and that one would feed blank paper on every ticket of the day.
+     *
+     * @param type the banner being printed
+     * @param data the values the layout may read
+     * @return the banner's lines, or null when the shop administers none
+     */
+    private java.util.List<String> administeredBanner(
+            com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type, java.util.Map<String, Object> data) {
+        String rendered = administeredLayout(type, data);
+        if (rendered == null) {
+            return null;
+        }
+        java.util.List<String> lines =
+                new java.util.ArrayList<>(java.util.Arrays.asList(rendered.split("\\n", -1)));
+        while (!lines.isEmpty() && lines.get(lines.size() - 1).isBlank()) {
+            lines.remove(lines.size() - 1);
+        }
+        return lines;
+    }
+
     /** French display format for amounts on the receipt. */
     private static final DecimalFormat DF = new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
 
     /** Standard 80mm receipt width, in characters. */
     private static final int WIDTH = 42;
+
+    /** Advantage lines grouped by advantage type — the default (BO-03-03-25). */
+    private static final String GROUPING_TYPE = "TYPE";
+
+    /** Advantage lines grouped by advantage category (BO-03-03-33). */
+    private static final String GROUPING_CATEGORY = "CATEGORY";
+
+    /** Advantage lines printed as a flat list, as they were received. */
+    private static final String GROUPING_NONE = "NONE";
 
     /**
      * Names a settlement method as the CUSTOMER reads it on the paper.
@@ -142,6 +231,9 @@ public class TicketPrinterService {
             case "RestoFlash" -> i18n.both("paper.restoFlash");
             case "SupplierGiftCard" -> i18n.both("paper.carteCadeau");
             case "Sogec" -> i18n.both("paper.bonSogec");
+            // LC-06-03-07: the settlement of a recovered deposit names itself,
+            // like every other tender of the receipt.
+            case "Deposit" -> i18n.both("paper.repriseAcompte");
             default -> type.toUpperCase();
         };
     }
@@ -153,6 +245,97 @@ public class TicketPrinterService {
      */
     private static final com.intermarche.pos.service.DocumentLayout LAYOUT =
             new com.intermarche.pos.service.DocumentLayout(WIDTH);
+
+    /**
+     * Prints the SLIP EACH TENDER OF A TICKET CARRIES, if any
+     * (BO-03-02-26, -31, -32 and -33).
+     *
+     * <p>A tender names a gabarit, says how many times it is printed, whether
+     * a duplicate goes with it, and whether it is printed even when the
+     * receipt is not. Four administered answers, and nothing in Java deciding
+     * which tender has a slip: a shop that attaches a layout to its gift card
+     * gets one, a shop that attaches none gets nothing, and neither is a
+     * release.
+     *
+     * <p>CALLED AFTER THE RECEIPT, not instead of it. The slip is a proof of
+     * SETTLEMENT and the receipt is the proof of SALE; a customer who took a
+     * digital receipt still leaves with the paper of their cheque when the
+     * shop administered it forced.
+     *
+     * <p>Each tender of the ticket is served once even when it settled twice:
+     * two cash lines are one way of paying, and printing the slip twice would
+     * be the questionnaire's print count said by accident.
+     *
+     * @param ticket the settled ticket
+     * @param receiptPrinted whether the sale receipt was printed
+     * @return how many slips were sent to the printer
+     */
+    public int printTenderSlips(Ticket ticket, boolean receiptPrinted) {
+        LOGGER.info("Entering method printTenderSlips with receiptPrinted: " + receiptPrinted);
+        if (ticket == null || ticket.payments == null) {
+            LOGGER.info("Exiting method printTenderSlips");
+            return 0;
+        }
+        int printed = 0;
+        java.util.Set<String> served = new java.util.HashSet<>();
+        for (com.intermarche.pos.domain.payment.TicketPayment payment : ticket.payments) {
+            String key = payment.getMethodKey();
+            if (key == null || !served.add(key)) {
+                continue;
+            }
+            printed += printOneTenderSlip(ticket, key, receiptPrinted);
+        }
+        LOGGER.info("Exiting method printTenderSlips");
+        return printed;
+    }
+
+    /**
+     * Prints the slip of ONE tender, honouring its four administered answers.
+     *
+     * @param ticket the settled ticket, handed to the layout
+     * @param tenderCode the tender that settled
+     * @param receiptPrinted whether the sale receipt was printed
+     * @return how many slips were sent to the printer for that tender
+     */
+    private int printOneTenderSlip(Ticket ticket, String tenderCode, boolean receiptPrinted) {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                com.intermarche.pos.domain.payment.TenderDefinition.findByCode(tenderCode);
+        if (tender == null || tender.documentTemplateCode == null
+                || tender.documentTemplateCode.isBlank()) {
+            return 0;
+        }
+        if (!receiptPrinted && !tender.printForced) {
+            // The shop did not ask for this slip to outlive the receipt.
+            return 0;
+        }
+        com.intermarche.pos.domain.setting.DocumentTemplate template = com.intermarche.pos.domain.setting.DocumentTemplate.findByCode(tender.documentTemplateCode);
+        if (template == null || !template.isRenderable() || documentTemplateService == null) {
+            // A tender naming a gabarit that has not arrived prints nothing
+            // rather than failing the settlement.
+            return 0;
+        }
+        String body = documentTemplateService.renderTemplate(template,
+                saleDocumentData(ticket, false, 0));
+        if (body == null) {
+            return 0;
+        }
+        int copies = Math.max(1, tender.printCount);
+        for (int copy = 0; copy < copies; copy++) {
+            hardwareService.printReceipt(body);
+            hardwareService.cutPaper();
+        }
+        if (!tender.printDuplicate) {
+            return copies;
+        }
+        String duplicate = documentTemplateService.renderTemplate(template,
+                saleDocumentData(ticket, true, 1));
+        if (duplicate == null) {
+            return copies;
+        }
+        hardwareService.printReceipt(duplicate);
+        hardwareService.cutPaper();
+        return copies + 1;
+    }
 
     /**
      * Loads a ticket from the database and prints it. The first print is the
@@ -208,9 +391,10 @@ public class TicketPrinterService {
         // BO-03-03: the store's own layout first. A shop that administers none —
         // or one whose layout does not hold together — gets the receipt below,
         // character for character as before.
+        java.util.Map<String, Object> documentData =
+                saleDocumentData(ticket, duplicata, duplicataNumber);
         String administered = administeredLayout(
-                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.SALE_RECEIPT,
-                saleDocumentData(ticket, duplicata, duplicataNumber));
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.SALE_RECEIPT, documentData);
         if (administered != null) {
             LOGGER.info("Exiting method renderTicket");
             return administered;
@@ -223,15 +407,31 @@ public class TicketPrinterService {
         sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append(center(ticket.store.name, WIDTH)).append("\n");
         sb.append(center(ticket.store.address.city, WIDTH)).append("\n");
-        // BO-03-08-03: an administered header message, printed under the store
-        // address; absent or blank, nothing is printed.
-        String headerMessage = posSettingsService.ticketHeaderMessage();
-        if (headerMessage != null && !headerMessage.isBlank()) {
-            sb.append(center(headerMessage, WIDTH)).append("\n");
+        // BO-03-05-01: the administered HEAD, printed under the store address.
+        // A shop that writes one gets its lines, aligned as it aligned them; a
+        // shop that writes none keeps the single centred message of
+        // BO-03-08-03, which is what this register printed before.
+        java.util.List<String> headBanner = administeredBanner(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.TICKET_HEADER, documentData);
+        if (headBanner != null) {
+            for (String bannerLine : headBanner) {
+                sb.append(bannerLine).append("\n");
+            }
+        } else {
+            String headerMessage = posSettingsService.ticketHeaderMessage();
+            if (headerMessage != null && !headerMessage.isBlank()) {
+                sb.append(center(headerMessage, WIDTH)).append("\n");
+            }
         }
         if (duplicata) {
             sb.append("-".repeat(WIDTH)).append("\n");
-            sb.append(center(String.format(i18n.get("paper.duplicata"), duplicataNumber), WIDTH)).append("\n");
+            // BO-03-04-13: the reprint carries the administered name when the
+            // shop gave it one, the register's own otherwise; the rank is the
+            // register's business either way.
+            sb.append(center(String.format(
+                    duplicateTitle(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.SALE_RECEIPT,
+                            i18n.get("paper.duplicata")),
+                    duplicataNumber), WIDTH)).append("\n");
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Ticket info
@@ -303,6 +503,46 @@ public class TicketPrinterService {
                 // LC-02-04-04: the EAN printed under the label when configured.
                 sb.append("  ").append(line.ean).append("\n");
             }
+            // BO-10-06-06: the article's eco-participation under its line, where
+            // the shop prints it line by line. An article that carries none
+            // prints nothing rather than a zero nobody owes.
+            if ("LINE".equalsIgnoreCase(safe(posSettingsService.ecoTaxPrint()).trim())) {
+                BigDecimal lineEcoTax = ecoTaxOf(line);
+                if (lineEcoTax.signum() > 0) {
+                    sb.append(formatLine("  " + i18n.both("paper.ecoParticipation"),
+                            money(DF.format(lineEcoTax))));
+                }
+            }
+            // BO-10-05-04: the tare the scale deducted, under the weighed line
+            // and in kilograms. Only where one was applied: a line sold by the
+            // piece has no tare to state, and a zero tare is not a deduction.
+            if (posSettingsService.tarePrinted() && line.appliedTareKg != null
+                    && line.appliedTareKg.signum() > 0) {
+                sb.append("  ").append(i18n.both("paper.tare")).append(" ")
+                        .append(line.appliedTareKg.setScale(3, java.math.RoundingMode.HALF_UP)
+                                .toPlainString().replace('.', ','))
+                        .append(" kg\n");
+            }
+            // BO-10-02-20: the SECOND code rattached to the EAN, under the same
+            // label and on the same rule — the dematerialised articles are the
+            // ones whose customer comes back with the paper in hand. An article
+            // without one prints nothing rather than an empty indented line.
+            if (posSettingsService.secondCodePrinted()
+                    && line.secondCode != null && !line.secondCode.isBlank()) {
+                sb.append("  ").append(line.secondCode).append("\n");
+            }
+            // BO-03-03-37: the NUMBER of the VAT regime, beside the article it
+            // applies to, when the store asks for it — activable in France,
+            // deactivable in Belgium. It is resolved from the rate the line
+            // SNAPSHOTTED at scan time, so a ticket reprinted two years later
+            // states the code of its day; a rate no regime carries prints
+            // nothing rather than a number nobody can check.
+            if (posSettingsService.ticketVatCode()) {
+                String vatCode = vatCodeOf(line);
+                if (vatCode != null) {
+                    sb.append("  ").append(String.format(i18n.get("paper.codeTva"), vatCode));
+                }
+            }
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
@@ -320,7 +560,7 @@ public class TicketPrinterService {
                         ? line.modifierLabel.substring(0, 26) : line.modifierLabel;
                 BigDecimal saved = lineDiscount(line);
                 sb.append(formatLine("  " + modifier,
-                        saved.signum() == 0 ? "" : "-" + DF.format(saved) + " E"));
+                        saved.signum() == 0 ? "" : "-" + money(DF.format(saved))));
             }
             // Engine advantage on this line: printed as a signed delta, and
             // the CORRECTION on its own line. The two are separated because
@@ -340,22 +580,22 @@ public class TicketPrinterService {
                     // LINE places it under the article; FOOTER — or a null
                     // placement, the default — defers it to the totals block.
                     if ("LINE".equals(valuation.advantagePrintMode)) {
-                        sb.append(formatLine("  " + advLabel, DF.format(delta) + " E"));
+                        sb.append(formatLine("  " + advLabel, money(DF.format(delta))));
                     } else {
-                        footerAdvantages.append(formatLine(advLabel, DF.format(delta) + " E"));
+                        footerAdvantages.append(formatLine(advLabel, money(DF.format(delta))));
                     }
                 }
                 if (correction.signum() > 0) {
                     String corLabel = valuation.correctionLabel != null
                             ? valuation.correctionLabel : i18n.both("paper.ajustement");
                     if (corLabel.length() > 26) corLabel = corLabel.substring(0, 26);
-                    sb.append(formatLine("  " + corLabel, "+" + DF.format(correction) + " E"));
+                    sb.append(formatLine("  " + corLabel, "+" + money(DF.format(correction))));
                 }
             }
             // EXP-43: the SOUS-TOTAL drawn after this line, summing the lines since
             // the previous marker. A ticket with no marker prints exactly as before.
             if (line.subtotalBoundary) {
-                sb.append(formatLine(i18n.both("paper.sousTotal"), DF.format(subtotalRunning) + " E"));
+                sb.append(formatLine(i18n.both("paper.sousTotal"), money(DF.format(subtotalRunning))));
                 subtotalRunning = java.math.BigDecimal.ZERO;
             }
         }
@@ -367,7 +607,7 @@ public class TicketPrinterService {
         sb.append(footerAdvantages);
         if (ticket.globalDiscountApplied != null) {
             sb.append(formatLine(i18n.both("paper.remiseTicket"),
-                    "-" + DF.format(ticket.globalDiscountApplied) + " E"));
+                    "-" + money(DF.format(ticket.globalDiscountApplied))));
         }
         // BO-03-03-24: everything the customer saved at once — the line-level
         // modifications plus the ticket discount — on one line under the
@@ -377,10 +617,27 @@ public class TicketPrinterService {
             BigDecimal immediate = immediateDiscountTotal(ticket);
             if (immediate.signum() > 0) {
                 sb.append(formatLine(i18n.both("paper.totalRemisesImmediates"),
-                        "-" + DF.format(immediate) + " E"));
+                        "-" + money(DF.format(immediate))));
             }
         }
-        sb.append(formatLine(i18n.both("paper.totalTtc"), DF.format(ticket.totalIncludingTax) + " E"));
+        // BO-10-07-10: the number of articles, where the shop asks for it —
+        // beside the amount to pay, or on a line of its own under it. Read from
+        // the CLOSED ticket's own count, so a duplicata restates the figure the
+        // customer was shown.
+        String itemCountPlacement = safe(posSettingsService.ticketItemCountPrint()).trim();
+        String totalLabel = i18n.both("paper.totalTtc");
+        if ("TOTAL_LINE".equalsIgnoreCase(itemCountPlacement)) {
+            totalLabel = totalLabel + " (" + ticket.itemCount + ")";
+        }
+        // BO-10-07-14: the amount due in enlarged characters where the shop
+        // asks for it. Aligned first, wrapped afterwards — the markers are not
+        // characters of the line.
+        String totalLine = formatLine(totalLabel, money(DF.format(ticket.totalIncludingTax)));
+        sb.append(posSettingsService.dueAmountLarge() ? large(totalLine) : totalLine);
+        if ("OWN_LINE".equalsIgnoreCase(itemCountPlacement)) {
+            sb.append(formatLine(i18n.both("paper.nombreArticles"),
+                    String.valueOf(ticket.itemCount)));
+        }
         // Loyalty section (imfid lot 3): the DISPLAYED projection and its rule
         // labels — the only rule data that travels to the POS (spec §3),
         // indicative by doctrine (the ingestion's recomputation prevails).
@@ -392,13 +649,27 @@ public class TicketPrinterService {
         // advantage zone. Printed whatever the earn and before it: a customer
         // who presented a card and earned nothing still reads WHICH card was
         // read, which is what a disputed attachment comes back on.
-        if (posSettingsService.fidelityPrintCardNumber()
+        // BO-10-03-05 / -11 / -12 / -13 / -21: when the store named a gabarit
+        // for this sale's case — card or no card, programme answering or not —
+        // that gabarit IS the loyalty zone, and every built-in block below
+        // stands down. Named none, nothing changes: the register prints what it
+        // has always printed.
+        String loyaltyZone = administeredLoyaltyZone(ticket, documentData);
+        if (loyaltyZone != null) {
+            sb.append(loyaltyZone);
+            if (!loyaltyZone.endsWith("\n")) {
+                sb.append("\n");
+            }
+        }
+        if (loyaltyZone == null
+                && posSettingsService.fidelityPrintCardNumber()
                 && ticket.fidelityCard != null && !ticket.fidelityCard.isBlank()) {
             sb.append(formatLine(i18n.both("paper.carteFidelite"), ticket.fidelityCard));
         }
         // BO-10-03-15: the advantage section is printed only when the back
         // office activated the fidelity advantages; disabled, no section.
-        if (posSettingsService.fidelityAdvantagesEnabled()
+        if (loyaltyZone == null
+                && posSettingsService.fidelityAdvantagesEnabled()
                 && ticket.fidelityEarnTotal != null
                 && ticket.fidelityEarnTotal.signum() > 0) {
             if (ticket.fidelityAnonymousProjection) {
@@ -409,20 +680,30 @@ public class TicketPrinterService {
                     sb.append(messageLine).append("\n");
                 }
                 sb.append(formatLine(i18n.both("paper.cagnotte"),
-                        "+" + DF.format(ticket.fidelityEarnTotal) + " E"));
+                        "+" + money(DF.format(ticket.fidelityEarnTotal))));
             } else {
                 sb.append(formatLine(i18n.both("paper.cagnotteJour"),
-                        "+" + DF.format(ticket.fidelityEarnTotal) + " E"));
+                        "+" + money(DF.format(ticket.fidelityEarnTotal))));
                 appendFidelityAdvantages(sb, ticket);
                 // imfid response B: the forecast balance after the sale, under an
                 // administered label, marked PREVISIONNEL — nothing is credited
                 // before the ingestion.
                 if (ticket.fidelityProjectedAfterEarn != null) {
                     sb.append(formatLine(posSettingsService.fidelityProjectedLabel(),
-                            DF.format(ticket.fidelityProjectedAfterEarn) + " E"));
+                            money(DF.format(ticket.fidelityProjectedAfterEarn))));
                     sb.append(center(i18n.both("paper.previsionnel"), WIDTH)).append("\n");
                 }
             }
+        }
+        // BO-03-03-31 / BO-03-03-34: the card's balance zone, at the foot of
+        // the loyalty section. Only for a presented card, and never for an
+        // anonymous projection: that one has no balance to state, only what a
+        // card WOULD have earned.
+        if (loyaltyZone == null
+                && posSettingsService.fidelityPrintBalances()
+                && ticket.fidelityCard != null && !ticket.fidelityCard.isBlank()
+                && !ticket.fidelityAnonymousProjection) {
+            appendFidelityBalances(sb, ticket);
         }
         // BO-03-03-29/30: the loyalty service did not answer during the sale, so
         // the shop's message takes the place of the advantages that could not be
@@ -432,18 +713,9 @@ public class TicketPrinterService {
         // receipt says nothing at all. The administered layout already received
         // it through the document data; the built-in layout below is what prints
         // until a template is administered, and it was the one staying silent.
-        // BO-03-03-31 / BO-03-03-34: the card's balance zone, at the foot of
-        // the loyalty section. Only for a presented card, and never for an
-        // anonymous projection: that one has no balance to state, only what a
-        // card WOULD have earned.
-        if (posSettingsService.fidelityPrintBalances()
-                && ticket.fidelityCard != null && !ticket.fidelityCard.isBlank()
-                && !ticket.fidelityAnonymousProjection) {
-            appendFidelityBalances(sb, ticket);
-        }
         String fidelityMessage = unavailableMessage(ticket,
                 ticket.fidelityCard != null && !ticket.fidelityCard.isBlank());
-        if (!fidelityMessage.isEmpty()) {
+        if (loyaltyZone == null && !fidelityMessage.isEmpty()) {
             for (String messageLine : wrap(fidelityMessage, WIDTH)) {
                 sb.append(messageLine).append("\n");
             }
@@ -452,7 +724,7 @@ public class TicketPrinterService {
         // when the programme DID answer — distinct from the offline message
         // above, which answers for a programme that could not be asked. Said
         // once: a ticket already carrying the offline text says nothing more.
-        if (fidelityMessage.isEmpty()
+        if (loyaltyZone == null && fidelityMessage.isEmpty()
                 && (ticket.fidelityCard == null || ticket.fidelityCard.isBlank())) {
             String nonHolder = posSettingsService.fidelityNonHolderMessage();
             if (nonHolder != null && !nonHolder.isBlank()) {
@@ -461,7 +733,7 @@ public class TicketPrinterService {
                 }
             }
         }
-        sb.append(formatLine(i18n.both("paper.dontTva"), DF.format(ticket.totalVat) + " E"));
+        sb.append(formatLine(i18n.both("paper.dontTva"), money(DF.format(ticket.totalVat))));
         // Per-rate VAT ventilation (same rule as the persisted totals)
         VatBreakdown breakdown = new VatBreakdown();
         for (TicketLine line : ticket.lines) {
@@ -476,6 +748,48 @@ public class TicketPrinterService {
             for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
                 sb.append(formatLine(i18n.both("paper.tva") + bucket.getRateFormatted(),
                         i18n.both("paper.ht") + DF.format(bucket.totalExcludingTax) + i18n.both("paper.tva") + DF.format(bucket.vatAmount)));
+            }
+        }
+        // LC-06-03-08: the ticket of a sale that settles an order states, next
+        // to its own total VAT printed above, the VAT already collected on the
+        // deposit — a DISTINCT statement, ventilation by ventilation, so the
+        // customer and the accounts read what the deposit settled apart from
+        // what this ticket carries. Printed from the detail carried by the
+        // deposit recovery, never recomputed: the ventilation was fixed when
+        // the deposit was taken. Nothing when the sale recovers no deposit.
+        for (TicketPayment payment : ticket.payments) {
+            if (payment instanceof com.intermarche.pos.domain.payment.DepositPayment acompte
+                    && acompte.vatDetail != null && !acompte.vatDetail.isBlank()) {
+                java.util.List<com.intermarche.pos.domain.payment.DepositVat.Row> depositRows =
+                        com.intermarche.pos.domain.payment.DepositVat.rows(acompte.vatDetail);
+                if (!depositRows.isEmpty()) {
+                    sb.append("-".repeat(WIDTH)).append("\n");
+                    sb.append(center(i18n.both("paper.tvaAcompteDejaPercue"), WIDTH)).append("\n");
+                    for (com.intermarche.pos.domain.payment.DepositVat.Row row : depositRows) {
+                        sb.append(formatLine(row.getRateFormatted(), money(row.getAmountFormatted()))).append("\n");
+                    }
+                }
+                break;
+            }
+        }
+        // BO-02-02-02: the legal mentions the regimes of this sale oblige,
+        // printed under the ventilation they belong to. Nothing administered,
+        // nothing printed.
+        sb.append(vatLegalMentions(breakdown));
+        // BO-10-06-06: the eco-participation of the whole sale, where the shop
+        // prints one line rather than one per article. Printed under the VAT
+        // ventilation, which is where a customer looks for what the price
+        // includes; nothing at all when the sale carries none.
+        if ("TOTAL".equalsIgnoreCase(safe(posSettingsService.ecoTaxPrint()).trim())) {
+            BigDecimal saleEcoTax = BigDecimal.ZERO;
+            for (TicketLine line : ticket.lines) {
+                if (!line.cancelled) {
+                    saleEcoTax = saleEcoTax.add(ecoTaxOf(line));
+                }
+            }
+            if (saleEcoTax.signum() > 0) {
+                sb.append(formatLine(i18n.both("paper.ecoParticipation"),
+                        money(DF.format(saleEcoTax))));
             }
         }
         sb.append("\n");
@@ -493,7 +807,7 @@ public class TicketPrinterService {
             // was worth, and the rate that connects them.
             if (payment instanceof com.intermarche.pos.domain.payment.ForeignCurrencyPayment devise) {
                 sb.append(formatLine(i18n.both("paper.devise") + safe(devise.currencyCode),
-                        DF.format(payment.amount) + " E"));
+                        money(DF.format(payment.amount))));
                 sb.append("  ").append(DF.format(devise.foreignAmount)).append(" ")
                         .append(safe(devise.currencyCode)).append(i18n.both("paper.taux"))
                         .append(devise.exchangeRate == null ? "" : devise.exchangeRate.toPlainString())
@@ -501,10 +815,10 @@ public class TicketPrinterService {
                 continue;
             }
             if (payment instanceof com.intermarche.pos.domain.payment.RoundingPayment) {
-                sb.append(formatLine(i18n.both("paper.arrondi"), DF.format(payment.amount.negate()) + " E"));
+                sb.append(formatLine(i18n.both("paper.arrondi"), money(DF.format(payment.amount.negate()))));
                 continue;
             }
-            sb.append(formatLine(method, DF.format(payment.amount) + " E"));
+            sb.append(formatLine(method, money(DF.format(payment.amount))));
             // THE CHANGE IS PRINTED, under the cash line it belongs to. The
             // settlement line carries what was APPLIED to the sale, which is not
             // what the customer handed over: a receipt showing only 24,60 for a
@@ -516,9 +830,9 @@ public class TicketPrinterService {
                     && cash.tenderedAmount != null
                     && cash.tenderedAmount.compareTo(payment.amount) > 0) {
                 sb.append(formatLine(i18n.both("paper.donne"),
-                        DF.format(cash.tenderedAmount) + " E"));
+                        money(DF.format(cash.tenderedAmount))));
                 sb.append(formatLine(i18n.both("paper.renduMonnaie"),
-                        DF.format(cash.tenderedAmount.subtract(payment.amount)) + " E"));
+                        money(DF.format(cash.tenderedAmount.subtract(payment.amount)))));
             }
             // LC-08-04-06 [sic LC-07-09-06]: a credit settlement names its debtor
             // under its own line — date, account number, account name. A month
@@ -538,6 +852,9 @@ public class TicketPrinterService {
         }
         // Footer, with the online digital receipt link
         sb.append("\n");
+        // BO-10-06-03: the software's fiscal certification number, on every
+        // sale document where a country requires one.
+        sb.append(fiscalCertificateLine());
         if (ticket.digitalKey != null) {
             sb.append(center(i18n.both("paper.votreTicketLigne"), WIDTH)).append("\n");
             sb.append(center("/t/" + ticket.id + "/" + ticket.digitalKey, WIDTH)).append("\n");
@@ -559,19 +876,49 @@ public class TicketPrinterService {
         }
         sb.append(center(i18n.both("paper.merciVotreVisite"), WIDTH)).append("\n");
         sb.append(center(i18n.both("paper.bientot"), WIDTH)).append("\n");
-        // BO-03-08-03 / BO-03-08-05: an administered footer message, printed
-        // after the courtesy line; absent or blank, nothing is printed.
-        String footerMessage = posSettingsService.ticketFooterMessage();
-        if (footerMessage != null && !footerMessage.isBlank()) {
-            sb.append(center(footerMessage, WIDTH)).append("\n");
+        // BO-03-05-08: the administered web address, as a QR code by default.
+        // Under the courtesy line, which is where a customer looks for what
+        // the shop wants them to do next.
+        sb.append(footerUrlBlock());
+        // BO-03-05-03: the administered FOOT, the head's twin, printed after the
+        // courtesy line; none administered, the single centred message of
+        // BO-03-08-03 and -05 stands.
+        java.util.List<String> footBanner = administeredBanner(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.TICKET_FOOTER, documentData);
+        if (footBanner != null) {
+            for (String bannerLine : footBanner) {
+                sb.append(bannerLine).append("\n");
+            }
+        } else {
+            String footerMessage = posSettingsService.ticketFooterMessage();
+            if (footerMessage != null && !footerMessage.isBlank()) {
+                sb.append(center(footerMessage, WIDTH)).append("\n");
+            }
         }
         // The ticket number as a barcode, last thing on the receipt: it is what a
         // return, a duplicate or a claim is looked up by, and typing it back by hand
         // is where the mistakes happen. The hardware bridge turns the directive into
         // the printer's own barcode command; the POS stays text.
-        sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
+        // BO-03-06-55: the store may reserve a RANGE for its gates or its game
+        // kiosks by prefixing the printed code. The number itself is kept
+        // whatever the prefix — it is what a return, a duplicate or a claim is
+        // looked up by, and a prefix must not cost that.
+        sb.append("\n").append(barcode(ticketBarcode(ticket.ticketNumber))).append("\n");
         LOGGER.info("Exiting method renderTicket");
         return sb.toString();
+    }
+
+    /**
+     * The code the receipt's barcode carries (BO-03-06-55): the administered
+     * prefix, then the ticket number.
+     *
+     * @param ticketNumber the sale's number, possibly null
+     * @return the code to encode, never null
+     */
+    private String ticketBarcode(String ticketNumber) {
+        String number = safe(ticketNumber);
+        String prefix = posSettingsService == null ? "" : posSettingsService.ticketBarcodePrefix();
+        return prefix == null || prefix.isBlank() ? number : prefix.trim() + number;
     }
 
     /**
@@ -779,6 +1126,27 @@ public class TicketPrinterService {
      * @return the document values
      */
     java.util.Map<String, Object> instrumentDocumentData(String number, BigDecimal amount) {
+        return instrumentDocumentData(number, amount, null);
+    }
+
+    /**
+     * Builds an INSTRUMENT voucher as an administered layout sees it, with the
+     * end of validity the registry holds (BO-03-03-08).
+     *
+     * <p>The barcode travels as the DIRECTIVE, not as the number again: the
+     * layout places the code where the shop wants it and the hardware bridge is
+     * what encodes it, exactly as the built-in vouchers do. An instrument
+     * carrying no number carries no barcode either — a directive over an empty
+     * value prints the directive itself on the paper.
+     *
+     * @param number the registry number of the instrument
+     * @param amount the amount it carries
+     * @param validUntil the end of its validity, or null when it never expires
+     *        or the shop does not state it
+     * @return the document values
+     */
+    java.util.Map<String, Object> instrumentDocumentData(String number, BigDecimal amount,
+            java.time.LocalDateTime validUntil) {
         java.util.Map<String, Object> data = new java.util.HashMap<>();
         data.put("store", emptyStore());
         data.put("terminal", "");
@@ -789,8 +1157,32 @@ public class TicketPrinterService {
                 .format(DateTimeFormatter.ofPattern("HH:mm")));
         data.put("instrument", java.util.Map.of(
                 "number", safe(number),
-                "amount", amount == null ? "" : DF.format(amount)));
+                "amount", amount == null ? "" : DF.format(amount),
+                "validUntil", validUntil == null ? ""
+                        : validUntil.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                "barcode", number == null || number.isBlank() ? "" : barcode(number)));
         return data;
+    }
+
+    /**
+     * The end of validity a credit note states on paper (BO-03-03-08).
+     *
+     * <p>Read from the REGISTRY, which is authoritative on an instrument, and
+     * read only when the shop asks for the date: a register that does not print
+     * it must not pay a lookup for it, and the printers built by hand in the
+     * unit tests reach no database.
+     *
+     * @param number the registry number of the note
+     * @return the end of validity, or null when the shop does not state it, the
+     *         number is unknown, or the note never expires
+     */
+    private java.time.LocalDateTime creditNoteExpiry(String number) {
+        if (!posSettingsService.creditNotePrintExpiry() || number == null || number.isBlank()) {
+            return null;
+        }
+        com.intermarche.pos.domain.payment.StoredValue instrument =
+                com.intermarche.pos.domain.payment.StoredValue.findByNumber(number);
+        return instrument == null ? null : instrument.validUntil;
     }
 
     /**
@@ -837,7 +1229,7 @@ public class TicketPrinterService {
 
     /**
      * Describes the LOYALTY ZONE of a document, from what the closing froze on
-     * the sale (BO-03-03-25, -29, -30, -31, -32).
+     * the sale (BO-03-03-25, -29, -30, -31, -32, -33, -34).
      *
      * <p>Everything a layout may say about the programme is here and nothing
      * else: the card, whether one was presented, the earn of the day and its
@@ -851,16 +1243,17 @@ public class TicketPrinterService {
      * @return the loyalty values, every one of them already formatted
      */
     /**
-     * Appends the frozen advantage lines of a sale, GROUPED by advantage type
-     * and the groups ordered by {@code advantageTypeOrder} ascending (imfid
-     * response A, BO-03-03-25/-33). The register prints the received labels
-     * verbatim and never translates a code, and it orders by the received
-     * order, never by any evaluation priority.
+     * Appends the frozen advantage lines of a sale, GROUPED as the back office
+     * administers it — by advantage type, which is the default and the groups
+     * then ordered by {@code advantageTypeOrder} ascending, or by advantage
+     * category (imfid response A, BO-03-03-25/-33). The register prints the
+     * received labels verbatim and never translates a code, and it orders by
+     * the received order, never by any evaluation priority.
      * <p>
-     * When NO line carries a type (rules predating the referential), the output
-     * is the flat list exactly as before this grouping existed — so an
-     * old-ticket duplicata is byte-identical. When some lines carry a type they
-     * are grouped and ordered, and any remaining untyped lines are appended
+     * When NO line carries the administered key (rules predating the
+     * referential), the output is the flat list exactly as before this grouping
+     * existed — so an old-ticket duplicata is byte-identical. When some lines
+     * carry it they are grouped, and any remaining ungrouped lines are appended
      * flat after the groups.
      *
      * @param sb the receipt buffer
@@ -869,44 +1262,250 @@ public class TicketPrinterService {
     private void appendFidelityAdvantages(StringBuilder sb, Ticket ticket) {
         java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> allLines =
                 ticket.fidelityLines == null ? java.util.List.of() : ticket.fidelityLines;
-        boolean anyTyped = false;
-        for (com.intermarche.pos.domain.sale.TicketFidelityLine line : allLines) {
-            if (line.advantageType != null) {
-                anyTyped = true;
-                break;
-            }
-        }
-        if (!anyTyped) {
-            for (com.intermarche.pos.domain.sale.TicketFidelityLine line : allLines) {
-                sb.append(formatLine("  " + line.getLabel(), "+" + DF.format(line.amount) + " E"));
-            }
+        // BO-03-03-33: the shop says what the groups ARE — the advantage type,
+        // which is the default and the historical print, or the category. Both
+        // travel on the frozen line, so the choice costs no second request.
+        String grouping = normalizeAdvantageGrouping(
+                posSettingsService.fidelityAdvantageGrouping());
+        boolean byCategory = GROUPING_CATEGORY.equals(grouping);
+        if (GROUPING_NONE.equals(grouping) || !anyGrouped(allLines, byCategory)) {
+            appendFlatAdvantages(sb, allLines);
             return;
         }
         java.util.LinkedHashMap<String,
                 java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine>> groups =
                 new java.util.LinkedHashMap<>();
-        java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> untyped =
+        java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> ungrouped =
                 new java.util.ArrayList<>();
         for (com.intermarche.pos.domain.sale.TicketFidelityLine line : allLines) {
-            if (line.advantageType == null) {
-                untyped.add(line);
+            String key = groupKeyOf(line, byCategory);
+            if (key == null) {
+                ungrouped.add(line);
             } else {
-                groups.computeIfAbsent(line.advantageType, key -> new java.util.ArrayList<>()).add(line);
+                groups.computeIfAbsent(key, absent -> new java.util.ArrayList<>()).add(line);
             }
         }
         java.util.List<String> orderedKeys = new java.util.ArrayList<>(groups.keySet());
-        orderedKeys.sort(java.util.Comparator.comparingInt(key -> groupOrder(groups.get(key))));
+        if (!byCategory) {
+            // The received order, and only for the types: a category carries no
+            // order of its own, so its groups come out in the order the
+            // advantages arrived in — the insertion order of the map above.
+            orderedKeys.sort(java.util.Comparator.comparingInt(key -> groupOrder(groups.get(key))));
+        }
         for (String key : orderedKeys) {
             java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> lines = groups.get(key);
-            String header = lines.get(0).advantageTypeLabel;
+            String header = groupLabelOf(lines.get(0), byCategory);
             sb.append(header == null ? key : header).append("\n");
-            for (com.intermarche.pos.domain.sale.TicketFidelityLine line : lines) {
-                sb.append(formatLine("  " + line.getLabel(), "+" + DF.format(line.amount) + " E"));
+            appendFlatAdvantages(sb, lines);
+        }
+        appendFlatAdvantages(sb, ungrouped);
+    }
+
+    /**
+     * Normalizes an administered advantage grouping; anything else — including
+     * a grouping a back office knows and this register does not — falls back to
+     * the advantage type, which is what the register has always printed.
+     *
+     * @param raw the administered value, possibly null or blank
+     * @return {@link #GROUPING_TYPE}, {@link #GROUPING_CATEGORY} or
+     *         {@link #GROUPING_NONE}
+     */
+    private String normalizeAdvantageGrouping(String raw) {
+        if (raw == null) {
+            return GROUPING_TYPE;
+        }
+        String value = raw.trim().toUpperCase();
+        if (value.equals(GROUPING_CATEGORY) || value.equals(GROUPING_NONE)) {
+            return value;
+        }
+        return GROUPING_TYPE;
+    }
+
+    /**
+     * Whether at least one advantage line can be grouped at all.
+     *
+     * <p>None can — rules predating the referential — and the output is the
+     * flat list exactly as before this grouping existed, so an old-ticket
+     * duplicata stays byte-identical.
+     *
+     * @param lines the frozen advantage lines
+     * @param byCategory whether the category is the grouping key
+     * @return true when a line carries the grouping key
+     */
+    private boolean anyGrouped(
+            java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> lines,
+            boolean byCategory) {
+        for (com.intermarche.pos.domain.sale.TicketFidelityLine line : lines) {
+            if (groupKeyOf(line, byCategory) != null) {
+                return true;
             }
         }
-        for (com.intermarche.pos.domain.sale.TicketFidelityLine line : untyped) {
-            sb.append(formatLine("  " + line.getLabel(), "+" + DF.format(line.amount) + " E"));
+        return false;
+    }
+
+    /**
+     * The grouping key of one advantage line.
+     *
+     * @param line the frozen advantage line
+     * @param byCategory whether the category is the grouping key
+     * @return the key, or null when the line carries none
+     */
+    private String groupKeyOf(com.intermarche.pos.domain.sale.TicketFidelityLine line,
+            boolean byCategory) {
+        return byCategory ? line.advantageCategory : line.advantageType;
+    }
+
+    /**
+     * The heading a group is printed under.
+     *
+     * @param line the group's first line
+     * @param byCategory whether the category is the grouping key
+     * @return the received label, or null when the line carries none
+     */
+    private String groupLabelOf(com.intermarche.pos.domain.sale.TicketFidelityLine line,
+            boolean byCategory) {
+        return byCategory ? line.advantageCategoryLabel : line.advantageTypeLabel;
+    }
+
+    /**
+     * Appends advantage lines with no heading above them, each under its own
+     * received label.
+     *
+     * @param sb the receipt buffer
+     * @param lines the lines to append, possibly empty
+     */
+    private void appendFlatAdvantages(StringBuilder sb,
+            java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> lines) {
+        for (com.intermarche.pos.domain.sale.TicketFidelityLine line : lines) {
+            sb.append(advantageVisual(line));
+            sb.append(formatLine("  " + line.getLabel(), "+" + money(DF.format(line.amount))));
         }
+    }
+
+    /**
+     * The VISUAL of an advantage, printed above its line when the back office
+     * administered one ({@code BO-10-03-09}).
+     *
+     * <p>Above and not instead: the picture illustrates the advantage, it
+     * does not state it. A customer whose printer drops images — or whose
+     * shop administered none — reads the same line as before, which is the
+     * rule every graphic addition on this paper follows.
+     *
+     * @param line the frozen advantage line
+     * @return the image directive AND its newline, or an empty string
+     */
+    private String advantageVisual(com.intermarche.pos.domain.sale.TicketFidelityLine line) {
+        if (storeImageService == null) {
+            return "";
+        }
+        String picture = storeImageService.advantageVisual(line.ruleCode, line.advantageType);
+        if (picture.isEmpty()) {
+            return "";
+        }
+        String directive = ReceiptLogo.directive(picture,
+                posSettingsService == null ? 0 : posSettingsService.logoWidthDots());
+        return directive.isEmpty() ? "" : directive + "\n";
+    }
+
+    /**
+     * Appends the card's BALANCE ZONE (BO-03-03-31, BO-03-03-34).
+     *
+     * <p>Four figures, each printed only when the sale froze it: what the
+     * balance held when the card was attached, what the day earned, what this
+     * sale took on it, and what is left afterwards. A figure the register did
+     * not vouch for is left out rather than printed as a zero, because a zero
+     * on a receipt is a statement and not a silence.
+     *
+     * @param sb the receipt buffer
+     * @param ticket the sale whose loyalty zone is printed
+     */
+    private void appendFidelityBalances(StringBuilder sb, Ticket ticket) {
+        sb.append(center(i18n.both("paper.soldesCarte"), WIDTH)).append("\n");
+        if (ticket.fidelityAvailableBalance != null) {
+            sb.append(formatLine(i18n.both("paper.soldeDisponible"),
+                    money(DF.format(ticket.fidelityAvailableBalance))));
+        }
+        if (ticket.fidelityEarnTotal != null) {
+            sb.append(formatLine(i18n.both("paper.totalAvantagesJour"),
+                    money(DF.format(ticket.fidelityEarnTotal))));
+        }
+        BigDecimal used = loyaltyPaid(ticket);
+        if (used.signum() > 0) {
+            sb.append(formatLine(i18n.both("paper.montantUtilise"), money(DF.format(used))));
+        }
+        if (ticket.fidelityBalanceAfter != null) {
+            sb.append(formatLine(i18n.both("paper.nouveauSolde"),
+                    money(DF.format(ticket.fidelityBalanceAfter))));
+        } else if (ticket.fidelityProjectedAfterEarn != null) {
+            // LC-03-05-03: the loyalty service returns the OLD balance and the
+            // NEW one at every attachment — the new balance of an earn-only
+            // sale is the projection the ledger will credit, and it is printed
+            // with the same word a burn's confirmed balance uses. The
+            // PREVISIONNEL label already names the figure in the advantages
+            // block; this line is the balances zone the questionnaire asks
+            // for, and it prints even when the block above is switched off.
+            sb.append(formatLine(i18n.both("paper.nouveauSolde"),
+                    money(DF.format(ticket.fidelityProjectedAfterEarn))));
+        }
+    }
+
+    /**
+     * What a line-level modification took off its article (BO-03-03-22).
+     *
+     * <p>Computed from the prices the sale FROZE — the original unit price and
+     * the one that was charged — and not from {@code modifierValue}, which
+     * means a different thing for each kind of modification: euros for a
+     * rebate, a percentage for a discount, a new total for a forced price. One
+     * subtraction says the same thing for all three, in the currency the
+     * customer counts in.
+     *
+     * <p>Zero when there is nothing to state: no original price kept (a forced
+     * price whose original the back office masks keeps none), no quantity, or a
+     * modification that did not lower the price.
+     *
+     * @param line the sold line
+     * @return the amount taken off this line, never negative
+     */
+    private BigDecimal lineDiscount(TicketLine line) {
+        if (line == null || line.originalUnitPrice == null
+                || line.unitPrice == null || line.quantity == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal unitSaving = line.originalUnitPrice.subtract(line.unitPrice);
+        if (unitSaving.signum() <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return unitSaving.multiply(line.quantity).setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Everything the sale took off its own prices (BO-03-03-24): the line-level
+     * modifications plus the ticket discount.
+     *
+     * <p>The engine advantages are NOT in it. They are not a discount on a
+     * price: they credit a loyalty balance, they are printed as such under
+     * their own labels, and adding them here would tell the customer they paid
+     * that much less than the total just above.
+     *
+     * <p>A cancelled line is outside the sale and never counts, exactly as in
+     * the totals and in the VAT ventilation.
+     *
+     * @param ticket the sale
+     * @return the cumulated immediate discounts, never negative
+     */
+    private BigDecimal immediateDiscountTotal(Ticket ticket) {
+        BigDecimal total = ticket.globalDiscountApplied == null
+                ? BigDecimal.ZERO : ticket.globalDiscountApplied;
+        if (ticket.lines == null) {
+            return total;
+        }
+        for (TicketLine line : ticket.lines) {
+            if (line.cancelled) {
+                continue;
+            }
+            total = total.add(lineDiscount(line));
+        }
+        return total;
     }
 
     /**
@@ -920,6 +1519,76 @@ public class TicketPrinterService {
     private int groupOrder(java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> lines) {
         Integer order = lines.get(0).advantageTypeOrder;
         return order == null ? Integer.MAX_VALUE : order;
+    }
+
+    /**
+     * An already-written amount, carrying the shop's CURRENCY SYMBOL on the
+     * side the shop administered (BO-10-07-04, BO-10-07-05, BO-10-07-06).
+     *
+     * <p>The single place a printed amount acquires its symbol, which is the
+     * whole point: before this, seventy-eight call sites each concatenated the
+     * same literal, and no parameter could have reached them all.
+     *
+     * <p>Defaults reproduce what the register printed before: the symbol
+     * {@code E}, after the amount, separated by one space. A shop that prints
+     * nothing, or administers a blank symbol, gets the bare amount — the space
+     * goes with the symbol rather than staying behind as a trailing blank.
+     *
+     * <p>A register built without a settings service — which only happens in a
+     * test fixture that prints no parameterised document — keeps the built-in
+     * symbol rather than failing the print.
+     *
+     * @param formattedAmount the amount, already written in the shop's format
+     * @return the amount as it goes on the paper
+     */
+    private String money(String formattedAmount) {
+        if (posSettingsService == null) {
+            return formattedAmount + " " + BUILT_IN_CURRENCY_SYMBOL;
+        }
+        if (!posSettingsService.currencySymbolPrinted()) {
+            return formattedAmount;
+        }
+        String symbol = safe(posSettingsService.currencySymbol()).trim();
+        if (symbol.isEmpty()) {
+            return formattedAmount;
+        }
+        if ("LEFT".equalsIgnoreCase(safe(posSettingsService.currencySymbolPosition()).trim())) {
+            return symbol + " " + formattedAmount;
+        }
+        return formattedAmount + " " + symbol;
+    }
+
+    /**
+     * The ADMINISTERED loyalty zone of this sale, or null when the store named
+     * no gabarit for the case at hand (BO-10-03-05).
+     *
+     * <p>Four cases, and a fifth key for the grouped layout (BO-10-03-21): the
+     * settings service picks the code, this method only turns that code into
+     * paper. A code naming a gabarit that has not reached this register, or one
+     * that will not compile, renders null — and the built-in zone prints, which
+     * is the same doctrine the tender slips follow: a layout nobody can render
+     * must not take a ticket away from the customer.
+     *
+     * @param ticket the sale being printed
+     * @param documentData the data the sale receipt was built from
+     * @return the laid-out zone, or null when there is none to print
+     */
+    private String administeredLoyaltyZone(Ticket ticket,
+            java.util.Map<String, Object> documentData) {
+        if (documentTemplateService == null) {
+            return null;
+        }
+        boolean cardPresent = ticket.fidelityCard != null && !ticket.fidelityCard.isBlank();
+        boolean grouped = "CATEGORY".equalsIgnoreCase(
+                safe(posSettingsService.fidelityAdvantageGrouping()).trim());
+        String code = posSettingsService.fidelityTemplateCode(
+                cardPresent, ticket.fidelityUnavailable, grouped);
+        if (code == null) {
+            return null;
+        }
+        return documentTemplateService.renderTemplate(
+                com.intermarche.pos.domain.setting.DocumentTemplate.findByCode(code),
+                documentData);
     }
 
     private java.util.Map<String, Object> fidelityData(Ticket ticket) {
@@ -1054,17 +1723,47 @@ public class TicketPrinterService {
                 posSettingsService.ticketLineAttribute(),
                 posSettingsService.ticketLineAttributeIsolate())) {
             if (line.cancelled) continue;
-            lines.add(java.util.Map.of(
-                    "label", safe(line.productLabel),
-                    "ean", safe(line.ean),
-                    "family", safe(TicketLineOrder.familyOf(line)),
-                    "unit", safe(line.unitName),
-                    "quantity", line.quantity == null ? "" : DF.format(line.quantity),
-                    "unitPrice", line.unitPrice == null ? "" : DF.format(line.unitPrice),
-                    "total", line.totalPrice == null ? "" : DF.format(line.totalPrice),
-                    "vatRate", line.vatRate == null ? "" : line.vatRate.toPlainString()));
+            // A LinkedHashMap and no longer Map.of: the tax-excluded unit price
+            // of BO-03-03-03 and the line modification of BO-03-03-22 are the
+            // ninth, tenth and eleventh entries, one past what Map.of takes.
+            java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("label", safe(line.productLabel));
+            row.put("ean", safe(line.ean));
+            row.put("family", safe(TicketLineOrder.familyOf(line)));
+            row.put("unit", safe(line.unitName));
+            row.put("quantity", line.quantity == null ? "" : DF.format(line.quantity));
+            row.put("unitPrice", line.unitPrice == null ? "" : DF.format(line.unitPrice));
+            row.put("unitExcludingTax", unitExcludingTax(line));
+            row.put("total", line.totalPrice == null ? "" : DF.format(line.totalPrice));
+            row.put("vatRate", line.vatRate == null ? "" : line.vatRate.toPlainString());
+            row.put("discountLabel", safe(line.modifierLabel));
+            BigDecimal saved = lineDiscount(line);
+            row.put("discount", saved.signum() == 0 ? "" : DF.format(saved));
+            lines.add(row);
         }
         return lines;
+    }
+
+    /**
+     * The tax-excluded unit price of a sold line (BO-03-03-03).
+     *
+     * <p>Removed from the price that was CHARGED, by the very rule the VAT
+     * ventilation uses — so the column the layout prints and the table at the
+     * foot of the same receipt cannot disagree, which is what BO-03-03-04 asks
+     * of the two documents. A line carrying no price states none rather than a
+     * zero.
+     *
+     * @param line the sold line
+     * @return the tax-excluded unit price, already written, empty when the line
+     *         carries no price
+     */
+    private String unitExcludingTax(TicketLine line) {
+        if (line.unitPrice == null) {
+            return "";
+        }
+        BigDecimal rate = line.vatRate == null ? BigDecimal.ZERO : line.vatRate;
+        return DF.format(line.unitPrice.divide(BigDecimal.ONE.add(rate), 2,
+                java.math.RoundingMode.HALF_UP));
     }
 
     /**
@@ -1077,12 +1776,14 @@ public class TicketPrinterService {
         BigDecimal includingTax = ticket.totalIncludingTax == null
                 ? BigDecimal.ZERO : ticket.totalIncludingTax;
         BigDecimal vat = ticket.totalVat == null ? BigDecimal.ZERO : ticket.totalVat;
+        BigDecimal immediate = immediateDiscountTotal(ticket);
         return java.util.Map.of(
                 "excludingTax", DF.format(includingTax.subtract(vat)),
                 "vat", DF.format(vat),
                 "includingTax", DF.format(includingTax),
                 "discount", ticket.globalDiscountApplied == null ? ""
-                        : DF.format(ticket.globalDiscountApplied));
+                        : DF.format(ticket.globalDiscountApplied),
+                "immediateDiscount", immediate.signum() == 0 ? "" : DF.format(immediate));
     }
 
     /**
@@ -1126,9 +1827,12 @@ public class TicketPrinterService {
             BigDecimal amount = payment.amount == null ? BigDecimal.ZERO : payment.amount;
             boolean rounding =
                     payment instanceof com.intermarche.pos.domain.payment.RoundingPayment;
+            // The word the CUSTOMER reads, the very one the built-in layout
+            // prints: an administered layout that said "CASH" where the paper
+            // says "ESPECES" would make the same sale read two ways depending
+            // on whether the shop wrote a template (LC-07-03-06).
             payments.add(java.util.Map.of(
-                    "label", payment.getClass().getSimpleName()
-                            .replace("Payment", "").toUpperCase(),
+                    "label", tenderLabel(payment),
                     "key", safe(payment.getMethodKey()),
                     "amount", DF.format(rounding ? amount.negate() : amount)));
         }
@@ -1167,8 +1871,126 @@ public class TicketPrinterService {
      * @param value the value to encode
      * @return the directive line
      */
+    /**
+     * The FISCAL CERTIFICATION line, centred, or an empty string where no
+     * number is administered (BO-10-06-03).
+     *
+     * <p>Printed on every sale and return document of the register, which is
+     * what the Portuguese administration asks and what no other country
+     * forbids: a shop that administers nothing prints nothing, so the line
+     * costs the receipts of eleven countries exactly nothing.
+     *
+     * @return the line to append, empty when there is no number
+     */
+    private String fiscalCertificateLine() {
+        String number = safe(posSettingsService.fiscalCertificateNumber()).trim();
+        if (number.isEmpty()) {
+            return "";
+        }
+        return center(i18n.both("paper.certificatFiscal") + " " + number, WIDTH) + "\n";
+    }
+
+    /**
+     * Marks a printed line as ENLARGED — double height and double width — for
+     * the hardware bridge (BO-10-07-14).
+     *
+     * <p>The same shape as the bold directive the layout engine already emits,
+     * and the same contract: the markers do NOT count as characters of the
+     * line, so the line is aligned FIRST and wrapped afterwards. A bridge that
+     * does not know the directive prints it, which is visible on the paper
+     * rather than silently ignored.
+     *
+     * @param line the already-aligned line, newline included
+     * @return the line between its two markers
+     */
+    private static String large(String line) {
+        return "[[DOUBLE]]" + line + "[[/DOUBLE]]";
+    }
+
+    /**
+     * The ECO-PARTICIPATION borne by one sold line — the article's tariff times
+     * the quantity — or zero when the article carries none (BO-10-06-06).
+     *
+     * <p>Read from the article as the INVOICE reads it, and not frozen on the
+     * line: the two documents of one sale must state the same figure, which is
+     * the rule {@code BO-03-03-04} already imposes on the VAT table.
+     *
+     * @param line the sold line
+     * @return the eco-participation of that line, never null
+     */
+    private BigDecimal ecoTaxOf(TicketLine line) {
+        if (line.product == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal unit = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                .ecoTax(line.product);
+        BigDecimal quantity = line.quantity == null ? BigDecimal.ONE : line.quantity;
+        return unit.multiply(quantity);
+    }
+
+    /**
+     * Emits the barcode directive carrying a payload.
+     *
+     * <p>The gabarit describes, the driver prints: this layer never decides
+     * the symbology nor the module width, it names the value and leaves the
+     * rest to the printer that knows its own head.
+     *
+     * @param value the payload to encode
+     * @return the directive line WITHOUT its newline
+     */
     private static String barcode(String value) {
         return "[[BARCODE " + value + "]]";
+    }
+
+    /**
+     * Emits the QR directive carrying a payload ({@code BO-03-05-08}).
+     *
+     * <p>A DIRECTIVE AND NOT A BITMAP, like the bar code beside it: a thermal
+     * head encodes a QR itself from the text, far better and far smaller than
+     * a raster the register would compute and ship dot by dot. The bridge
+     * turns the marker into the printer's own QR command, and a printer that
+     * knows none shows the marker — which a paramétreur can read — rather
+     * than a page of control bytes.
+     *
+     * @param value the payload the code carries
+     * @return the directive line, without its newline
+     */
+    private static String qrCode(String value) {
+        return "[[QR " + value + "]]";
+    }
+
+    /**
+     * The FOOT-OF-TICKET address block ({@code BO-03-05-08}): the administered
+     * address, rendered as the shop asked — a QR code, a bar code, or the
+     * address written out.
+     *
+     * <p>Nothing administered, nothing printed, and the document is
+     * byte-for-byte the one printed before this block existed. An unknown
+     * format answers the QR code rather than nothing: a shop that typed a
+     * word this version does not know still wanted its address on the paper.
+     *
+     * @return the block and its newline, or an empty string
+     */
+    String footerUrlBlock() {
+        if (posSettingsService == null) {
+            return "";
+        }
+        String url = safe(posSettingsService.ticketFooterUrl()).trim();
+        if (url.isEmpty()) {
+            return "";
+        }
+        String format = safe(posSettingsService.ticketFooterUrlFormat()).trim().toUpperCase();
+        if ("AUCUN".equals(format)) {
+            return "";
+        }
+        if ("TEXTE".equals(format)) {
+            StringBuilder written = new StringBuilder();
+            for (String line : wrap(url, WIDTH)) {
+                written.append(center(line, WIDTH)).append("\n");
+            }
+            return written.toString();
+        }
+        return ("BARCODE".equals(format) ? barcode(url) : qrCode(url)) + "\n";
     }
 
     // --------------------------------------------------
@@ -1209,47 +2031,47 @@ public class TicketPrinterService {
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         sb.append(formatLine(i18n.get("paper.ticketsClos"), String.valueOf(report.ticketCount)));
-        sb.append(formatLine(i18n.get("paper.caTtc"), DF.format(report.totalIncludingTax) + " E"));
+        sb.append(formatLine(i18n.get("paper.caTtc"), money(DF.format(report.totalIncludingTax))));
         sb.append("-".repeat(WIDTH)).append("\n");
         sb.append(center(i18n.get("paper.reglements"), WIDTH)).append("\n");
         // BO-03-02-25: a tender the back office does not put in detail is not
         // hidden, it is summed — the report still balances, it just says less
         // about tenders the store does not want line by line.
         for (var row : report.getDetailedMethodRows()) {
-            sb.append(formatLine(row.method(), row.amountFormatted() + " E"));
+            sb.append(formatLine(row.method(), money(row.amountFormatted())));
         }
         if (report.isCarryingUndetailedMethods()) {
             sb.append(formatLine(i18n.get("paper.autresReglements"),
-                    report.getOtherMethodsTotalFormatted() + " E"));
+                    money(report.getOtherMethodsTotalFormatted())));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (report.totalRefunds.signum() > 0) {
-            sb.append(formatLine(i18n.get("paper.remboursements"), DF.format(report.totalRefunds) + " E"));
+            sb.append(formatLine(i18n.get("paper.remboursements"), money(DF.format(report.totalRefunds))));
         }
         // BO-03-02-21 and BO-03-02-30: what goes to the bank and what goes to the
         // fidelity programme are stated only when the store administered tenders
         // for them — a nil line would say something the store never asked.
         if (report.bankDepositTotal.signum() > 0) {
             sb.append(formatLine(i18n.get("paper.remiseBanque"),
-                    report.getBankDepositTotalFormatted() + " E"));
+                    money(report.getBankDepositTotalFormatted())));
         }
         if (report.fidelityReportedTotal.signum() > 0) {
             sb.append(formatLine(i18n.get("paper.dontRemonteeFidelite"),
-                    report.getFidelityReportedTotalFormatted() + " E"));
+                    money(report.getFidelityReportedTotalFormatted())));
         }
-        sb.append(formatLine(i18n.get("paper.fondCaisse"), DF.format(session.openingFloat) + " E"));
-        sb.append(formatLine(i18n.get("paper.especesTheorique"), DF.format(report.theoreticalCash) + " E"));
+        sb.append(formatLine(i18n.get("paper.fondCaisse"), money(DF.format(session.openingFloat))));
+        sb.append(formatLine(i18n.get("paper.especesTheorique"), money(DF.format(report.theoreticalCash))));
         // The cashier's own declaration, stated only when they made one, and stated
         // next to the theoretical — the comparison is the whole point of asking.
         if (report.isDeclared()) {
-            sb.append(formatLine(i18n.get("paper.especesDeclarees"), DF.format(report.declaredCash) + " E"));
+            sb.append(formatLine(i18n.get("paper.especesDeclarees"), money(DF.format(report.declaredCash))));
             sb.append(formatLine(i18n.get("paper.ecartDeclaration"),
-                    DF.format(report.declaredCashVariance) + " E"));
+                    money(DF.format(report.declaredCashVariance))));
         }
         if (report.closing) {
-            sb.append(formatLine(i18n.get("paper.especesComptees"), DF.format(session.countedAmount) + " E"));
-            sb.append(formatLine(i18n.get("paper.ecart"), DF.format(session.variance) + " E"));
-            sb.append(formatLine(i18n.get("paper.prelevement"), DF.format(session.withdrawnAmount) + " E"));
+            sb.append(formatLine(i18n.get("paper.especesComptees"), money(DF.format(session.countedAmount))));
+            sb.append(formatLine(i18n.get("paper.ecart"), money(DF.format(session.variance))));
+            sb.append(formatLine(i18n.get("paper.prelevement"), money(DF.format(session.withdrawnAmount))));
         }
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
@@ -1294,7 +2116,9 @@ public class TicketPrinterService {
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Refund title
-        sb.append(center(i18n.both("paper.ticketRetour"), WIDTH)).append("\n");
+        // BO-03-04-12: the document's name, administered or the register's.
+        sb.append(center(documentTitle(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.REFUND_RECEIPT,
+                i18n.both("paper.ticketRetour")), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         // Refund info
         sb.append(String.format(i18n.get("paper.date"), refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
@@ -1313,7 +2137,7 @@ public class TicketPrinterService {
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Total, method and VAT restitution
-        sb.append(formatLine(i18n.both("paper.totalRembourse"), DF.format(refund.totalAmount) + " E"));
+        sb.append(formatLine(i18n.both("paper.totalRembourse"), money(DF.format(refund.totalAmount))));
         if (refund.refundMethod != null) {
             sb.append(formatLine(i18n.both("paper.mode"), refundMethodLabel(refund.refundMethod)));
         }
@@ -1336,11 +2160,18 @@ public class TicketPrinterService {
                         i18n.both("paper.ht") + DF.format(bucket.totalExcludingTax) + i18n.both("paper.tva") + DF.format(bucket.vatAmount)));
             }
         }
+        // BO-02-02-02: the same legal mentions on the return document, which
+        // states a restituted tax and owes the customer the same sentence.
+        sb.append(vatLegalMentions(refundBreakdown));
         sb.append(refundRecalculationBlock(refund));
         sb.append("\n");
         // Footer
         sb.append("\n");
+        // BO-10-06-03: and on every return document, by the same rule.
+        sb.append(fiscalCertificateLine());
         sb.append(center(i18n.both("paper.merciVotreVisite"), WIDTH)).append("\n");
+        // BO-03-05-08: the same administered address on the return document.
+        sb.append(footerUrlBlock());
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printRefund");
@@ -1378,7 +2209,7 @@ public class TicketPrinterService {
         if (recomputed) {
             BigDecimal withdrawn = refund.withdrawnGenerosity == null
                     ? BigDecimal.ZERO : refund.withdrawnGenerosity;
-            sb.append(formatLine(i18n.both("paper.avantageRepris"), DF.format(withdrawn) + " E"));
+            sb.append(formatLine(i18n.both("paper.avantageRepris"), money(DF.format(withdrawn))));
             if (refund.keptAdvantages != null && !refund.keptAdvantages.isBlank()) {
                 sb.append(i18n.get("paper.avantagesConserves"));
                 for (String label : refund.keptAdvantages.split(" \\| ")) {
@@ -1400,6 +2231,21 @@ public class TicketPrinterService {
     }
 
     /**
+     * The logo the back office administered for this store
+     * ({@code BO-03-03-15}), or an empty string when it administered none —
+     * the register then printing the logo of its installation.
+     *
+     * <p>Null-tolerant on the service, like the settings around it: a printer
+     * built by hand in a unit test carries none, and a receipt must still
+     * print.
+     *
+     * @return the administered logo as a data URI, never null
+     */
+    private String administeredLogo() {
+        return storeImageService == null ? "" : storeImageService.receiptLogo();
+    }
+
+    /**
      * The logo line opening a printed document, or nothing.
      *
      * <p>Every document this register hands over carries the enseigne's logo,
@@ -1414,7 +2260,8 @@ public class TicketPrinterService {
         // BO-03-03-14: the head's own width, as the shop states it. A printer
         // built by hand in a unit test answers zero, which the logo reads as
         // "no width administered" and renders at its default.
-        String logo = ReceiptLogo.directive(posSettingsService.logoWidthDots());
+        String logo = ReceiptLogo.directive(administeredLogo(),
+                posSettingsService.logoWidthDots());
         return logo.isEmpty() ? "" : logo + "\n";
     }
 
@@ -1434,7 +2281,7 @@ public class TicketPrinterService {
      * @return the banner line, newline included
      */
     private String brandBanner() {
-        String logo = ReceiptLogo.directive();
+        String logo = ReceiptLogo.directive(administeredLogo());
         return logo.isEmpty() ? center(i18n.get("paper.intermarche"), WIDTH) + "\n" : logo + "\n";
     }
 
@@ -1455,16 +2302,16 @@ public class TicketPrinterService {
         sb.append(center(i18n.get("paper.ticketNonValable"), WIDTH)).append("\n");
         sb.append(center("*".repeat(WIDTH), WIDTH)).append("\n\n");
         for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : state.ticket.items) {
-            sb.append(formatLine(item.label, item.getPriceFormatted() + " E"));
+            sb.append(formatLine(item.label, money(item.getPriceFormatted())));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (state.ticket.globalDiscountApplied != null) {
             sb.append(formatLine(i18n.get("paper.remiseTicket"),
-                    "-" + DF.format(state.ticket.globalDiscountApplied) + " E"));
+                    "-" + money(DF.format(state.ticket.globalDiscountApplied))));
         }
-        sb.append(formatLine(i18n.get("paper.total"), state.ticket.getTotalFormatted() + " E"));
+        sb.append(formatLine(i18n.get("paper.total"), money(state.ticket.getTotalFormatted())));
         for (com.intermarche.pos.ui.payment.PaymentState.PaymentEntry entry : state.payment.payments) {
-            sb.append(formatLine("  " + entry.method, DF.format(entry.amount) + " E"));
+            sb.append(formatLine("  " + entry.method, money(DF.format(entry.amount))));
         }
         sb.append("\n").append(center(i18n.get("paper.formationSansValeur"), WIDTH)).append("\n\n");
         hardwareService.printReceipt(sb.toString());
@@ -1489,9 +2336,10 @@ public class TicketPrinterService {
         String validityLine = validUntil == null ? "" : String.format(i18n.get("paper.valableJusqu"),
                 validUntil.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
         String sb = brandBanner() +
-                center(i18n.both("paper.avoir"), WIDTH) + "\n" +
+                center(documentTitle(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.CREDIT_NOTE_VOUCHER,
+                        i18n.both("paper.avoir")), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine(i18n.both("paper.montant"), DF.format(refund.totalAmount) + " E") +
+                formatLine(i18n.both("paper.montant"), money(DF.format(refund.totalAmount))) +
                 String.format(i18n.get("paper.emis"),
                         refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))) +
                 validityLine +
@@ -1516,7 +2364,7 @@ public class TicketPrinterService {
         String sb = brandBanner() +
                 center(i18n.both("paper.remboursementCagnotte"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine(i18n.both("paper.creditCarte"), "+" + DF.format(amount) + " E") +
+                formatLine(i18n.both("paper.creditCarte"), "+" + money(DF.format(amount))) +
                 center(i18n.both("paper.visibleCarteSousQuelques"), WIDTH) + "\n" +
                 "\n";
         hardwareService.printReceipt(sb);
@@ -1545,9 +2393,10 @@ public class TicketPrinterService {
             return;
         }
         String sb = center(i18n.get("paper.intermarche"), WIDTH) + "\n" +
-                center(i18n.both("paper.carteCadeau"), WIDTH) + "\n" +
+                center(documentTitle(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.GIFT_CARD_VOUCHER,
+                        i18n.both("paper.carteCadeau")), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine(i18n.both("paper.montantCharge"), DF.format(amount) + " E") +
+                formatLine(i18n.both("paper.montantCharge"), money(DF.format(amount))) +
                 "\n" + center("N° " + number, WIDTH) + "\n" +
                 center(i18n.both("paper.scannableCaisseSoldeRegistre"), WIDTH) + "\n" +
                 "\n";
@@ -1570,20 +2419,28 @@ public class TicketPrinterService {
      */
     public void printChangeVoucher(String number, java.math.BigDecimal amount) {
         LOGGER.info("Entering method printChangeVoucher with number: " + number + ", amount: " + amount);
+        // BO-03-03-08: the end of validity the registry holds, when the shop
+        // states it on the paper.
+        java.time.LocalDateTime validUntil = creditNoteExpiry(number);
         // BO-03-03: the store's own layout first, the built-in one otherwise.
         String administered = administeredLayout(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.CREDIT_NOTE_VOUCHER,
-                instrumentDocumentData(number, amount));
+                instrumentDocumentData(number, amount, validUntil));
         if (administered != null) {
             hardwareService.printReceipt(administered);
             hardwareService.cutPaper();
             LOGGER.info("Exiting method printChangeVoucher");
             return;
         }
+        String expiry = validUntil == null ? ""
+                : center(i18n.format("paper.valableJusquau",
+                        validUntil.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))),
+                        WIDTH) + "\n";
         String sb = center(i18n.get("paper.intermarche"), WIDTH) + "\n" +
                 center(i18n.both("paper.avoirRenduMonnaie"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine(i18n.both("paper.montant"), DF.format(amount) + " E") +
+                formatLine(i18n.both("paper.montant"), money(DF.format(amount))) +
                 "\n" + center("N° " + number, WIDTH) + "\n" +
+                expiry +
                 center(i18n.both("paper.scannableCaisseSoldeRegistre"), WIDTH) + "\n" +
                 "\n";
         hardwareService.printReceipt(sb);
@@ -1683,9 +2540,13 @@ public class TicketPrinterService {
     /**
      * Prints the parked-ticket receipt (LC-04-01-02): the ticket number in
      * clear — the resume code —, the articles and the running total. The
-     * number is what the resume path recognizes, scanned on the bus or
-     * typed; this text printer has no barcode primitives, the number IS the
-     * code.
+     * number is what the resume path recognizes, scanned on the bus or typed.
+     *
+     * <p>The number is printed in CLEAR and alone, which is a choice and not a
+     * limitation: this class does have a barcode primitive ({@code barcode},
+     * emitting the {@code [[BARCODE …]]} directive the hardware bridge encodes,
+     * as the ticket identity slip and the credit note both do). The comment
+     * that used to stand here said the opposite, and it was wrong.
      *
      * @param draft the freshly parked draft
      */
@@ -1702,10 +2563,10 @@ public class TicketPrinterService {
             String label = line.productLabel.length() > 20
                     ? line.productLabel.substring(0, 20) : line.productLabel;
             sb.append(formatLine(label + " x" + DF.format(line.quantity),
-                    DF.format(line.totalPrice) + " E"));
+                    money(DF.format(line.totalPrice))));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine(i18n.get("paper.totalAttente"), DF.format(draft.totalIncludingTax) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalAttente"), money(DF.format(draft.totalIncludingTax))));
         sb.append(center(i18n.get("paper.scannezNumeroReprendre"), WIDTH)).append("\n");
         hardwareService.printReceipt(sb.toString());
         LOGGER.info("Exiting method printParkedTicket");
@@ -1779,7 +2640,7 @@ public class TicketPrinterService {
             sb.append(String.format(i18n.get("paper.date"),
                     ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
             sb.append("-".repeat(WIDTH)).append("\n");
-            sb.append(formatLine(i18n.both("paper.montant"), DF.format(card.amount) + " E"));
+            sb.append(formatLine(i18n.both("paper.montant"), money(DF.format(card.amount))));
             if (card.authorizationNumber != null && !card.authorizationNumber.isBlank()) {
                 sb.append(formatLine(i18n.both("paper.autorisation"), card.authorizationNumber));
             }
@@ -1852,15 +2713,15 @@ public class TicketPrinterService {
                     ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine(i18n.both("paper.paiementTotalFid"), DF.format(used) + " E"));
+        sb.append(formatLine(i18n.both("paper.paiementTotalFid"), money(DF.format(used))));
         sb.append(formatLine(i18n.both("paper.carte"), safe(ticket.fidelityCard)));
         if (ticket.fidelityAvailableBalance != null) {
-            sb.append(formatLine(i18n.both("paper.soldeAvant"), DF.format(ticket.fidelityAvailableBalance) + " E"));
+            sb.append(formatLine(i18n.both("paper.soldeAvant"), money(DF.format(ticket.fidelityAvailableBalance))));
         }
         // imfid response B: the ledger balance after the burn, read from the
         // confirmation, never recomputed by the register.
         if (ticket.fidelityBalanceAfter != null) {
-            sb.append(formatLine(i18n.both("paper.soldeApres"), DF.format(ticket.fidelityBalanceAfter) + " E"));
+            sb.append(formatLine(i18n.both("paper.soldeApres"), money(DF.format(ticket.fidelityBalanceAfter))));
         }
         sb.append("\n").append(center(i18n.both("paper.signatureClient"), WIDTH)).append("\n\n\n");
         hardwareService.printReceipt(sb.toString());
@@ -1889,6 +2750,737 @@ public class TicketPrinterService {
         data.put("document", java.util.Map.of("number", safe(ticket.ticketNumber)));
         data.put("fidelity", fidelityData(ticket));
         data.put("settlement", java.util.Map.of("amount", DF.format(used)));
+        return data;
+    }
+
+    /**
+     * The LEGAL MENTIONS the regimes of a document oblige it to carry
+     * ({@code BO-02-02-02}), each on its own wrapped lines.
+     *
+     * <p>ONE MENTION, ONCE. Two regimes of the same country usually name the
+     * same sentence, and a receipt printing it twice would read as a defect
+     * rather than as a legal statement; the set keeps the first occurrence and
+     * the order of the ventilation.
+     *
+     * <p>Wrapped and never truncated: a legal sentence cut in half says
+     * nothing at all, which is the rule every administered text on this paper
+     * follows. Nothing administered yields an empty string, and the document
+     * is byte-for-byte the one printed before the mentions existed.
+     *
+     * @param breakdown the ventilation of the document
+     * @return the mentions and their newlines, or an empty string
+     */
+    String vatLegalMentions(VatBreakdown breakdown) {
+        java.util.LinkedHashSet<String> mentions = new java.util.LinkedHashSet<>();
+        for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
+            com.intermarche.pos.domain.catalog.VatRate regime =
+                    com.intermarche.pos.domain.catalog.VatRate.findByRate(bucket.rate);
+            if (regime != null && regime.legalMention != null
+                    && !regime.legalMention.isBlank()) {
+                mentions.add(regime.legalMention.trim());
+            }
+        }
+        StringBuilder printed = new StringBuilder();
+        for (String mention : mentions) {
+            for (String line : wrap(mention, WIDTH)) {
+                printed.append(line).append("\n");
+            }
+        }
+        return printed.toString();
+    }
+
+    /**
+     * The NUMBER of the VAT regime a sold line was taxed under (BO-03-03-37).
+     *
+     * <p>Read back from the RATE the line snapshotted, because the number lives
+     * on the regime and the line keeps the rate: that is what makes a reprint
+     * state the regime of the sale rather than the regime of today.
+     *
+     * @param line the sold line
+     * @return the regime number as text, or null when the line carries no rate
+     *         or no regime carries that rate
+     */
+    private String vatCodeOf(TicketLine line) {
+        if (line.vatRate == null) {
+            return null;
+        }
+        com.intermarche.pos.domain.catalog.VatRate regime =
+                com.intermarche.pos.domain.catalog.VatRate.findByRate(line.vatRate);
+        return regime == null || regime.number == null ? null : String.valueOf(regime.number);
+    }
+
+    /**
+     * Prints the EXIT ticket of a closed sale, INSTEAD OF the sale receipt
+     * (BO-03-03-36).
+     *
+     * <p>Substitutive and not additional: a store that administers it hands the
+     * customer the few figures a gate or a greeter checks — a total, a count of
+     * articles and the dearest ones named — instead of eighty lines nobody
+     * reads on the way out. The caller does not have to know whether the store
+     * administers it: a zero return means "nothing printed, print the receipt".
+     *
+     * <p>Every value is DERIVED from the sale. Nothing new is stored, and a
+     * store that switches it off goes back to the receipt with no trace left.
+     *
+     * @param ticketId the database id of the closed ticket
+     * @return the number of exit tickets printed — zero when the ticket is
+     *         unknown or the store does not administer the document
+     */
+    @Transactional
+    public int printExitTicket(Long ticketId) {
+        LOGGER.info("Entering method printExitTicket with ticketId: " + ticketId);
+        if (!posSettingsService.exitTicketEnabled()) {
+            LOGGER.info("Exiting method printExitTicket");
+            return 0;
+        }
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method printExitTicket");
+            return 0;
+        }
+        java.util.List<TicketLine> dearest = dearestLines(ticket);
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.EXIT_TICKET,
+                exitDocumentData(ticket, dearest));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printExitTicket");
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(documentTitle(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.EXIT_TICKET,
+                i18n.both("paper.ticketSortie")), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine(i18n.both("paper.totalTtc"),
+                money(DF.format(ticket.totalIncludingTax == null
+                        ? BigDecimal.ZERO : ticket.totalIncludingTax))));
+        sb.append(formatLine(i18n.both("paper.nombreArticles"),
+                String.valueOf(ticket.itemCount)));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        for (TicketLine line : dearest) {
+            String label = line.productLabel == null ? ""
+                    : (line.productLabel.length() > 20
+                            ? line.productLabel.substring(0, 20) : line.productLabel);
+            sb.append(formatLine(label + " x" + DF.format(line.quantity),
+                    money(DF.format(line.totalPrice))));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center(safe(ticket.ticketNumber), WIDTH)).append("\n");
+        sb.append(barcode(safe(ticket.ticketNumber))).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printExitTicket");
+        return 1;
+    }
+
+    /**
+     * The dearest lines of a sale, the most expensive first (BO-03-03-36).
+     *
+     * <p>Cancelled lines are not sold, so they are not candidates; the store
+     * says how many are named, and a sale with fewer lines than that names all
+     * of them.
+     *
+     * @param ticket the closed sale
+     * @return the lines to name, never null
+     */
+    private java.util.List<TicketLine> dearestLines(Ticket ticket) {
+        java.util.List<TicketLine> lines = new java.util.ArrayList<>();
+        if (ticket.lines != null) {
+            for (TicketLine line : ticket.lines) {
+                if (!line.cancelled) {
+                    lines.add(line);
+                }
+            }
+        }
+        lines.sort((left, right) -> {
+            BigDecimal leftTotal = left.totalPrice == null ? BigDecimal.ZERO : left.totalPrice;
+            BigDecimal rightTotal = right.totalPrice == null ? BigDecimal.ZERO : right.totalPrice;
+            return rightTotal.compareTo(leftTotal);
+        });
+        int kept = posSettingsService.exitTicketArticles();
+        return lines.size() <= kept ? lines : new java.util.ArrayList<>(lines.subList(0, kept));
+    }
+
+    /**
+     * Builds the exit ticket as an administered layout sees it (BO-03-03-36).
+     *
+     * @param ticket the closed sale
+     * @param dearest the lines named on the document, dearest first
+     * @return the document values, every figure already formatted
+     */
+    java.util.Map<String, Object> exitDocumentData(Ticket ticket,
+            java.util.List<TicketLine> dearest) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("store", storeData(ticket));
+        data.put("terminal", safe(ticket.terminalId));
+        data.put("operator", ticket.cashier == null ? "" : safe(ticket.cashier.getFullName()));
+        data.put("date", ticket.creationDate == null ? ""
+                : ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", ticket.creationDate == null ? ""
+                : ticket.creationDate.format(DateTimeFormatter.ofPattern("HH:mm")));
+        data.put("document", java.util.Map.of(
+                "number", safe(ticket.ticketNumber),
+                // The barcode as the DIRECTIVE the hardware bridge encodes, like
+                // the credit note's: the paper a gate reads is scanned, not typed.
+                "barcode", barcode(safe(ticket.ticketNumber))));
+        data.put("totals", java.util.Map.of("includingTax",
+                DF.format(ticket.totalIncludingTax == null
+                        ? BigDecimal.ZERO : ticket.totalIncludingTax)));
+        data.put("articleCount", String.valueOf(ticket.itemCount));
+        java.util.List<java.util.Map<String, Object>> topLines = new java.util.ArrayList<>();
+        for (TicketLine line : dearest) {
+            topLines.add(java.util.Map.of(
+                    "label", line.productLabel == null ? "" : line.productLabel,
+                    "quantity", DF.format(line.quantity),
+                    "unitPrice", line.unitPrice == null ? "" : DF.format(line.unitPrice),
+                    "total", line.totalPrice == null ? "" : DF.format(line.totalPrice)));
+        }
+        data.put("topLines", topLines);
+        return data;
+    }
+
+    /**
+     * Prints the RESUME ticket of a parked sale that came back (BO-03-03-07).
+     *
+     * <p>The parked receipt said what was put aside; this one says that it came
+     * back, and names BOTH numbers — the ticket the sale goes on with and the
+     * number the parked paper carried. They are the same on an ordinary resume
+     * and differ on one taken over from another register (EXP-46), and that
+     * difference is what a dispute two hours later turns on.
+     *
+     * @param ticket the resumed draft
+     * @param originalNumber the number the parked receipt carried
+     * @return the number of documents printed — zero when the store does not
+     *         administer the document or the draft is unknown
+     */
+    public int printResumeTicket(Ticket ticket, String originalNumber) {
+        LOGGER.info("Entering method printResumeTicket with originalNumber: " + originalNumber);
+        if (!posSettingsService.parkingPrintResume() || ticket == null) {
+            LOGGER.info("Exiting method printResumeTicket");
+            return 0;
+        }
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType
+                        .PARKED_TICKET_RESUME,
+                resumeDocumentData(ticket, originalNumber));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printResumeTicket");
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(documentTitle(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType
+                        .PARKED_TICKET_RESUME,
+                i18n.both("paper.ticketReprise")), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        // The PRINTING date, which the questionnaire asks for by that name: the
+        // draft was created before it was parked, and what this paper dates is
+        // the moment it came back.
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(String.format(i18n.get("paper.ticket2"), safe(ticket.ticketNumber)));
+        sb.append(String.format(i18n.get("paper.ticketOriginal"), safe(originalNumber)));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printResumeTicket");
+        return 1;
+    }
+
+    /**
+     * Builds the resume ticket as an administered layout sees it (BO-03-03-07).
+     *
+     * @param ticket the resumed draft
+     * @param originalNumber the number the parked receipt carried
+     * @return the document values, every figure already formatted
+     */
+    java.util.Map<String, Object> resumeDocumentData(Ticket ticket, String originalNumber) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("store", storeData(ticket));
+        data.put("terminal", safe(ticket.terminalId));
+        data.put("operator", ticket.cashier == null ? "" : safe(ticket.cashier.getFullName()));
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        data.put("date", now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", now.format(DateTimeFormatter.ofPattern("HH:mm")));
+        data.put("document", java.util.Map.of(
+                "number", safe(ticket.ticketNumber),
+                "originalNumber", safe(originalNumber)));
+        return data;
+    }
+
+    /**
+     * Prints the UNKNOWN-ARTICLE slip of a code nothing recognized
+     * (BO-03-10-05).
+     *
+     * <p>The paper a department manager walks back to the referential with: the
+     * code as it was read, the register and the moment. The screen already
+     * carries the message — this is not a second way of saying it, it is the
+     * trace that leaves the till.
+     *
+     * <p>Administered per ISLAND, and the caller does not have to know: a zero
+     * return means the island asks for no paper.
+     *
+     * @param code the code that was read, possibly null
+     * @return the number of slips printed — zero when the island asks for none
+     *         or the code is blank
+     */
+    public int printUnknownArticleTicket(String code) {
+        LOGGER.info("Entering method printUnknownArticleTicket with code: " + code);
+        if (!posSettingsService.islandUnknownArticleTicket() || code == null || code.isBlank()) {
+            LOGGER.info("Exiting method printUnknownArticleTicket");
+            return 0;
+        }
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType
+                        .UNKNOWN_ARTICLE_TICKET,
+                unknownArticleDocumentData(code));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printUnknownArticleTicket");
+            return 1;
+        }
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(documentTitle(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType
+                        .UNKNOWN_ARTICLE_TICKET,
+                i18n.both("paper.articleInconnu")), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine(i18n.both("paper.codeLu"), code.trim()));
+        // BO-10-07-11: the same code as a BARCODE, so the department rescans it
+        // at the referential instead of keying thirteen digits again. The
+        // directive is what the hardware bridge encodes; a code it cannot encode
+        // prints as the directive line, which is visible rather than missing.
+        if (posSettingsService.unknownArticleBarcodePrinted()) {
+            sb.append(barcode(code.trim())).append("\n");
+        }
+        if (ticketNumberService != null) {
+            sb.append(String.format(i18n.get("paper.caisse2"),
+                    safe(ticketNumberService.getTerminalId())));
+        }
+        sb.append(String.format(i18n.get("paper.date"),
+                now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printUnknownArticleTicket");
+        return 1;
+    }
+
+    /**
+     * Builds the unknown-article slip as an administered layout sees it
+     * (BO-03-10-05).
+     *
+     * @param code the code that was read
+     * @return the document values
+     */
+    java.util.Map<String, Object> unknownArticleDocumentData(String code) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        data.put("terminal", ticketNumberService == null
+                ? "" : safe(ticketNumberService.getTerminalId()));
+        data.put("operator", "");
+        data.put("date", now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", now.format(DateTimeFormatter.ofPattern("HH:mm")));
+        // BO-10-07-11: the administered layout receives the directive too, so a
+        // store template can place the barcode where it wants it.
+        data.put("document", java.util.Map.of("code", code.trim(),
+                "barcode", posSettingsService.unknownArticleBarcodePrinted()
+                        ? barcode(code.trim()) : ""));
+        return data;
+    }
+
+    /**
+     * Prints the slip of a CANCELLED settlement (BO-03-02-35).
+     *
+     * <p>A settlement undone is an event and not a non-event: the customer
+     * handed over a cheque or a card and the register gave it back, and the
+     * paper says which tender, for how much, on which ticket and when. It goes
+     * through the SAME engine as every other document — an administered layout
+     * wins, the built-in one is the fallback — because the engine exists; the
+     * editor comment claiming it had to be created first was written before it
+     * did.
+     *
+     * <p>Nothing is printed when the tender is not named or the amount is not
+     * positive: a slip saying a settlement of nothing was cancelled would only
+     * confuse the till's journal.
+     *
+     * @param ticketNumber the number of the ticket the settlement was on, or null
+     * @param tenderLabel the wording of the cancelled tender, or null
+     * @param amount the amount that was given back, or null
+     * @return 1 when a slip was printed, 0 when there was nothing to print
+     */
+    public int printPaymentCancellation(String ticketNumber, String tenderLabel,
+                                        BigDecimal amount) {
+        LOGGER.info("Entering method printPaymentCancellation with ticketNumber: "
+                + ticketNumber + ", tenderLabel: " + tenderLabel + ", amount: " + amount);
+        if (tenderLabel == null || tenderLabel.isBlank()
+                || amount == null || amount.signum() <= 0) {
+            LOGGER.info("Exiting method printPaymentCancellation");
+            return 0;
+        }
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType
+                        .PAYMENT_CANCELLATION,
+                paymentCancellationDocumentData(ticketNumber, tenderLabel, amount));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printPaymentCancellation");
+            return 1;
+        }
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(documentTitle(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType
+                        .PAYMENT_CANCELLATION,
+                i18n.both("paper.annulationReglement")), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (ticketNumberService != null) {
+            sb.append(String.format(i18n.get("paper.caisse2"),
+                    safe(ticketNumberService.getTerminalId())));
+        }
+        sb.append(String.format(i18n.get("paper.date"),
+                now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(formatLine(i18n.both("paper.ticketNumero"), safe(ticketNumber)));
+        sb.append(formatLine(i18n.both("paper.reglement"), tenderLabel.trim()));
+        sb.append(formatLine(i18n.both("paper.montant"), money(DF.format(amount))));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printPaymentCancellation");
+        return 1;
+    }
+
+    /**
+     * Prints the DEPOSIT slip of a customer order (BO-03-03-09).
+     *
+     * <p>The money is taken before the goods exist, so this paper is the
+     * customer's only proof. It names the order, the customer, the amount and a
+     * unique number, and carries that number as a BARCODE so the balance can be
+     * settled by scanning it rather than by typing it back.
+     *
+     * <p>The VAT recap is handed in rather than computed: a deposit's breakdown
+     * belongs to the order it settles, and this printer does not query. Absent,
+     * the block simply does not print.
+     *
+     * <p>Nothing is printed without a unique number or without a positive
+     * amount: a proof nobody can look up is not a proof.
+     *
+     * @param uniqueNumber the slip's own number, barcoded, or null
+     * @param orderNumber the order the deposit settles, or null
+     * @param customerName the customer's name, or null
+     * @param amount the amount taken, or null
+     * @param vatLines the VAT recap rows, each carrying a rate, a base and an
+     *        amount, or null when the caller has none
+     * @return 1 when a slip was printed, 0 when there was nothing to print
+     */
+    public int printDepositReceipt(String uniqueNumber, String orderNumber,
+                                   String customerName, BigDecimal amount,
+                                   java.util.List<java.util.Map<String, String>> vatLines) {
+        LOGGER.info("Entering method printDepositReceipt with uniqueNumber: " + uniqueNumber
+                + ", orderNumber: " + orderNumber + ", amount: " + amount);
+        if (uniqueNumber == null || uniqueNumber.isBlank()
+                || amount == null || amount.signum() <= 0) {
+            LOGGER.info("Exiting method printDepositReceipt");
+            return 0;
+        }
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.DEPOSIT_RECEIPT,
+                depositDocumentData(uniqueNumber, orderNumber, customerName, amount, vatLines));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printDepositReceipt");
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(documentTitle(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.DEPOSIT_RECEIPT,
+                i18n.both("paper.acompte")), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (ticketNumberService != null) {
+            sb.append(String.format(i18n.get("paper.caisse2"),
+                    safe(ticketNumberService.getTerminalId())));
+        }
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(formatLine(i18n.both("paper.acompteClient"), safe(customerName)));
+        sb.append(formatLine(i18n.both("paper.acompteCommande"), safe(orderNumber)));
+        sb.append(formatLine(i18n.both("paper.montant"), money(DF.format(amount))));
+        if (vatLines != null && !vatLines.isEmpty()) {
+            sb.append("-".repeat(WIDTH)).append("\n");
+            for (java.util.Map<String, String> vat : vatLines) {
+                if (vat == null) {
+                    continue;
+                }
+                sb.append(formatLine(safe(vat.get("rate")), safe(vat.get("amount"))));
+            }
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center(uniqueNumber.trim(), WIDTH)).append("\n");
+        sb.append(barcode(uniqueNumber.trim())).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printDepositReceipt");
+        return 1;
+    }
+
+    /**
+     * Builds the deposit slip as an administered layout sees it (BO-03-03-09).
+     *
+     * @param uniqueNumber the slip's own number
+     * @param orderNumber the order the deposit settles, or null
+     * @param customerName the customer's name, or null
+     * @param amount the amount taken
+     * @param vatLines the VAT recap rows, or null
+     * @return the document values
+     */
+    java.util.Map<String, Object> depositDocumentData(String uniqueNumber, String orderNumber,
+                                                      String customerName, BigDecimal amount,
+                                                      java.util.List<java.util.Map<String, String>> vatLines) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        data.put("terminal", ticketNumberService == null
+                ? "" : safe(ticketNumberService.getTerminalId()));
+        data.put("operator", "");
+        data.put("date", now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", now.format(DateTimeFormatter.ofPattern("HH:mm")));
+        data.put("document", java.util.Map.of(
+                "number", uniqueNumber.trim(),
+                "orderNumber", safe(orderNumber),
+                "customerName", safe(customerName),
+                "amount", DF.format(amount),
+                "barcode", barcode(uniqueNumber.trim())));
+        data.put("vatLines", vatLines == null
+                ? java.util.List.of()
+                : vatLines.stream().filter(java.util.Objects::nonNull).toList());
+        return data;
+    }
+
+    /**
+     * Prints the deposit ticket of an order CREATED at the till
+     * (LC-06-03-06).
+     *
+     * <p>The customer walks away with the paper that brings them back: the
+     * order's articles, the deposit they paid, the VAT recap computed on that
+     * deposit (LC-06-03-05) and the BARCODE of the order code — the one thing
+     * that reopens the order at any register of the store (LC-06-03-07).
+     *
+     * <p>Nothing is printed without an order code or without a positive
+     * deposit: a slip that names no order reopens nothing, and a slip that
+     * states no money proves nothing.
+     *
+     * @param orderCode the code of the order, barcoded, or null
+     * @param lines the order's article lines, possibly empty
+     * @param deposit the deposit amount collected, or null
+     * @param vatDetail the per-rate VAT of the deposit, in the compact
+     *        {@code DepositVat} form, or null when it ventilated to nothing
+     * @return 1 when a ticket was printed, 0 when there was nothing to print
+     */
+    public int printOrderDepositTicket(String orderCode,
+                                       java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Line> lines,
+                                        BigDecimal deposit, String vatDetail) {
+        LOGGER.info("Entering method printOrderDepositTicket with orderCode: " + orderCode
+                + ", deposit: " + deposit);
+        if (orderCode == null || orderCode.isBlank()
+                || deposit == null || deposit.signum() <= 0) {
+            LOGGER.info("Exiting method printOrderDepositTicket (nothing to print)");
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(i18n.both("paper.acompte"), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(String.format(i18n.get("paper.caisse2"),
+                safe(ticketNumberService == null ? "" : ticketNumberService.getTerminalId())));
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(formatLine(i18n.both("paper.acompteCommande"), orderCode.trim()));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.articlesCommande"), WIDTH)).append("\n");
+        if (lines != null) {
+            for (com.intermarche.pos.ui.recall.RecalledDocument.Line line : lines) {
+                if (line == null) {
+                    continue;
+                }
+                BigDecimal quantity = line.quantity() == null ? BigDecimal.ONE : line.quantity();
+                BigDecimal unitPrice = line.unitPrice() == null
+                        ? BigDecimal.ZERO : line.unitPrice();
+                BigDecimal lineTotal = unitPrice.multiply(quantity)
+                        .setScale(2, java.math.RoundingMode.HALF_UP);
+                String label = safe(line.label()) + (quantity.compareTo(BigDecimal.ONE) != 0
+                        ? " x" + quantity.stripTrailingZeros().toPlainString() : "");
+                sb.append(formatLine(label, money(DF.format(lineTotal)))).append("\n");
+            }
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine(i18n.both("paper.montant"), money(DF.format(deposit))));
+        java.util.List<com.intermarche.pos.domain.payment.DepositVat.Row> rows =
+                com.intermarche.pos.domain.payment.DepositVat.rows(vatDetail);
+        if (!rows.isEmpty()) {
+            sb.append("-".repeat(WIDTH)).append("\n");
+            sb.append(center(i18n.both("paper.tvaAcompte"), WIDTH)).append("\n");
+            for (com.intermarche.pos.domain.payment.DepositVat.Row row : rows) {
+                sb.append(formatLine(row.getRateFormatted(), money(row.getAmountFormatted()))).append("\n");
+            }
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center(orderCode.trim(), WIDTH)).append("\n");
+        sb.append(barcode(orderCode.trim())).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printOrderDepositTicket");
+        return 1;
+    }
+
+    /**
+     * Prints the slip of a settlement paid by GIFT CARD (BO-03-03-11).
+     *
+     * <p>Distinct from {@code printGiftCardVoucher}, which is the paper a
+     * customer BUYING a card walks away with. This one is for a customer
+     * SPENDING one, and what it adds is the balance the card still carries —
+     * the one question a customer asks at the counter.
+     *
+     * <p>The card number is printed MASKED, last four characters only: a gift
+     * card is bearer money, and a full number on a receipt left in a trolley is
+     * a card somebody else can spend.
+     *
+     * @param ticketNumber the ticket the settlement is on, or null
+     * @param cardNumber the gift-card number, masked before printing, or null
+     * @param amount the amount settled, or null
+     * @param remainingBalance the balance the card still carries, or null
+     * @return 1 when a slip was printed, 0 when there was nothing to print
+     */
+    public int printGiftCardPaymentReceipt(String ticketNumber, String cardNumber,
+                                           BigDecimal amount, BigDecimal remainingBalance) {
+        LOGGER.info("Entering method printGiftCardPaymentReceipt with ticketNumber: "
+                + ticketNumber + ", amount: " + amount);
+        if (amount == null || amount.signum() <= 0) {
+            LOGGER.info("Exiting method printGiftCardPaymentReceipt");
+            return 0;
+        }
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.GIFT_CARD_PAYMENT,
+                giftCardPaymentDocumentData(ticketNumber, cardNumber, amount, remainingBalance));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printGiftCardPaymentReceipt");
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(logoHeader());
+        sb.append(center(documentTitle(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.GIFT_CARD_PAYMENT,
+                i18n.both("paper.paiementCarteCadeau")), WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (ticketNumberService != null) {
+            sb.append(String.format(i18n.get("paper.caisse2"),
+                    safe(ticketNumberService.getTerminalId())));
+        }
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(formatLine(i18n.both("paper.ticketNumero"), safe(ticketNumber)));
+        sb.append(formatLine(i18n.both("paper.carte"), maskedCardNumber(cardNumber)));
+        sb.append(formatLine(i18n.both("paper.montant"), money(DF.format(amount))));
+        if (remainingBalance != null) {
+            sb.append(formatLine(i18n.both("paper.soldeRestant"),
+                    money(DF.format(remainingBalance))));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printGiftCardPaymentReceipt");
+        return 1;
+    }
+
+    /**
+     * Builds the gift-card payment slip as an administered layout sees it
+     * (BO-03-03-11).
+     *
+     * @param ticketNumber the ticket the settlement is on, or null
+     * @param cardNumber the gift-card number, or null
+     * @param amount the amount settled
+     * @param remainingBalance the balance the card still carries, or null
+     * @return the document values
+     */
+    java.util.Map<String, Object> giftCardPaymentDocumentData(String ticketNumber,
+                                                              String cardNumber,
+                                                              BigDecimal amount,
+                                                              BigDecimal remainingBalance) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        data.put("terminal", ticketNumberService == null
+                ? "" : safe(ticketNumberService.getTerminalId()));
+        data.put("operator", "");
+        data.put("date", now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", now.format(DateTimeFormatter.ofPattern("HH:mm")));
+        data.put("document", java.util.Map.of(
+                "number", safe(ticketNumber),
+                "cardNumber", maskedCardNumber(cardNumber),
+                "amount", DF.format(amount),
+                "remainingBalance", remainingBalance == null
+                        ? "" : DF.format(remainingBalance)));
+        return data;
+    }
+
+    /**
+     * Masks a gift-card number down to its last four characters
+     * (BO-03-03-11).
+     *
+     * <p>A gift card is BEARER money: a full number on a receipt left in a
+     * trolley is a card somebody else can spend. A number too short to mask is
+     * printed whole — there is nothing to hide in four characters — and an
+     * absent one prints nothing.
+     *
+     * @param cardNumber the gift-card number, or null
+     * @return the masked number, never null
+     */
+    static String maskedCardNumber(String cardNumber) {
+        if (cardNumber == null || cardNumber.isBlank()) {
+            return "";
+        }
+        String trimmed = cardNumber.trim();
+        if (trimmed.length() <= 4) {
+            return trimmed;
+        }
+        return "****" + trimmed.substring(trimmed.length() - 4);
+    }
+
+    /**
+     * Builds the cancellation slip as an administered layout sees it
+     * (BO-03-02-35).
+     *
+     * @param ticketNumber the ticket the settlement was on, or null
+     * @param tenderLabel the wording of the cancelled tender
+     * @param amount the amount that was given back
+     * @return the document values
+     */
+    java.util.Map<String, Object> paymentCancellationDocumentData(String ticketNumber,
+                                                                  String tenderLabel,
+                                                                  BigDecimal amount) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        data.put("terminal", ticketNumberService == null
+                ? "" : safe(ticketNumberService.getTerminalId()));
+        data.put("operator", "");
+        data.put("date", now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", now.format(DateTimeFormatter.ofPattern("HH:mm")));
+        data.put("document", java.util.Map.of(
+                "number", safe(ticketNumber),
+                "tenderLabel", tenderLabel.trim(),
+                "amount", DF.format(amount)));
         return data;
     }
 
@@ -1944,7 +3536,7 @@ public class TicketPrinterService {
                 sb.append("-".repeat(WIDTH)).append("\n");
             }
         }
-        sb.append(formatLine(i18n.get("paper.totalPreleve"), DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalPreleve"), money(DF.format(amount))));
         sb.append("\n");
         sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
@@ -1993,7 +3585,7 @@ public class TicketPrinterService {
                 sb.append("-".repeat(WIDTH)).append("\n");
             }
         }
-        sb.append(formatLine(i18n.get("paper.totalCompte"), DF.format(total) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalCompte"), money(DF.format(total))));
         sb.append("\n");
         sb.append(center(i18n.get("paper.documentControleAucunMouvement"), WIDTH)).append("\n");
         sb.append("\n");
@@ -2046,7 +3638,7 @@ public class TicketPrinterService {
             sb.append(formatLine(i18n.get("paper.moyen2"), tenderLabel));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine(i18n.get("paper.montant"), DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.montant"), money(DF.format(amount))));
         sb.append("\n");
         sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
@@ -2090,7 +3682,7 @@ public class TicketPrinterService {
                 sb.append("-".repeat(WIDTH)).append("\n");
             }
         }
-        sb.append(formatLine(i18n.get("paper.totalApporte"), DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalApporte"), money(DF.format(amount))));
         sb.append("\n");
         sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
@@ -2126,10 +3718,10 @@ public class TicketPrinterService {
         sb.append("-".repeat(WIDTH)).append("\n");
         if (report != null) {
             for (CashSessionService.SessionReport.MethodRow row : report.getMethodRows()) {
-                sb.append(formatLine(row.method(), row.amountFormatted() + " E"));
+                sb.append(formatLine(row.method(), money(row.amountFormatted())));
             }
             sb.append("-".repeat(WIDTH)).append("\n");
-            sb.append(formatLine(i18n.get("paper.totalTtc"), (report.getTotalIncludingTaxFormatted()) + " E"));
+            sb.append(formatLine(i18n.get("paper.totalTtc"), money((report.getTotalIncludingTaxFormatted()))));
         }
         sb.append("\n");
         sb.append(i18n.get("paper.signature"));
@@ -2180,7 +3772,7 @@ public class TicketPrinterService {
         sb.append("-".repeat(WIDTH)).append("\n");
         sb.append(formatLine(i18n.get("paper.de"), fromLabel));
         sb.append(formatLine(i18n.get("paper.vers"), toLabel));
-        sb.append(formatLine(i18n.get("paper.montant"), DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.montant"), money(DF.format(amount))));
         sb.append("\n");
         sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
@@ -2243,7 +3835,7 @@ public class TicketPrinterService {
         // paper and that sum to her manager, who hands back the rolls. The slip used
         // to list the denominations and leave the amount to be added up by hand.
         if (total != null) {
-            sb.append(formatLine(i18n.get("paper.totalRemettre"), DF.format(total) + " E"));
+            sb.append(formatLine(i18n.get("paper.totalRemettre"), money(DF.format(total))));
             sb.append("\n");
             sb.append(i18n.get("paper.signature"));
         }
@@ -2313,13 +3905,13 @@ public class TicketPrinterService {
                 String label = line.productLabel.length() > 24
                         ? line.productLabel.substring(0, 24) : line.productLabel;
                 sb.append(formatLine(DF.format(line.quantity) + " " + label,
-                        DF.format(line.totalPrice) + " E"));
+                        money(DF.format(line.totalPrice))));
             }
         }
         if (withDetail) {
             sb.append("-".repeat(WIDTH)).append("\n");
         }
-        sb.append(formatLine(i18n.get("paper.montantAbandonne"), DF.format(abandoned) + " E"));
+        sb.append(formatLine(i18n.get("paper.montantAbandonne"), money(DF.format(abandoned))));
         sb.append("-".repeat(WIDTH)).append("\n");
         sb.append(center(i18n.get("paper.aucunEncaissement"), WIDTH)).append("\n");
         hardwareService.printReceipt(sb.toString());
@@ -2518,7 +4110,7 @@ public class TicketPrinterService {
         sb.append(String.format(i18n.get("paper.date"),
                 refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine(i18n.both("paper.montantCredite"), DF.format(refund.totalAmount) + " E"));
+        sb.append(formatLine(i18n.both("paper.montantCredite"), money(DF.format(refund.totalAmount))));
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
@@ -2554,7 +4146,7 @@ public class TicketPrinterService {
                 sb.append("\n");
             }
         } else if (amount != null) {
-            sb.append(formatLine(i18n.both("paper.montant"), DF.format(amount) + " E"));
+            sb.append(formatLine(i18n.both("paper.montant"), money(DF.format(amount))));
         }
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());

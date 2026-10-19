@@ -53,6 +53,30 @@ public class VatRate extends BaseEntity {
     public String label;
 
     /**
+     * The ISO country this regime belongs to, or null when it belongs to all
+     * of them ({@code BO-02-02-02}).
+     *
+     * <p>A rate is a national decision: five and a half percent means one
+     * thing in France and another in Portugal, and a group running both
+     * cannot keep one table unless the row says which country it answers.
+     */
+    @Column(name = "country", length = 3)
+    public String country;
+
+    /**
+     * The LEGAL MENTION this regime obliges the document to carry
+     * ({@code BO-02-02-02}), or null when it obliges none.
+     *
+     * <p>Printed under the VAT ventilation of the documents that state a tax —
+     * the sale receipt, the invoice, the credit note and the refund receipt —
+     * once per distinct mention, and never twice because two rates share it.
+     * Administered rather than written in the code: the sentence is imposed
+     * by a tax administration and changes by decree, not by release.
+     */
+    @Column(name = "legal_mention", length = 160)
+    public String legalMention;
+
+    /**
      * Default constructor for JPA.
      */
     public VatRate() {
@@ -142,6 +166,6 @@ public class VatRate extends BaseEntity {
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(number, rate, label);
+        return Objects.hash(number, rate, label, country, legalMention);
     }
 }

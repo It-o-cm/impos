@@ -299,6 +299,38 @@ public class Ticket extends BaseEntity {
     @JoinColumn(name = "ticket_id", nullable = false)
     public List<TicketLine> lines = new ArrayList<>();
 
+    /**
+     * When the cart was PARKED ({@code BO-06-06-01}), or null on a ticket
+     * that was never parked.
+     *
+     * <p>Kept even after the resume, and that is the whole point: a parked
+     * cart that comes back becomes an ordinary sale, and without this column
+     * the shop loses every trace that it waited — which is exactly what the
+     * state of pending tickets is asked to show.
+     */
+    @Column(name = "parked_at")
+    public java.time.LocalDateTime parkedAt;
+
+    /**
+     * When the parked cart was RECALLED ({@code BO-06-06-01}), or null while
+     * it is still waiting — which is what tells a resumed cart from a
+     * pending one.
+     */
+    @Column(name = "resumed_at")
+    public java.time.LocalDateTime resumedAt;
+
+    /**
+     * The register that recalled the parked cart ({@code BO-06-06-01}), or
+     * null while it is still waiting.
+     *
+     * <p>Its own column and not read from {@link #terminalId}: an inter-till
+     * resume RE-HOMES the ticket onto the recalling lane, so after the resume
+     * the ticket's terminal is the recalling one and the parking lane is
+     * lost. Both are worth knowing, so both are written.
+     */
+    @Column(name = "resumed_terminal_id", length = 30)
+    public String resumedTerminalId;
+
     /** The registered payments (FK held by the child table, orphan removal on). */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "ticket_id", nullable = false)

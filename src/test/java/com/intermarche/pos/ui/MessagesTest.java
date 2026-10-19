@@ -502,4 +502,33 @@ class MessagesTest {
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("pt-BR_x");
         assertEquals("pt", messages.getSecondLang());
     }
+
+    // --------------------------------------------------
+    // The memo, and forgetting it
+    // --------------------------------------------------
+
+    /**
+     * The operator leg is read ONCE for the same three inputs, and
+     * {@link Messages#forgetResolvedLanguage()} makes it read again.
+     * <p>
+     * The row is changed BEHIND the resolver, which is exactly what the back
+     * office does: the second call still answers Dutch, because the memo's key
+     * (nothing chosen, same operator, same system language) has not moved; the
+     * call after the forget answers Portuguese.
+     */
+    @Test
+    void forgettingTheMemoReadsTheOperatorLanguageAgain() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.systemLanguage()).thenReturn("fr");
+        messages.state.auth.operatorId = 7L;
+        Employee jean = employee("nl");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Employee.findById(7L)).thenReturn(jean);
+            assertEquals("nl", messages.getLang());
+            jean.language = "pt";
+            assertEquals("nl", messages.getLang(), "the same inputs answer from the memo");
+            messages.forgetResolvedLanguage();
+            assertEquals("pt", messages.getLang(), "a forgotten memo reads the row again");
+        }
+    }
 }

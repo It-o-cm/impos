@@ -12,6 +12,9 @@ import org.mockito.MockedStatic;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -52,6 +55,13 @@ class ReprintServiceTest {
         // which is what every case written before this lot assumed.
         service.storeTicketClient = mock(StoreTicketClient.class);
         service.ticketSearchService = mock(com.intermarche.pos.ui.ticket.TicketSearchService.class);
+        // The reassignment gesture (LC-03-06-01 to -06): the endorsement flow
+        // answers authorized by default, so every historical case holds; the
+        // endorsement-parked case stubs its own verdict.
+        service.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        service.reassignmentService = mock(TicketReassignmentService.class);
         return service;
     }
 
@@ -65,10 +75,9 @@ class ReprintServiceTest {
         try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
                      mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             @SuppressWarnings("unchecked")
-            io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.sale.Ticket> q =
-                    mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            PanacheQuery<Ticket> q = mock(PanacheQuery.class);
             when(q.list()).thenReturn(java.util.List.of());
-            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.find(anyString(), any(Object[].class)))
+            panache.when(() -> Ticket.find(anyString(), any(Object[].class)))
                     .thenReturn(q);
             service.search("  ");
         }
@@ -325,5 +334,121 @@ class ReprintServiceTest {
         verifyNoInteractions(service.ticketPrinterService);
         verify(service.state.ticket, never()).setError(any());
         verify(service.state, never()).touch();
+    }
+
+    /**
+     * LC-03-06-02: entering the reassignment mode loads ONLY the closed
+     * tickets no client is attached to, and the mode stays armed.
+     */
+    @Test
+    void startReassignModeLoadsOnlyTheUnassignedTickets() {
+        ReprintService service = newService();
+        List<Ticket> pool = List.of(mock(Ticket.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> q = mock(PanacheQuery.class);
+            when(q.list()).thenReturn(pool);
+            panache.when(() -> Ticket.find(anyString(), any(Object[].class)))
+                    .thenReturn(q);
+            service.startReassignMode();
+        }
+        assertTrue(service.state.reprint.reassignMode);
+        verify(service.state.reprint).setTickets(pool);
+    }
+
+    /**
+     * LC-03-06-02: leaving the reassignment mode restores the ordinary
+     * duplicata history and disarms the mode.
+     */
+    @Test
+    void cancelReassignModeRestoresTheOrdinaryHistory() {
+        ReprintService service = newService();
+        service.state.reprint.reassignMode = true;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> q = mock(PanacheQuery.class);
+            when(q.list()).thenReturn(List.of());
+            panache.when(() -> Ticket.find(anyString(), any(Object[].class)))
+                    .thenReturn(q);
+            service.cancelReassignMode();
+        }
+        assertFalse(service.state.reprint.reassignMode);
+        verify(service.state.reprint).setTickets(List.of());
+    }
+
+    /**
+     * LC-03-06-02: a pattern searched in the reassignment mode keeps only
+     * the non-affected matches — the pool is the pool whatever found it.
+     */
+    @Test
+    void searchInReassignModeKeepsOnlyTheUnassignedMatches() {
+        ReprintService service = newService();
+        service.state.reprint.reassignMode = true;
+        List<Ticket> pool = List.of(mock(Ticket.class));
+        when(service.ticketSearchService.searchByPattern("C04-T", true)).thenReturn(pool);
+        service.search("C04-T");
+        verify(service.state.reprint).setTickets(pool);
+        verify(service.ticketSearchService, never()).searchByPattern("C04-T");
+    }
+
+    /**
+     * LC-03-06-02: a BLANK pattern in the reassignment mode reloads the whole
+     * pool rather than the ordinary history.
+     */
+    @Test
+    void searchBlankInReassignModeReloadsThePool() {
+        ReprintService service = newService();
+        service.state.reprint.reassignMode = true;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> q = mock(PanacheQuery.class);
+            when(q.list()).thenReturn(List.of());
+            panache.when(() -> Ticket.find(anyString(), any(Object[].class)))
+                    .thenReturn(q);
+            service.search("   ");
+        }
+        assertTrue(service.state.reprint.reassignMode);
+        verifyNoInteractions(service.ticketSearchService);
+    }
+
+    /**
+     * LC-03-06-01: an authorized reassignment runs the chained gesture at
+     * once — the endorsement is never asked.
+     */
+    @Test
+    void applyReassignAuthorizedRunsTheChainedGesture() {
+        ReprintService service = newService();
+        when(service.endorsementService.gestureAuthorized(service.state, "ticket-reassign"))
+                .thenReturn(true);
+        service.applyReassign(1L, "2990000000019");
+        verify(service.reassignmentService).perform(1L, "2990000000019");
+        verify(service.endorsementService, never()).requestAuthorization(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * LC-03-06-01: a reassignment the store demands an aval for parks the
+     * gesture's form — ticket and card — with its return path, and the
+     * chained gesture runs only once a manager has answered.
+     */
+    @Test
+    void applyReassignParksTheFormWhenTheAvalIsDemanded() {
+        ReprintService service = newService();
+        when(service.endorsementService.gestureAuthorized(service.state, "ticket-reassign"))
+                .thenReturn(false);
+        service.applyReassign(1L, "2990000000019");
+        verifyNoInteractions(service.reassignmentService);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.Map<String, String>> captor =
+                org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(service.endorsementService).requestAuthorization(
+                org.mockito.ArgumentMatchers.eq(service.state),
+                org.mockito.ArgumentMatchers.eq("TICKET_REASSIGN"),
+                captor.capture(),
+                org.mockito.ArgumentMatchers.eq("/reprint/view/1"));
+        java.util.Map<String, String> parked = captor.getValue();
+        assertEquals("1", parked.get("ticketId"));
+        assertEquals("2990000000019", parked.get("card"));
     }
 }

@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -46,6 +47,10 @@ class FidelityResourceTest {
         resource.state.fidelity = new FidelityState();
         resource.fidelityService = mock(FidelityService.class);
         resource.fidelity = mock(Template.class);
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = com.intermarche.pos.ui.TestMessages.french();
         return resource;
     }
 
@@ -108,7 +113,7 @@ class FidelityResourceTest {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards("0601", null, null, null, null)).thenReturn(lookup);
-        Response response = resource.lookupFidelity("tel", "  0601  ");
+        Response response = resource.lookupFidelity("tel", "  0601  ", null);
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/fidelity", response.getLocation().toString());
         verify(resource.fidelityService).lookupCards("0601", null, null, null, null);
@@ -127,7 +132,7 @@ class FidelityResourceTest {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards(null, "a@b.fr", null, null, null)).thenReturn(lookup);
-        Response response = resource.lookupFidelity("email", "a@b.fr");
+        Response response = resource.lookupFidelity("email", "a@b.fr", null);
         assertEquals("/fidelity", response.getLocation().toString());
         verify(resource.fidelityService).lookupCards(null, "a@b.fr", null, null, null);
         assertEquals("email", resource.state.fidelity.lastLookupMode);
@@ -135,42 +140,46 @@ class FidelityResourceTest {
     }
 
     /**
-     * {@code lookupFidelity()} in {@code name} mode with a space (space &gt; 0
-     * true arm) splits the value into last name and first name.
+     * LC-03-04-17: {@code lookupFidelity()} in {@code name} mode carries TWO
+     * criteria — the last name is its own field and never splits again, the
+     * first name is the second field, and both travel to the holder
+     * directory as the two prefixes it already knows.
      */
     @Test
-    void lookupFidelityNameModeWithSpaceSplitsName() {
+    void lookupFidelityNameModeCarriesBothFields() {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, null, "DURAND", "JACQUES", null)).thenReturn(lookup);
-        Response response = resource.lookupFidelity("name", "DURAND JACQUES");
+        when(resource.fidelityService.lookupCards(null, null, "DE LA CRUZ", "JACQUES", null)).thenReturn(lookup);
+        Response response = resource.lookupFidelity("name", "DE LA CRUZ", "JACQUES");
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, null, "DURAND", "JACQUES", null);
+        verify(resource.fidelityService).lookupCards(null, null, "DE LA CRUZ", "JACQUES", null);
         assertEquals("name", resource.state.fidelity.lastLookupMode);
-        assertEquals("DURAND JACQUES", resource.state.fidelity.lastLookupValue);
+        assertEquals("DE LA CRUZ", resource.state.fidelity.lastLookupValue);
+        assertEquals("JACQUES", resource.state.fidelity.lastLookupFirstName);
     }
 
     /**
-     * {@code lookupFidelity()} in {@code name} mode without a space (space &gt; 0
-     * false arm) searches by last name only, first name null.
+     * LC-03-04-17, the demanded error: a name search missing EITHER field is
+     * refused with its own sentence — no directory call, the typed halves
+     * echoed so the operator completes rather than retypes.
      */
     @Test
-    void lookupFidelityNameModeWithoutSpaceUsesLastNameOnly() {
+    void lookupFidelityNameModeRefusesAMissingField() {
         FidelityResource resource = newResource();
-        LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, null, "DURAND", null, null)).thenReturn(lookup);
-        Response response = resource.lookupFidelity("name", "DURAND");
-        assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, null, "DURAND", null, null);
+        Response noFirstName = resource.lookupFidelity("name", "DURAND", " ");
+        assertEquals("/fidelity", noFirstName.getLocation().toString());
+        verifyNoInteractions(resource.fidelityService);
+        assertEquals("NOM ET PRÉNOM REQUIS POUR LA RECHERCHE",
+                resource.state.fidelity.lastLookup.message);
         assertEquals("name", resource.state.fidelity.lastLookupMode);
         assertEquals("DURAND", resource.state.fidelity.lastLookupValue);
+        Response noLastName = resource.lookupFidelity("name", "", "JACQUES");
+        verifyNoInteractions(resource.fidelityService);
+        assertEquals("NOM ET PRÉNOM REQUIS POUR LA RECHERCHE",
+                resource.state.fidelity.lastLookup.message);
+        assertEquals("JACQUES", resource.state.fidelity.lastLookupFirstName);
     }
 
-    /**
-     * {@code lookupFidelity()} with a null mode and null value takes the value
-     * ternary false arm (input defaults to empty), falls through to the name
-     * leg, and echoes {@code "name"} via the mode ternary false arm.
-     */
     /**
      * EXP-74: {@code lookupFidelity()} in {@code ville} mode searches by city —
      * the city is the only criterion passed, the other four null.
@@ -180,7 +189,7 @@ class FidelityResourceTest {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards(null, null, null, null, "LYON")).thenReturn(lookup);
-        Response response = resource.lookupFidelity("ville", "LYON");
+        Response response = resource.lookupFidelity("ville", "LYON", null);
         assertEquals("/fidelity", response.getLocation().toString());
         verify(resource.fidelityService).lookupCards(null, null, null, null, "LYON");
         assertEquals("ville", resource.state.fidelity.lastLookupMode);
@@ -190,18 +199,20 @@ class FidelityResourceTest {
     /**
      * {@code lookupFidelity()} with a null mode and null value takes the value
      * ternary false arm (input defaults to empty), falls through to the name
-     * leg, and echoes {@code "name"} via the mode ternary false arm.
+     * leg, echoes {@code "name"} via the mode ternary false arm — and is
+     * refused by the two-fields rule of LC-03-04-17 rather than searching the
+     * directory on an empty word.
      */
     @Test
     void lookupFidelityNullModeAndValueDefaultsToNameEmpty() {
         FidelityResource resource = newResource();
-        LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, null, "", null, null)).thenReturn(lookup);
-        Response response = resource.lookupFidelity(null, null);
+        Response response = resource.lookupFidelity(null, null, null);
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, null, "", null, null);
+        verifyNoInteractions(resource.fidelityService);
         assertEquals("name", resource.state.fidelity.lastLookupMode);
         assertEquals("", resource.state.fidelity.lastLookupValue);
+        assertEquals("NOM ET PRÉNOM REQUIS POUR LA RECHERCHE",
+                resource.state.fidelity.lastLookup.message);
     }
 
     // --- changeLookupPage ---

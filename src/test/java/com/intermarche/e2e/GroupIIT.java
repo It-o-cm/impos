@@ -114,6 +114,10 @@ public class GroupIIT {
     @Inject
     PosState posState;
 
+    /** The administered settings: this group raises the variance threshold. */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettings;
+
     /**
      * I1 — Rapport X (lecture seule, imprimable à tout moment, ne mute rien).
      * <p>
@@ -197,10 +201,25 @@ public class GroupIIT {
         countDenomination(page, "Billet 10 €", "1");
         Assertions.assertEquals("210,00 €", page.locator("#totalDisplay").textContent().trim(),
                 "the live calculator must sum 4×50 + 1×10 to 210,00 €");
-        page.locator("#withdrawn").fill("50");
-        page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName("CLÔTURER (Z)").setExact(true)).click();
-        page.waitForURL("**/lock");
+        // The withdrawal is TAPPED, in cents: the native input became a hidden
+        // field that the shared pad writes, so 50,00 € is tapped 5-0-0-0-0.
+        page.locator("#withdrawnDisplay").click();
+        tapDigits(page.locator("#numpadArea"), "5000");
+        // THE ÉCART OF THIS SCENARIO IS AN ÉCART THAT CLOSES. Beyond the
+        // administered threshold — 1,00 € by default, and this count is 10,00 €
+        // over — EXP-82 holds the closing back and routes to the arbitration
+        // screen instead, which is I5's subject and has its own exits. Here the
+        // threshold is raised for the duration of the close, so the Z follows
+        // the direct path I2 describes: the écart is computed, persisted and
+        // printed, and the session closes.
+        posSettings.store("cash.variance-threshold", "50.00");
+        try {
+            page.getByRole(AriaRole.BUTTON,
+                    new Page.GetByRoleOptions().setName("CLÔTURER (Z)").setExact(true)).click();
+            page.waitForURL("**/lock");
+        } finally {
+            posSettings.store("cash.variance-threshold", "1.00");
+        }
         // Database oracle: the session is closed with the counted/theoretical/écart.
         Assertions.assertNull(openSessionOnC04(), "the Z must leave no open session");
         ClosedSessionView z = closedSession(closingNumber);
@@ -639,6 +658,9 @@ public class GroupIIT {
         keypad.getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         for (char key : amount.toCharArray()) {
+            if (key < '0' || key > '9') {
+                continue;
+            }
             keypad.getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
         }

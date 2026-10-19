@@ -15,6 +15,7 @@ import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -28,11 +29,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 
 /**
  * Unit tests for {@link PaymentService}.
@@ -162,10 +166,20 @@ class PaymentServiceTest {
         // The supervisor credential (BO-03-02-10): the stand-in refuses by
         // default, so a case that wants an authorization grants it explicitly.
         endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        // The control points of BO-10-02 answer as they do with nothing
+        // administered — no control — which is the behaviour every case of this
+        // class was written against. A case exercising a control states its own.
+        when(endorsementService.check(any(), any()))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.NONE);
         service.endorsementService = endorsementService;
         chequeReadingService =
                 mock(com.intermarche.pos.ui.hardware.ChequeReadingService.class);
         service.chequeReadingService = chequeReadingService;
+        // The register's own identity (BO-03-02-43 tokens, BO-03-02-27/-29
+        // rules): the stand-in names no terminal, so a case needing one states
+        // it, and every pre-existing case keeps a register the referential
+        // cannot place — which opposes nothing.
+        service.ticketNumberService = mock(com.intermarche.pos.service.TicketNumberService.class);
         // The conditional-printing rule (LC-08-03) answers as it does with the
         // option OFF — every document named, nothing forced —, which is the
         // behaviour every case here was written against.
@@ -182,6 +196,11 @@ class PaymentServiceTest {
         service.giftCardIssuerClient = giftCardIssuerClient;
         sogecCompensationService = mock(SogecCompensationService.class);
         service.sogecCompensationService = sogecCompensationService;
+        // LC-03-07-01: the transaction-end survey trigger, asked at the sale's
+        // close; a mock keeps it silent, which is the shop that administers no
+        // survey — the default of every case below.
+        service.surveyTriggerService =
+                mock(com.intermarche.pos.ui.supervision.SurveyTriggerService.class);
         state = new PosState();
     }
 
@@ -239,6 +258,32 @@ class PaymentServiceTest {
      * ({@code ticketId != null} short-circuits the guard, {@code !trainingMode}
      * true in the revaluation branch).
      */
+
+    /**
+     * Opens a {@code PanacheEntityBase} static mock that answers every
+     * catalog lookup with nothing. The cancellation slip resolves the
+     * tender's administered label — a lookup a plain unit test has no
+     * persistence context to answer, and whose failure the slip funnel
+     * swallows into a silence; the mock keeps the slip printing.
+     *
+     * @return the opened static mock, to close through try-with-resources
+     */
+    private MockedStatic<PanacheEntityBase> quietCatalog() {
+        MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Object> nothing = mock(PanacheQuery.class);
+        when(nothing.firstResult()).thenReturn(null);
+        panache.when(() -> PanacheEntityBase.find(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
+                .thenReturn(nothing);
+        panache.when(() -> PanacheEntityBase.list(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
+                .thenReturn(java.util.List.of());
+        return panache;
+    }
+
     @Test
     void initPaymentSyncedNotTraining() {
         state.ticket.totalAmount = new BigDecimal("20.00");
@@ -415,6 +460,260 @@ class PaymentServiceTest {
         assertEquals("CARD", state.payment.payments.get(0).method);
         verify(ticketPersistenceService).removePaymentsFromTicket(5L);
         verify(ticketPersistenceService).addPaymentToTicket(eq(5L), any());
+    }
+
+    /**
+     * BO-03-02-35: cancelling a SINGLE settlement leaves its slip, naming the
+     * settlement key when the referential administers no label for it. A
+     * refused index prints nothing — the slip follows the removal, it does not
+     * announce it.
+     */
+    @Test
+    void cancelOnePaymentPrintsTheCancellationSlip() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            state.payment.ticketDbId = null;
+            state.payment.addPayment("CHEQUE", new BigDecimal("42.50"));
+            assertTrue(service.cancelOnePayment(state, 0));
+            verify(ticketPrinterService).printPaymentCancellation(
+                    org.mockito.ArgumentMatchers.isNull(), eq("CHEQUE"),
+                    eq(new BigDecimal("42.50")));
+
+            state.payment.addPayment("CASH", new BigDecimal("5.00"));
+            assertFalse(service.cancelOnePayment(state, 7));
+            verify(ticketPrinterService, never()).printPaymentCancellation(
+                    any(), eq("CASH"), any());
+        }
+    }
+
+    /**
+     * BO-03-02-35: cancelling the whole payment leaves ONE slip per settlement
+     * the customer actually handed over, and none at all on a payment where
+     * nothing was registered.
+     */
+    @Test
+    void cancelPaymentsPrintsOneSlipPerSettlement() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            state.payment.ticketDbId = null;
+            state.payment.addPayment("CHEQUE", new BigDecimal("42.50"));
+            state.payment.addPayment("CARD", new BigDecimal("7.50"));
+            service.cancelPayments(state);
+            verify(ticketPrinterService).printPaymentCancellation(
+                    org.mockito.ArgumentMatchers.isNull(), eq("CHEQUE"),
+                    eq(new BigDecimal("42.50")));
+            verify(ticketPrinterService).printPaymentCancellation(
+                    org.mockito.ArgumentMatchers.isNull(), eq("CARD"),
+                    eq(new BigDecimal("7.50")));
+
+            service.cancelPayments(state);
+            verify(ticketPrinterService, org.mockito.Mockito.times(2))
+                    .printPaymentCancellation(any(), any(), any());
+        }
+    }
+
+    /**
+     * BO-03-02-27: a tender the store forbade on a SELF-SERVICE lane is refused
+     * there and says so, and nothing is registered. On a manned till the same
+     * tender settles as before — the rule is read off the register's own kind.
+     */
+    @Test
+    void aTenderForbiddenOnSelfServiceIsRefusedThere() {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.code = "CHEQUE";
+        tender.selfServiceAllowed = false;
+        com.intermarche.pos.domain.store.CheckoutPoint lane =
+                new com.intermarche.pos.domain.store.CheckoutPoint();
+        lane.terminalId = "C04";
+        lane.tpvType = com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_TGCS;
+        when(service.ticketNumberService.getTerminalId()).thenReturn("C04");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        try (MockedStatic<com.intermarche.pos.domain.store.CheckoutPoint> points =
+                     mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class);
+             MockedStatic<com.intermarche.pos.domain.payment.TenderDefinition> tenders =
+                     mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint
+                    .findByTerminal("C04")).thenReturn(lane);
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .findByCode("CHEQUE")).thenReturn(tender);
+            chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+        }
+        assertEquals("REGLEMENT INDISPONIBLE EN LIBRE-SERVICE", state.ticket.transientError);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * BO-03-02-29: a tender the store WATCHES on a self-service lane raises the
+     * supervisor hold every administered tender rule raises, and registers
+     * nothing until the hostess allows it.
+     */
+    @Test
+    void aWatchedTenderOnSelfServiceCallsTheHostess() {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.code = "CHEQUE";
+        tender.selfServiceAllowed = true;
+        tender.selfServiceSupervision = true;
+        com.intermarche.pos.domain.store.CheckoutPoint lane =
+                new com.intermarche.pos.domain.store.CheckoutPoint();
+        lane.terminalId = "C04";
+        lane.tpvType = com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_DN;
+        when(service.ticketNumberService.getTerminalId()).thenReturn("C04");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        try (MockedStatic<com.intermarche.pos.domain.store.CheckoutPoint> points =
+                     mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class);
+             MockedStatic<com.intermarche.pos.domain.payment.TenderDefinition> tenders =
+                     mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint
+                    .findByTerminal("C04")).thenReturn(lane);
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .findByCode("CHEQUE")).thenReturn(tender);
+            chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+        }
+        assertEquals("CHEQUE", state.payment.tenderHeldMethod);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * On a MANNED till neither rule is opposed, and a self-service lane the
+     * referential does not describe is treated as manned: a lane missing from
+     * the referential is a referential problem, not a reason to refuse a
+     * customer at the one moment they are paying (both null arms).
+     */
+    @Test
+    void aMannedTillAndAnUndescribedLaneOpposeNothing() {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.code = "CHEQUE";
+        tender.selfServiceAllowed = false;
+        com.intermarche.pos.domain.store.CheckoutPoint manned =
+                new com.intermarche.pos.domain.store.CheckoutPoint();
+        manned.terminalId = "C04";
+        manned.tpvType = com.intermarche.pos.domain.store.TpvType.CASH_REGISTER;
+        when(service.ticketNumberService.getTerminalId()).thenReturn("C04");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        try (MockedStatic<com.intermarche.pos.domain.store.CheckoutPoint> points =
+                     mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint
+                    .findByTerminal("C04")).thenReturn(manned);
+            chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+        }
+        assertEquals(1, state.payment.payments.size());
+
+        // The lane the referential does not describe at all.
+        state.clearPayments();
+        state.ticket.transientError = null;
+        try (MockedStatic<com.intermarche.pos.domain.store.CheckoutPoint> points =
+                     mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint
+                    .findByTerminal("C04")).thenReturn(null);
+            chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+        }
+        assertEquals(1, state.payment.payments.size());
+    }
+
+    /**
+     * BO-03-03-11: a settlement paid by gift card leaves its slip, carrying the
+     * balance the card STILL holds — the issuer's answer minus what was just
+     * spent. A card whose balance covers more than the due is settled at the
+     * due, and the remainder is what the customer walks away with.
+     */
+    @Test
+    void aGiftCardPaymentPrintsItsSlipWithTheRemainingBalance() {
+        when(giftCardIssuerClient.query("9999000011114321")).thenReturn(
+                new com.intermarche.pos.ui.payment.GiftCardIssuerClient.IssuerVerdict(
+                        true, new BigDecimal("50.00")));
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        service.processSupplierGiftCard(state, "9999000011114321", new BigDecimal("30.00"));
+        verify(ticketPrinterService).printGiftCardPaymentReceipt(
+                org.mockito.ArgumentMatchers.isNull(), eq("9999000011114321"),
+                eq(new BigDecimal("30.00")), eq(new BigDecimal("20.00")));
+    }
+
+    /**
+     * A card whose balance is SMALLER than the amount asked settles the balance
+     * and leaves nothing on the card: the remaining balance is zero and never
+     * negative (BO-03-03-11, the capping arm).
+     */
+    @Test
+    void aCappedGiftCardPaymentLeavesNoBalance() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            when(giftCardIssuerClient.query("4321")).thenReturn(
+                    new com.intermarche.pos.ui.payment.GiftCardIssuerClient.IssuerVerdict(
+                            true, new BigDecimal("12.00")));
+            state.ticket.totalAmount = new BigDecimal("30.00");
+            service.processSupplierGiftCard(state, "4321", new BigDecimal("30.00"));
+            verify(ticketPrinterService).printGiftCardPaymentReceipt(
+                    org.mockito.ArgumentMatchers.isNull(), eq("4321"),
+                    // The capped balance is what the subtraction leaves,
+                    // 12,00 - 12,00, still at the currency's two decimals.
+                    eq(new BigDecimal("12.00")), eq(new BigDecimal("0.00")));
+        }
+    }
+
+    /**
+     * A card the issuer REFUSES settles nothing and prints nothing: there is no
+     * settlement to witness (BO-03-03-11).
+     */
+    @Test
+    void aRefusedGiftCardPrintsNoSlip() {
+        when(giftCardIssuerClient.query("0000")).thenReturn(
+                new com.intermarche.pos.ui.payment.GiftCardIssuerClient.IssuerVerdict(
+                        false, new BigDecimal("50.00")));
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        service.processSupplierGiftCard(state, "0000", new BigDecimal("30.00"));
+        verify(ticketPrinterService, never()).printGiftCardPaymentReceipt(
+                any(), any(), any(), any());
+    }
+
+    /**
+     * BO-03-02-43: with nothing administered, the cheque back carries the date
+     * and the amount, exactly as before the key existed.
+     */
+    @Test
+    void theChequeEndorsementFallsBackOnTheDateAndTheAmount() {
+        chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCheque(state, new BigDecimal("20.00"));
+        org.mockito.ArgumentCaptor<String> captor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(chequeReadingService).read(captor.capture(), any(), any());
+        assertTrue(captor.getValue().contains("20,00 EUR"), captor.getValue());
+        assertEquals(2, captor.getValue().split("\n").length, captor.getValue());
+    }
+
+    /**
+     * BO-03-02-43: an ADMINISTERED endorsement is printed line by line with its
+     * tokens filled; an empty administered line prints nothing rather than a
+     * blank band, and a token the register cannot answer renders empty rather
+     * than leaving the token in ink.
+     */
+    @Test
+    void theAdministeredChequeEndorsementIsPrintedLineByLine() {
+        when(posSettingsService.chequeEndorsementLines())
+                .thenReturn("{montant} EUR;;LE {date} A {heure};CAISSE {caisse} PDV {pdv}");
+        chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCheque(state, new BigDecimal("20.00"));
+        org.mockito.ArgumentCaptor<String> captor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(chequeReadingService).read(captor.capture(), any(), any());
+        String[] lines = captor.getValue().split("\n");
+        // The empty administered line is dropped: three lines, not four.
+        assertEquals(3, lines.length, captor.getValue());
+        assertEquals("20,00 EUR", lines[0]);
+        assertTrue(lines[1].startsWith("LE "), lines[1]);
+        assertTrue(lines[1].contains(" A "), lines[1]);
+        // No till service and no PDV number on this fixture: both render empty,
+        // and the token never reaches the paper.
+        assertFalse(captor.getValue().contains("{"), captor.getValue());
     }
 
     /**
@@ -1748,6 +2047,35 @@ class PaymentServiceTest {
     }
 
     /**
+     * BO-03-03-36: where the store administers the exit ticket, it REPLACES the
+     * sale receipt — the printer answers one, and the receipt is not printed.
+     */
+    @Test
+    void applyPrintChoicePrintsTheExitTicketInsteadOfTheReceipt() {
+        state.payment.ticketDbId = 9L;
+        stubDecision(true, false, false);
+        org.mockito.Mockito.when(ticketPrinterService.printExitTicket(9L)).thenReturn(1);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.SALE_TICKET);
+        verify(ticketPrinterService).printExitTicket(9L);
+        verify(ticketPrinterService, never()).printTicket(any());
+        assertTrue(state.payment.printApplied);
+    }
+
+    /**
+     * And where it is not administered the printer answers zero, so the receipt
+     * prints exactly as before — the other leg of the substitution.
+     */
+    @Test
+    void applyPrintChoiceFallsBackToTheReceiptWithoutAnExitTicket() {
+        state.payment.ticketDbId = 9L;
+        stubDecision(true, false, false);
+        org.mockito.Mockito.when(ticketPrinterService.printExitTicket(9L)).thenReturn(0);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.SALE_TICKET);
+        verify(ticketPrinterService).printExitTicket(9L);
+        verify(ticketPrinterService).printTicket(9L);
+    }
+
+    /**
      * A decision naming the card receipt prints it — and only it
      * (LC-08-03-04).
      */
@@ -1892,6 +2220,50 @@ class PaymentServiceTest {
         assertEquals(9L, state.lastClosedTicketId);
         verify(hardwareService).displayMessage("MERCI A BIENTOT");
         assertNull(state.payment.ticketDbId);
+    }
+
+    /**
+     * LC-06-03-07: the closing of a sale that settles a recalled order TELLS
+     * the store node, after the fiscal moment and tolerantly — the sale is
+     * closed whatever the node answers, and the order cannot be recalled and
+     * paid twice. A sale with no recalled order tells nothing (both arms of
+     * the settle guard).
+     */
+    @Test
+    void finalizeTransactionSettlesTheRecalledOrder() {
+        com.intermarche.pos.ui.recall.BackOfficeDocumentClient documentClient =
+                mock(com.intermarche.pos.ui.recall.BackOfficeDocumentClient.class);
+        service.documentClient = documentClient;
+        state.payment.ticketDbId = 9L;
+        state.recalledOrderCode = "C04-CMD000001";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(documentClient).settleOrder("C04-CMD000001");
+        assertNull(state.recalledOrderCode);
+    }
+
+    /**
+     * LC-06-03-07: a sale that settles no order tells the node nothing (the
+     * null arm of the settle guard).
+     */
+    @Test
+    void finalizeTransactionWithoutRecalledOrderTellsNothing() {
+        com.intermarche.pos.ui.recall.BackOfficeDocumentClient documentClient =
+                mock(com.intermarche.pos.ui.recall.BackOfficeDocumentClient.class);
+        service.documentClient = documentClient;
+        state.payment.ticketDbId = 9L;
+        state.recalledOrderCode = null;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(documentClient, org.mockito.Mockito.never()).settleOrder(org.mockito.ArgumentMatchers.any());
     }
 
     /**
@@ -3168,6 +3540,9 @@ class PaymentServiceTest {
         state.payment.changeAsCreditNote = new BigDecimal("30.00");
         when(ticketPersistenceService.issueChangeCreditNote(eq(9L), any()))
                 .thenReturn("297000000000042");
+        when(printPolicy.isAssociatedDocumentPrinted(
+                com.intermarche.pos.ui.hardware.PrintPolicy.DOCUMENT_CREDIT_NOTE))
+                .thenReturn(true);
         try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
                      org.mockito.Mockito.mockStatic(
                              io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {

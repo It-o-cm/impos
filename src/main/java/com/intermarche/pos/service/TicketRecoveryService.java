@@ -235,6 +235,17 @@ public class TicketRecoveryService {
                 // customer credit is written under (BO-10-04-09).
                 state.payment.addCreditPayment(credit.amount, credit.accountNumber,
                         credit.accountName, credit.overLimit, methodKeyOf(payment));
+            } else if (payment instanceof com.intermarche.pos.domain.payment.DepositPayment acompte) {
+                // The deposit's per-rate VAT detail and the order code are
+                // restored with the line (LC-06-03-07/-08): a recovered
+                // recovery that lost them would print a final receipt with no
+                // VAT statement, and the order the sale settles would never be
+                // told it was settled at the closing.
+                state.payment.addDepositPayment(acompte.amount, acompte.vatDetail,
+                        acompte.orderCode);
+                if (acompte.orderCode != null && !acompte.orderCode.isBlank()) {
+                    state.recalledOrderCode = acompte.orderCode;
+                }
             } else {
                 state.payment.addPayment(methodKeyOf(payment), payment.amount);
             }
