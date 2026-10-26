@@ -47,6 +47,7 @@ public class TicketNumberService {
     @jakarta.inject.Inject
     PosSettingsService posSettingsService;
 
+    /** The identifier of this register, unique within the store. */
     @ConfigProperty(name = "pos.terminal.id", defaultValue = "POS01")
     String terminalId;
 
@@ -201,6 +202,26 @@ public class TicketNumberService {
                 "ORDER", terminalId, "", java.time.Year.now().getValue());
         LOGGER.info("Exiting method nextOrderCode");
         return String.format("%s-CMD%06d", terminalId, rank);
+    }
+
+    /**
+     * Reserves and returns the next number of a DEPOSIT INVOICE of this
+     * terminal, e.g. {@code C04-FA2026-000001} (LC-08-04-15).
+     *
+     * <p>A {@code DocumentSequence} of its own, by terminal and year: an invoice
+     * number is unique, sequential and without gap within its kind, and a
+     * deposit invoice is not an invoice of a closed ticket.
+     *
+     * @return the reserved deposit invoice number
+     */
+    @Transactional
+    public String nextDepositInvoiceNumber() {
+        LOGGER.info("Entering method nextDepositInvoiceNumber");
+        int year = java.time.Year.now().getValue();
+        long rank = com.intermarche.pos.domain.session.DocumentSequence.next(
+                "DEPOSIT_INVOICE", terminalId, "", year);
+        LOGGER.info("Exiting method nextDepositInvoiceNumber");
+        return String.format("%s-FA%d-%06d", terminalId, year, rank);
     }
 
     /**

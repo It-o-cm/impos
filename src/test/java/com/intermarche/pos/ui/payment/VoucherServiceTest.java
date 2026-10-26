@@ -16,6 +16,9 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -56,6 +59,10 @@ class VoucherServiceTest {
         service.i18n = TestMessages.french();
         service.paymentService = paymentService;
         service.couponCheckService = couponCheckService;
+        service.scannedBarcodeService = mock(com.intermarche.pos.service.ScannedBarcodeService.class);
+        service.storedValueLookupClient = mock(StoredValueLookupClient.class);
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        state.payment = new PaymentState();
     }
 
     /**
@@ -290,6 +297,45 @@ class VoucherServiceTest {
         verify(ticket).setError("BON INCONNU AU REGISTRE");
         verify(state).touch();
         verifyNoInteractions(paymentService);
+        verify(service.storedValueLookupClient).adopt("297000000000001");
+    }
+
+    /**
+     * A number neither this register nor the shop knows is journalled as not
+     * found and, at the INFO level, only announced (BO-03-06-48/63): nothing is
+     * paid, the cashier reads that the system does not know it.
+     */
+    @Test
+    void applyRegistryVoucher_unknownEverywhere_atInfo_isAnnouncedAndJournalled() {
+        TicketState ticket = wireStateForRegistry();
+        state.payment.ticketDbId = 5L;
+        CouponType type = matchOnlyType("AVOIR", "Avoir", "^297.*");
+        when(service.posSettingsService.voucherUnknownAlert()).thenReturn("INFO");
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            service.applyRegistryVoucher(state, type, "297000000000001");
+        }
+        verify(ticket).setWarning("BON INCONNU DU SYSTÈME : AUCUN RÈGLEMENT");
+        verify(ticket, never()).setError(any());
+        verify(service.scannedBarcodeService).record("297000000000001", type, null, null, false, 5L, false);
+        verifyNoInteractions(paymentService);
+    }
+
+    /**
+     * An instrument another register printed is adopted from the store node and
+     * redeemed here (BO-03-06-48): its balance pays.
+     */
+    @Test
+    void applyRegistryVoucher_printedElsewhere_isAdoptedAndPays() {
+        wireStateForRegistry();
+        when(state.getRemaining()).thenReturn(new BigDecimal("20.00"));
+        when(service.storedValueLookupClient.adopt("9800100000314050924102610240124000072340"))
+                .thenReturn(instrument(StoredValue.Status.ACTIVE, "8.00"));
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^98.*"),
+                    "9800100000314050924102610240124000072340");
+        }
+        verify(paymentService).processVoucher(state, "Avoir", "9800100000314050924102610240124000072340",
+                new BigDecimal("8.00"));
     }
 
     /**
@@ -398,6 +444,81 @@ class VoucherServiceTest {
         }
         verify(paymentService).processVoucher(state, "Avoir", "297000000000001",
                 new BigDecimal("12.34"));
+        verify(service.scannedBarcodeService).record(eq("297000000000001"), any(),
+                eq(new BigDecimal("12.34")), isNull(), eq(true), isNull(), eq(false));
+    }
+
+    // --- tender binding and end of validity (BO-03-06-08/63) ---
+
+    /**
+     * A paper meal voucher range bound to the meal ticket settles as a meal
+     * ticket, not as a voucher (BO-03-06-08), and the journal keeps what the
+     * meal ticket actually settled, never less than nothing.
+     */
+    @Test
+    void aRangeBoundToTheMealTicketSettlesAsAMealTicket() {
+        CouponType type = manualType("TRP", "Titre restaurant papier");
+        type.tenderCode = " TR ";
+        when(state.getRemaining()).thenReturn(new BigDecimal("20.00"), new BigDecimal("14.00"));
+        service.applyManualVoucher(state, type, "TR1", new BigDecimal("9.00"));
+        verify(paymentService).processTicketResto(state, new BigDecimal("9.00"));
+        verify(paymentService, never()).processVoucher(any(), any(), any(), any());
+        verify(service.scannedBarcodeService).record("TR1", type, new BigDecimal("6.00"), null, true, null, false);
+        when(state.getRemaining()).thenReturn(new BigDecimal("20.00"), new BigDecimal("21.00"));
+        service.applyManualVoucher(state, type, "TR2", new BigDecimal("9.00"));
+        verify(service.scannedBarcodeService).record("TR2", type, BigDecimal.ZERO, null, true, null, false);
+    }
+
+    /**
+     * A range bound to an administered voucher tender settles under that
+     * tender's label; a binding naming no tender keeps the range's label.
+     */
+    @Test
+    void aRangeBoundToATenderSettlesUnderItsLabel() {
+        CouponType bound = manualType("BA", "Bon partenaire");
+        bound.tenderCode = "VOUCHER";
+        CouponType orphan = manualType("BB", "Bon local");
+        orphan.tenderCode = "GONE";
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.label = "Bon d'achat magasin";
+        when(state.getRemaining()).thenReturn(new BigDecimal("20.00"));
+        try (MockedStatic<com.intermarche.pos.domain.payment.TenderDefinition> tenders =
+                     mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition.findByCode("VOUCHER"))
+                    .thenReturn(tender);
+            service.applyManualVoucher(state, bound, "B1", new BigDecimal("3.00"));
+            service.applyManualVoucher(state, orphan, "B2", new BigDecimal("4.00"));
+        }
+        verify(paymentService).processVoucher(state, "Bon d'achat magasin", "B1", new BigDecimal("3.00"));
+        verify(paymentService).processVoucher(state, "Bon local", "B2", new BigDecimal("4.00"));
+    }
+
+    /**
+     * The end of validity read on the code is journalled with the reading; a
+     * range without end date field, a field the code is too short for, and a
+     * numberless voucher journal none (BO-03-06-63).
+     */
+    @Test
+    void theEndOfValidityReadOnTheCodeIsJournalled() {
+        CouponType dated = encodedType("BD", "Bon daté", "^\\d{6}(\\d{4})$");
+        com.intermarche.pos.domain.barcode.CouponField end = new com.intermarche.pos.domain.barcode.CouponField();
+        end.role = com.intermarche.pos.domain.barcode.CouponField.Role.DATE_END;
+        end.offsetPosition = 0;
+        end.fieldLength = 6;
+        end.dateFormat = com.intermarche.pos.domain.barcode.CouponField.DateFormat.DDMMYY;
+        dated.fields = new java.util.ArrayList<>(List.of(end));
+        CouponType undated = manualType("BU", "Bon");
+        when(state.getRemaining()).thenReturn(new BigDecimal("50.00"));
+        assertTrue(service.applyEncodedVoucher(state, dated, "3112270500"));
+        service.applyManualVoucher(state, dated, "31", new BigDecimal("1.00"));
+        service.applyManualVoucher(state, undated, "U1", new BigDecimal("2.00"));
+        service.applyManualVoucher(state, undated, null, new BigDecimal("3.00"));
+        verify(service.scannedBarcodeService).record("3112270500", dated, new BigDecimal("5.00"),
+                java.time.LocalDateTime.of(2027, 12, 31, 0, 0), true, null, false);
+        verify(service.scannedBarcodeService).record("31", dated, new BigDecimal("1.00"), null, true, null, false);
+        verify(service.scannedBarcodeService).record("U1", undated, new BigDecimal("2.00"), null, true, null, false);
+        verify(service.scannedBarcodeService).record(null, undated, new BigDecimal("3.00"), null, true, null, false);
     }
 
     /**

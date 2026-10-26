@@ -369,4 +369,119 @@ class BackOfficeDocumentClientTest {
         BackOfficeDocumentClient failing = client(Optional.of("http://store"), Optional.empty(), throwing);
         Assertions.assertFalse(failing.settleOrder("C04-CMD000001"));
     }
+    /** LC-06-03: informational responses refuse order push/settlement and blank configured tokens add no header. */
+    @Test
+    void orderWritesRejectInformationalStatusWithBlankToken() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        var response = resp(199, "WAIT");
+        doReturn(response).when(http).send(any(HttpRequest.class), any());
+        var client = client(Optional.of("http://store"), Optional.of(" "), http);
+        var order = new RecalledDocument(RecalledDocument.Kind.COMMANDE, "ORDER", java.util.List.of(), java.math.BigDecimal.ZERO);
+        Assertions.assertFalse(client.pushOrder(order));
+        Assertions.assertFalse(client.settleOrder("ORDER"));
+        var sent = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.times(2)).send(sent.capture(), any());
+        Assertions.assertTrue(sent.getValue().headers().firstValue("X-Sync-Token").isEmpty());
+    }
+
+    /**
+     * recordDeposit answers false without a code, null or blank (code guard
+     * arms), and without a store configured, absent or blank (URL guard arms):
+     * nothing is sent.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void recordDepositWithoutCodeOrStoreAnswersFalse() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), http);
+        Assertions.assertFalse(client.recordDeposit(null, java.math.BigDecimal.TEN, "20:1.67"));
+        Assertions.assertFalse(client.recordDeposit(" ", java.math.BigDecimal.TEN, "20:1.67"));
+        Assertions.assertFalse(client(Optional.empty(), Optional.empty(), http)
+                .recordDeposit("DV-1", java.math.BigDecimal.TEN, "20:1.67"));
+        Assertions.assertFalse(client(Optional.of(" "), Optional.empty(), http)
+                .recordDeposit("DV-1", java.math.BigDecimal.TEN, "20:1.67"));
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.never()).send(any(HttpRequest.class), any());
+    }
+
+    /**
+     * recordDeposit posts the amount and the VAT detail to the document's
+     * deposits, carrying the token, and answers true on a 2xx answer
+     * (LC-06-02-04, -07).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void recordDepositPostsToTheDocument() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "{}")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of(" http://store "), Optional.of("TOK"), http);
+        Assertions.assertTrue(client.recordDeposit(" DV 1 ", new java.math.BigDecimal("10.00"), "20:1.67"));
+        var sent = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(http).send(sent.capture(), any());
+        Assertions.assertEquals("http://store/api/orders/DV+1/deposits", sent.getValue().uri().toString());
+        Assertions.assertEquals("POST", sent.getValue().method());
+        Assertions.assertEquals("TOK", sent.getValue().headers().firstValue("X-Sync-Token").orElseThrow());
+    }
+
+    /**
+     * recordDeposit answers false on an answer below or above the 2xx range
+     * (a blank token adding no header) and on a transport error — the deposit stays collected whatever the
+     * network says.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void recordDepositAnswersFalseOnFailure() throws Exception {
+        HttpClient informational = mock(HttpClient.class);
+        doReturn(resp(199, "")).when(informational).send(any(HttpRequest.class), any());
+        Assertions.assertFalse(client(Optional.of("http://store"), Optional.of(" "), informational)
+                .recordDeposit("DV-1", java.math.BigDecimal.TEN, null));
+        var sent = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(informational).send(sent.capture(), any());
+        Assertions.assertTrue(sent.getValue().headers().firstValue("X-Sync-Token").isEmpty());
+        HttpClient conflict = mock(HttpClient.class);
+        doReturn(resp(409, "")).when(conflict).send(any(HttpRequest.class), any());
+        Assertions.assertFalse(client(Optional.of("http://store"), Optional.empty(), conflict)
+                .recordDeposit("DV-1", java.math.BigDecimal.TEN, null));
+        HttpClient throwing = mock(HttpClient.class);
+        doThrow(new java.io.IOException("boom")).when(throwing).send(any(HttpRequest.class), any());
+        Assertions.assertFalse(client(Optional.of("http://store"), Optional.empty(), throwing)
+                .recordDeposit("DV-1", java.math.BigDecimal.TEN, null));
+    }
+
+    /**
+     * BO-10-01-18: fetchByCustomer answers nothing for a null or blank number
+     * without calling the node, and nothing without a store configured.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void fetchByCustomerWithoutNumberOrStoreAnswersNull() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), http);
+        Assertions.assertNull(client.fetchByCustomer(null, RecalledDocument.Kind.SELF_SCAN));
+        Assertions.assertNull(client.fetchByCustomer(" ", RecalledDocument.Kind.SELF_SCAN));
+        Assertions.assertNull(client(Optional.empty(), Optional.empty(), http)
+                .fetchByCustomer("C9", RecalledDocument.Kind.SELF_SCAN));
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.never()).send(any(HttpRequest.class), any());
+    }
+
+    /**
+     * BO-10-01-18: fetchByCustomer asks the node for the customer's latest
+     * basket of the kind and reads the answer.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void fetchByCustomerAsksTheNodeForTheCustomersBasket() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "{\"kind\":\"SELF_SCAN\",\"code\":\"SS1\"}")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.empty(), http);
+        RecalledDocument basket = client.fetchByCustomer(" C 9 ", RecalledDocument.Kind.SELF_SCAN);
+        Assertions.assertEquals("SS1", basket.code);
+        var sent = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(http).send(sent.capture(), any());
+        Assertions.assertEquals("http://store/api/orders/customer/C+9?kind=SELF_SCAN", sent.getValue().uri().toString());
+    }
 }

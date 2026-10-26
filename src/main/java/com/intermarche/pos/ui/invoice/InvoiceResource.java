@@ -56,6 +56,10 @@ public class InvoiceResource {
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /** The operator wordings, for the order-number mask ({@code BO-03-03-02}). */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The screen where the ticket and the customer are named. */
     @Inject
     @Location("invoice-request")
@@ -93,6 +97,22 @@ public class InvoiceResource {
      * @return the request page
      */
     private TemplateInstance request() {
+        // A step past the ticket while no ticket is chosen — a stale page or a
+        // hand-made request — goes back to naming the ticket: every later step
+        // shows the ticket it bills.
+        if (state.invoice.ticket == null && !state.invoice.isOnTicketStep()) {
+            state.invoice.step = InvoiceState.Step.TICKET;
+        }
+        // BO-03-04-18: where the shop does not ask for the customer's data to
+        // be validated, the review step IS the document — the operator sees the
+        // paper and prints it, without the validation step.
+        if (state.invoice.isOnPreviewStep() && !state.invoice.enteringOrderNumber
+                && !posSettingsService.invoiceCustomerValidation()) {
+            InvoiceDocument document = invoiceService.preview();
+            if (document != null) {
+                return onePage(document, false, null, "/invoice/preview?page=");
+            }
+        }
         return requestPage
                 .data("state", state)
                 .data("fields", currentFields())
@@ -102,7 +122,9 @@ public class InvoiceResource {
                 // BO-10-04-03 : le bouton de correction n'apparaît que si le
                 // magasin a ouvert ce droit à la caisse.
                 .data("customerUpdateEnabled", posSettingsService.customerUpdateEnabled())
-                .data("hasDocumentStep", invoiceService.eligibleDocumentTypes().size() > 1);
+                // BO-03-04-16: the account number is announced as mandatory.
+                .data("accountRequired", posSettingsService.invoiceAccountNumberRequired())
+                .data("hasDocumentStep", invoiceService.documentChoiceCount() > 1);
     }
 
     /**
@@ -111,6 +133,10 @@ public class InvoiceResource {
      * @return the fields, in entry order, never empty
      */
     private java.util.List<EntryField> currentFields() {
+        if (state.invoice.enteringOrderNumber) {
+            return java.util.List.of(new EntryField("orderNumber", i18n.get("invoicerequest.numeroCommande"),
+                    "email", true, 50, false, state.invoice.orderNumber));
+        }
         if (state.invoice.isOnTicketStep()) {
             return EntryField.ticketFields(state.invoice.ticketNumber,
                     state.invoice.ticketDate, state.invoice.ticketTerminal);
@@ -131,6 +157,9 @@ public class InvoiceResource {
      * @return the form action path
      */
     private String currentAction() {
+        if (state.invoice.enteringOrderNumber) {
+            return "/invoice/order";
+        }
         if (state.invoice.isOnTicketStep()) {
             return "/invoice/ticket";
         }
@@ -271,6 +300,39 @@ public class InvoiceResource {
         LOGGER.info("Entering method editCustomer");
         invoiceService.editCustomer();
         LOGGER.info("Exiting method editCustomer");
+        return request();
+    }
+
+    /**
+     * Opens the entry of the customer's order number ({@code BO-03-03-02}).
+     *
+     * @return the request page, showing the order-number mask
+     */
+    @GET
+    @jakarta.ws.rs.Path("/order")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance editOrderNumber() {
+        LOGGER.info("Entering method editOrderNumber");
+        invoiceService.editOrderNumber();
+        LOGGER.info("Exiting method editOrderNumber");
+        return request();
+    }
+
+    /**
+     * Records the customer's order number the document states
+     * ({@code BO-03-03-02}).
+     *
+     * @param orderNumber the number typed, blank to clear it
+     * @return the request page, back on the review step
+     */
+    @POST
+    @jakarta.ws.rs.Path("/order")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance setOrderNumber(@FormParam("orderNumber") String orderNumber) {
+        LOGGER.info("Entering method setOrderNumber");
+        invoiceService.setOrderNumber(orderNumber);
+        LOGGER.info("Exiting method setOrderNumber");
         return request();
     }
 
@@ -487,7 +549,10 @@ public class InvoiceResource {
                 .data("hasNext", page < pageCount)
                 .data("prevPage", page - 1)
                 .data("nextPage", page + 1)
-                .data("pageUrl", pageUrl);
+                .data("pageUrl", pageUrl)
+                // BO-03-04-16: a refused issue lands back on the draft, which
+                // states why — the account number the shop made mandatory.
+                .data("error", issued ? "" : state.invoice.error);
     }
 
     /**

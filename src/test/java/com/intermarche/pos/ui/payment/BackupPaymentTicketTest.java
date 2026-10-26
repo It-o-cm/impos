@@ -320,4 +320,15 @@ class BackupPaymentTicketTest {
     void centsBecomeEuros() {
         assertEquals(0, new BigDecimal("24.62").compareTo(BackupPaymentTicket.toEuro(2462L)));
     }
+    /** LC-07-07: an unavailable MAC provider refuses to issue an unsigned backup settlement. */
+    @Test
+    void unavailableMacProviderCannotIssueAnUnsignedPayment() {
+        var cause = new java.security.NoSuchAlgorithmException("provider unavailable");
+        try (var macs = org.mockito.Mockito.mockStatic(javax.crypto.Mac.class)) {
+            macs.when(() -> javax.crypto.Mac.getInstance("HmacSHA256")).thenThrow(cause);
+            var failure = assertThrows(IllegalStateException.class, () -> request().encode(SECRET));
+            assertSame(cause, failure.getCause());
+        }
+    }
+
 }

@@ -46,6 +46,8 @@ class SessionCloseServiceTest {
         SessionCloseService service = new SessionCloseService();
         service.posSettingsService = mock(PosSettingsService.class);
         service.authService = mock(AuthService.class);
+        service.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
+        service.ticketPersistenceService = mock(com.intermarche.pos.service.TicketPersistenceService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.ticketPrinterService = mock(TicketPrinterService.class);
         service.terminalId = "POS07";
@@ -476,4 +478,189 @@ class SessionCloseServiceTest {
         assertTrue(receipt.getValue().contains("Opérateur : 007"));
         assertTrue(receipt.getValue().contains("Martin Durand"));
     }
+
+    /** LC-01-02-07: active and paused identities close the real session before logout. */
+    @Test
+    void remoteCloseUsesActiveOrPausedIdentityBeforeLoggingOut() {
+        for (boolean paused : java.util.List.of(false, true)) {
+            var service = newService();
+            var state = new PosState();
+            state.auth.login(7L, "Cashier", "007");
+            if (paused) state.auth.pause();
+            state.payment.ticketDbId = 42L;
+            try (MockedStatic<PanacheEntityBase> tickets = parked(0)) {
+                assertTrue(service.closeRemotely(state, "back-office"));
+            }
+            var ordered = org.mockito.Mockito.inOrder(service.ticketPersistenceService,
+                    service.cashSessionService, service.authService);
+            ordered.verify(service.ticketPersistenceService).cancelDraft(42L);
+            ordered.verify(service.cashSessionService).forceCloseSession(7L);
+            ordered.verify(service.authService).logout(state);
+        }
+    }
+
+    /** LC-01-02-07: in-flight or partially paid drafts stay pending; completed payments permit closure. */
+    @Test
+    void remoteClosePreservesUnfinishedPaymentsAndDoesNotCancelCompletedSales() {
+        var service = newService();
+        var state = new PosState();
+        state.payment.paymentInProgress = true;
+        try (MockedStatic<PanacheEntityBase> tickets = parked(0)) {
+            remoteCloseKeepsUnfinishedPayments(service, state);
+        }
+    }
+
+    /**
+     * Plays the unfinished and completed payments against the remote close.
+     *
+     * @param service the service
+     * @param state the register state, its payment in progress
+     */
+    private void remoteCloseKeepsUnfinishedPayments(SessionCloseService service, PosState state) {
+        assertFalse(service.closeRemotely(state, "back-office"));
+        state.payment.paymentInProgress = false;
+        state.payment.paidAmount = java.math.BigDecimal.ONE;
+        assertFalse(service.closeRemotely(state, "back-office"));
+        org.mockito.Mockito.verifyNoInteractions(service.cashSessionService, service.authService);
+        state.payment.transactionComplete = true;
+        state.payment.ticketDbId = 42L;
+        assertTrue(service.closeRemotely(state, "back-office"));
+        verify(service.cashSessionService).forceCloseSession(null);
+        org.mockito.Mockito.verifyNoInteractions(service.ticketPersistenceService);
+        verify(service.authService).logout(state);
+        state.payment.transactionComplete = false;
+        state.payment.paidAmount = java.math.BigDecimal.ZERO;
+        state.payment.ticketDbId = null;
+        assertTrue(service.closeRemotely(state, "back-office"));
+    }
+
+    /** LC-01-02-07: a persistence failure leaves the operator signed in and the order uncompleted. */
+    @Test
+    void failedRemotePersistenceDoesNotLogout() {
+        var service = newService();
+        var state = new PosState();
+        state.auth.login(7L, "Cashier", "007");
+        org.mockito.Mockito.doThrow(new IllegalStateException("database"))
+                .when(service.cashSessionService).forceCloseSession(7L);
+        try (MockedStatic<PanacheEntityBase> tickets = parked(0)) {
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> service.closeRemotely(state, "back-office"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(service.authService);
+    }
+
+    /**
+     * BO-09-01-06, BO-09-02-03: a forced close prints its technical ticket —
+     * register, session, operator, cause, declaration, tickets on hold — and
+     * journals it, where the store administers it; nothing of the kind
+     * otherwise.
+     */
+    @Test
+    void aForcedClosePrintsItsTechnicalTicket() {
+        var service = newService();
+        when(service.posSettingsService.periodForcedCloseTicket()).thenReturn(true);
+        com.intermarche.pos.domain.session.CashSession open = new com.intermarche.pos.domain.session.CashSession();
+        open.sessionNumber = "POS07-S00012";
+        when(service.cashSessionService.getOpenSession()).thenReturn(open);
+        var state = new PosState();
+        state.auth.login(7L, "Cashier", "007");
+        try (MockedStatic<PanacheEntityBase> tickets = parked(2)) {
+            assertTrue(service.closeRemotely(state, "fin de période"));
+        }
+        ArgumentCaptor<String> printed = ArgumentCaptor.forClass(String.class);
+        verify(service.ticketPrinterService).printRenderedTicket(printed.capture());
+        String ticket = printed.getValue();
+        assertTrue(ticket.startsWith("TICKET TECHNIQUE\nFERMETURE FORCÉE DE CAISSE\n"));
+        assertTrue(ticket.contains("Caisse      : POS07"));
+        assertTrue(ticket.contains("Session     : POS07-S00012"));
+        assertTrue(ticket.contains("Opérateur   : 007"));
+        assertTrue(ticket.contains("Nom         : Cashier"));
+        assertTrue(ticket.contains("Cause       : fin de période"));
+        assertTrue(ticket.contains("Déclaration : sans comptage"));
+        assertTrue(ticket.contains("En attente  : 2 ticket(s) annulé(s)"));
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SESSION_CLOSED,
+                "Ticket technique de fermeture forcée imprimé — fin de période", "007");
+        var silent = newService();
+        try (MockedStatic<PanacheEntityBase> tickets = parked(0)) {
+            assertTrue(silent.closeRemotely(new PosState(), "back-office"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(silent.ticketPrinterService);
+    }
+
+    /**
+     * BO-09-03-01: the automatic declaration closes the session on its
+     * theoretical amount and prints its Z; a session already gone prints no Z;
+     * the technical ticket of a paused post names its operator and no session.
+     */
+    @Test
+    void anAutomaticDeclarationClosesOnTheTheoretical() {
+        var service = newService();
+        when(service.posSettingsService.periodForcedCloseTicket()).thenReturn(true);
+        com.intermarche.pos.service.CashSessionService.SessionReport report =
+                new com.intermarche.pos.service.CashSessionService.SessionReport();
+        when(service.cashSessionService.closeSession(7L, null, null, null, true)).thenReturn(report);
+        var state = new PosState();
+        state.auth.login(7L, "Cashier", "007");
+        state.auth.pause();
+        try (MockedStatic<PanacheEntityBase> tickets = parked(0)) {
+            assertTrue(service.closeRemotely(state, "fin de période", true));
+        }
+        verify(service.ticketPrinterService).printSessionReport(report);
+        verify(service.cashSessionService, never()).forceCloseSession(any());
+        ArgumentCaptor<String> printed = ArgumentCaptor.forClass(String.class);
+        verify(service.ticketPrinterService).printRenderedTicket(printed.capture());
+        assertTrue(printed.getValue().contains("Déclaration : automatique (théorique)"));
+        assertTrue(printed.getValue().contains("Session     : —"));
+        assertTrue(printed.getValue().contains("Opérateur   : 007"));
+        assertTrue(printed.getValue().contains("Nom         : Cashier"));
+        var gone = newService();
+        try (MockedStatic<PanacheEntityBase> tickets = parked(0)) {
+            assertTrue(gone.closeRemotely(new PosState(), "fin de période", true));
+        }
+        verify(gone.ticketPrinterService, never()).printSessionReport(any());
+    }
+
+    /**
+     * BO-09-01-06, BO-09-02-03: a post left signed out is closed all the same,
+     * its technical ticket and its journal line naming the host who opened
+     * the session; nobody holding the post, it is signed out, not closed.
+     */
+    @Test
+    void aForcedCloseOfASignedOutPostNamesTheSessionOpener() {
+        var service = newService();
+        when(service.posSettingsService.periodForcedCloseTicket()).thenReturn(true);
+        com.intermarche.pos.domain.people.Employee opener = new com.intermarche.pos.domain.people.Employee();
+        opener.badgeId = "12341234";
+        opener.firstName = "Jean";
+        opener.lastName = "Dupont";
+        com.intermarche.pos.domain.session.CashSession open = new com.intermarche.pos.domain.session.CashSession();
+        open.sessionNumber = "POS01-S00001";
+        open.openingCashier = opener;
+        when(service.cashSessionService.getOpenSession()).thenReturn(open);
+        var state = new PosState();
+        try (MockedStatic<PanacheEntityBase> tickets = parked(1)) {
+            assertTrue(service.closeRemotely(state, "fin de période"));
+        }
+        ArgumentCaptor<String> printed = ArgumentCaptor.forClass(String.class);
+        verify(service.ticketPrinterService).printRenderedTicket(printed.capture());
+        assertTrue(printed.getValue().contains("Opérateur   : 12341234"));
+        assertTrue(printed.getValue().contains("Nom         : Jean Dupont"));
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SESSION_CLOSED,
+                "Ticket technique de fermeture forcée imprimé — fin de période", "12341234");
+        verify(service.authService).logout(state);
+    }
+
+    /**
+     * The technical ticket of a post nobody held names no operator.
+     */
+    @Test
+    void aTechnicalTicketWithoutOperator() {
+        var service = newService();
+        service.printTechnicalTicket(null, null, null, "back-office", false, 0);
+        ArgumentCaptor<String> printed = ArgumentCaptor.forClass(String.class);
+        verify(service.ticketPrinterService).printRenderedTicket(printed.capture());
+        assertTrue(printed.getValue().contains("Opérateur   : —"));
+        assertTrue(printed.getValue().contains("Nom         : —"));
+    }
+
 }

@@ -118,6 +118,12 @@ public class ValuationReconciler {
         Ticket draft = ticketDbId != null ? Ticket.findById(ticketDbId) : null;
         BigDecimal adjustment = BigDecimal.ZERO;
         for (TicketState.TicketItem item : ticket.items) {
+            item.promotionLabel = null;
+            // A basket is valued again at every scan and at payment: the local
+            // total is the register's own price, never the previous valuation's,
+            // or the second pass would trace a zero delta and the promotion line
+            // of BO-03-03-23 would never reach the paper.
+            item.valuedTotal = null;
             BigDecimal valued = valuedByLine.remove(item.uid);
             if (valued == null) {
                 if (item.ean != null && !item.ean.isEmpty() && item.getTotalPrice().signum() > 0) {
@@ -135,6 +141,10 @@ public class ValuationReconciler {
                     .setScale(2, RoundingMode.HALF_UP);
             if (valuedTotal.signum() < 0) valuedTotal = BigDecimal.ZERO;
             item.valuedTotal = valuedTotal;
+            // LC-03-01-04: N+M and bundles carry their reduction inside the offer price.
+            item.promotionLabel = cut.signum() > 0 ? advantageLabelByLine.get(item.uid)
+                    : valued.compareTo(item.unitPrice.multiply(item.quantity)) < 0
+                            ? offerLabelByLine.get(item.uid) : null;
             adjustment = adjustment.add(valuedTotal.subtract(localTotal));
 
             if (draft != null) {
@@ -174,6 +184,7 @@ public class ValuationReconciler {
     public void revert(TicketState ticket, Long ticketDbId) {
         for (TicketState.TicketItem item : ticket.items) {
             item.valuedTotal = null;
+            item.promotionLabel = null;
         }
         if (ticketDbId != null) {
             TicketLineValuation.delete("ticket.id", ticketDbId);

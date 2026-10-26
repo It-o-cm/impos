@@ -31,6 +31,80 @@ class TicketStateTest {
         return new TicketItem(ean, null, "L", new BigDecimal(price), new BigDecimal(qty), null);
     }
 
+    /** LC-10-01-07: repeated scans retain eligibility on the merged line, never on another last line. */
+    @Test
+    void mealEligibilitySnapshotTargetsTheRecordedArticle() {
+        TicketState ticket = new TicketState();
+        ticket.addItem("food", null, "Food", new BigDecimal("8.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.snapshotMealVoucherEligibility("food", true);
+        ticket.addItem("other", null, "Other", new BigDecimal("4.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.addItem("food", null, "Food", new BigDecimal("8.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.snapshotMealVoucherEligibility("food", true);
+        assertEquals(new BigDecimal("16.00"), ticket.mealVoucherEligibleTotal());
+        assertFalse(ticket.items.get(1).mealVoucherEligible);
+        ticket.snapshotMealVoucherEligibility("food", false);
+        assertEquals(new BigDecimal("0.00"), ticket.mealVoucherEligibleTotal());
+    }
+
+    /**
+     * BO-05-01-03: the article traits snapshot sets the service nature on the
+     * lines of the recorded article only, beside the third-party flag.
+     */
+    @Test
+    void articleTraitsSnapshotCarriesTheServiceNature() {
+        TicketState ticket = new TicketState();
+        ticket.addItem("svc", null, "Service", new BigDecimal("10.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.addItem("goods", null, "Goods", new BigDecimal("4.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.snapshotArticleTraits("svc", false, true, true, false, null, false);
+        assertTrue(ticket.items.get(0).service);
+        assertTrue(ticket.items.get(0).thirdPartySale);
+        assertFalse(ticket.items.get(1).service);
+        ticket.snapshotArticleTraits("svc", false, false, false, false, null, false);
+        assertFalse(ticket.items.get(0).service);
+    }
+
+    /** LC-10-01-09/11: a repeated scan keeps the eligibility on the merged article, never on the other last line. */
+    @Test
+    void restrictedTenderSnapshotTargetsTheRecordedArticle() {
+        TicketState ticket = new TicketState();
+        ticket.addItem("eco", null, "Eco", new BigDecimal("8.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.snapshotRestrictedTenders("eco", "ECO_VOUCHER_ELIGIBLE");
+        ticket.addItem("other", null, "Other", new BigDecimal("4.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.snapshotRestrictedTenders("other", null);
+        ticket.addItem("eco", null, "Eco", new BigDecimal("8.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ticket.snapshotRestrictedTenders("eco", "ECO_VOUCHER_ELIGIBLE");
+        var eco = new com.intermarche.pos.domain.catalog.attribute.RestrictedTender(
+                "ECO", "ECO_VOUCHER_ELIGIBLE", "Eco");
+        assertEquals(new BigDecimal("16.00"), ticket.restrictedTenderEligibleTotal(eco));
+        assertNull(ticket.items.get(1).restrictedTenders);
+        ticket.snapshotRestrictedTenders("eco", null);
+        assertEquals(new BigDecimal("0.00"), ticket.restrictedTenderEligibleTotal(eco));
+    }
+
+    /** LC-10-01-09/11: the eligible total adds the valued positive lines of the tender only, rounded to the cent. */
+    @Test
+    void restrictedTenderEligibleTotalAddsPositiveCoveredLines() {
+        TicketState ticket = new TicketState();
+        var social = new com.intermarche.pos.domain.catalog.attribute.RestrictedTender(
+                "CAS", "SOCIAL_CARD_ELIGIBLE", "Social");
+        assertEquals(new BigDecimal("0.00"), ticket.restrictedTenderEligibleTotal(social));
+        TicketItem covered = unitItem("1", "3.335", "1");
+        covered.restrictedTenders = "ECO_VOUCHER_ELIGIBLE,SOCIAL_CARD_ELIGIBLE";
+        TicketItem other = unitItem("2", "5.00", "1");
+        other.restrictedTenders = "ECO_VOUCHER_ELIGIBLE";
+        TicketItem plain = unitItem("3", "7.00", "1");
+        TicketItem refunded = unitItem("4", "2.00", "-1");
+        refunded.restrictedTenders = "SOCIAL_CARD_ELIGIBLE";
+        ticket.items.add(covered);
+        ticket.items.add(other);
+        ticket.items.add(plain);
+        ticket.items.add(refunded);
+        assertEquals(new BigDecimal("3.34"), ticket.restrictedTenderEligibleTotal(social));
+        covered.valuedTotal = new BigDecimal("3.00");
+        covered.globalDiscountShare = new BigDecimal("0.25");
+        assertEquals(new BigDecimal("2.75"), ticket.restrictedTenderEligibleTotal(social));
+    }
+
     /**
      * onChange with a null parent must be a silent no-op (null arm).
      */
@@ -96,6 +170,20 @@ class TicketStateTest {
         assertEquals(1, ts.items.size());
         assertEquals(0, new BigDecimal("2").compareTo(ts.items.get(0).quantity));
         assertEquals(uid, parent.lastEnteredItemId);
+    }
+
+    /**
+     * LC-02-09-01: a dematerialised article that carries its code is never
+     * merged into: the next one is another article with another code.
+     */
+    @Test
+    void addItemNeverMergesIntoALineCarryingItsCode() {
+        TicketState ts = new TicketState();
+        ts.addItem("3560", null, "CARTE", new BigDecimal("25.00"), BigDecimal.ONE, null);
+        ts.items.get(0).activationCode = "9001";
+        ts.addItem("3560", null, "CARTE", new BigDecimal("25.00"), BigDecimal.ONE, null);
+        assertEquals(2, ts.items.size());
+        assertEquals(0, BigDecimal.ONE.compareTo(ts.items.get(0).quantity));
     }
 
     /**
@@ -312,6 +400,8 @@ class TicketStateTest {
         ts.currentWeight = 2.0;
         ts.lastRecordedWeight = 3.0;
         ts.transientError = "err";
+        ts.customerTaxId = "123456789";
+        ts.invoiceRequest = new TicketState.InvoiceRequest("123456789", "ACME", "RUA A");
         ts.transientOk = true;
         long before = parent.version;
         ts.clear();
@@ -321,6 +411,8 @@ class TicketStateTest {
         assertEquals(0.0, ts.currentWeight);
         assertTrue(Double.isNaN(ts.lastRecordedWeight));
         assertNull(ts.transientError);
+        assertNull(ts.customerTaxId);
+        assertNull(ts.invoiceRequest);
         assertFalse(ts.transientOk);
         assertEquals(before + 1, parent.version);
     }
@@ -1820,6 +1912,41 @@ class TicketStateTest {
     }
 
     /**
+     * BO-03-06-43: a defined promotion is armed once per scanned paper — the
+     * same code again changes nothing, another code of the same promotion is
+     * another right — and the ticket's clearing forgets them.
+     */
+    @Test
+    void armOfferTakesEachPaperOnceAndIsClearedWithTheTicket() {
+        TicketState ts = new TicketState();
+        TicketState.ScannedOffer first = new TicketState.ScannedOffer("A1", "COUPON", "300",
+                "AMOUNT", new java.math.BigDecimal("0.50"));
+        assertTrue(ts.armOffer(first));
+        assertFalse(ts.armOffer(new TicketState.ScannedOffer("A1", "COUPON", "301",
+                "AMOUNT", java.math.BigDecimal.ONE)));
+        assertTrue(ts.armOffer(new TicketState.ScannedOffer("A2", "COUPON", "301",
+                "AMOUNT", java.math.BigDecimal.ONE)));
+        assertEquals(2, ts.scannedOffers.size());
+        assertEquals(first, ts.scannedOffers.get(0));
+        ts.clear();
+        assertTrue(ts.scannedOffers.isEmpty());
+    }
+
+    /**
+     * BO-03-06-42: a code for the promotion engine is armed once, and the
+     * ticket's clearing forgets it.
+     */
+    @Test
+    void armEngineBarcodeTakesACodeOnceAndIsClearedWithTheTicket() {
+        TicketState ts = new TicketState();
+        assertTrue(ts.armEngineBarcode("9912345678901"));
+        assertFalse(ts.armEngineBarcode("9912345678901"));
+        assertEquals(java.util.List.of("9912345678901"), ts.engineBarcodes);
+        ts.clear();
+        assertTrue(ts.engineBarcodes.isEmpty());
+    }
+
+    /**
      * {@code storePendingActivation} (BO-03-06-44) stores the code on the
      * awaited line, trimmed, and CLOSES the wait whatever the outcome: nothing
      * awaited, a null code, a blank code, a line that no longer exists and a
@@ -1891,5 +2018,204 @@ class TicketStateTest {
         assertTrue(ts.armPromotion("PROMO_RENTREE"));
         ts.clear();
         assertTrue(ts.scannedPromotions.isEmpty());
+    }
+    /** BO-03-07: reduced-line recognition requires both local operands before comparing an engine valuation. */
+    @Test
+    void reducedRecognitionToleratesMissingPriceAndQuantity() throws Exception {
+        TicketState state = new TicketState();
+        TicketItem item = unitItem("EAN", "10", "1");
+        item.valuedTotal = BigDecimal.ONE;
+        var method = TicketState.class.getDeclaredMethod("isReduced", TicketItem.class);
+        method.setAccessible(true);
+        item.unitPrice = null;
+        assertEquals(false, method.invoke(state, item));
+        item.unitPrice = BigDecimal.TEN;
+        item.quantity = null;
+        assertEquals(false, method.invoke(state, item));
+    }
+
+    /** LC-02-05-04: incomplete embedded-price metadata falls back to the normal per-unit detail. */
+    @Test
+    void detailLineHandlesIncompleteEmbeddedMetadataAndBlankPlu() {
+        TicketItem item = unitItem("EAN", "2", "2");
+        item.plu = "";
+        item.embeddedWeight = BigDecimal.ONE;
+        item.embeddedUnitPrice = null;
+        assertEquals("2 x 2,00 €", item.getDetailLine());
+        item.embeddedWeight = null;
+        item.embeddedUnitPrice = BigDecimal.TEN;
+        assertEquals("2 x 2,00 €", item.getDetailLine());
+    }
+
+
+    /** LC-02-05: an empty PLU is a piece sale, so one unit does not acquire a weighed decomposition line. */
+    @Test
+    void emptyPluDoesNotTurnAPieceIntoAWeighedArticle() {
+        var item = new TicketState.TicketItem();
+        item.plu = "";
+        item.quantity = BigDecimal.ONE;
+        item.unitPrice = new BigDecimal("2.50");
+        assertEquals("", item.getDetailLine());
+        item.plu = null;
+        assertEquals("", item.getDetailLine());
+        item.plu = "42";
+        item.unitName = "kg";
+        item.quantity = new BigDecimal("0.500");
+        assertEquals("0,500 kg x 2,50 €/kg", item.getDetailLine());
+    }
+
+    /**
+     * LC-06-02-02 / -12: a line keeps no ordered quantity by default, and writes
+     * the ordered and delivered quantities without trailing zeros, French comma
+     * (both arms of the ordered-quantity ternary).
+     */
+    @Test
+    void orderedAndDeliveredQuantitiesAreWrittenPlain() {
+        TicketItem item = new TicketItem("1", null, "L", BigDecimal.ONE, new BigDecimal("2.500"), null);
+        assertNull(item.getOrderedQuantityFormatted());
+        assertEquals("2,5", item.getDeliveredQuantityFormatted());
+        item.orderedQuantity = new BigDecimal("3.000");
+        assertEquals("3", item.getOrderedQuantityFormatted());
+    }
+
+    /**
+     * Opens a container whose parameter service answers the given grouping
+     * and rounding rules, or none at all.
+     *
+     * @param arc the static mock of {@link io.quarkus.arc.Arc}
+     * @param settings the parameter service, or null for an unavailable one
+     */
+    @SuppressWarnings("unchecked")
+    private void container(org.mockito.MockedStatic<io.quarkus.arc.Arc> arc,
+            com.intermarche.pos.service.PosSettingsService settings) {
+        io.quarkus.arc.ArcContainer container = org.mockito.Mockito.mock(io.quarkus.arc.ArcContainer.class);
+        io.quarkus.arc.InstanceHandle<com.intermarche.pos.service.PosSettingsService> handle =
+                org.mockito.Mockito.mock(io.quarkus.arc.InstanceHandle.class);
+        org.mockito.Mockito.when(handle.isAvailable()).thenReturn(settings != null);
+        org.mockito.Mockito.when(handle.get()).thenReturn(settings);
+        org.mockito.Mockito.when(container.instance(com.intermarche.pos.service.PosSettingsService.class))
+                .thenReturn(handle);
+        arc.when(io.quarkus.arc.Arc::container).thenReturn(container);
+    }
+
+    /**
+     * BO-10-08-32: a shop that does not group the same articles sees each
+     * scan as its own line; a shop that groups merges them.
+     */
+    @Test
+    void theAdministeredGroupingDecidesTheMerge() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        org.mockito.Mockito.when(settings.calcRoundingMode()).thenReturn(java.math.RoundingMode.HALF_UP);
+        try (org.mockito.MockedStatic<io.quarkus.arc.Arc> arc = org.mockito.Mockito.mockStatic(io.quarkus.arc.Arc.class)) {
+            container(arc, settings);
+            TicketState separate = new TicketState();
+            separate.addItem("3000", null, "LAIT", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+            separate.addItem("3000", null, "LAIT", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+            assertEquals(2, separate.items.size());
+            org.mockito.Mockito.when(settings.saleGroupLines()).thenReturn(true);
+            TicketState grouped = new TicketState();
+            grouped.addItem("3000", null, "LAIT", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+            grouped.addItem("3000", null, "LAIT", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+            assertEquals(1, grouped.items.size());
+            assertEquals(0, new BigDecimal("2").compareTo(grouped.items.get(0).quantity));
+        }
+    }
+
+    /**
+     * BO-10-02-18: the line total is rounded with the shop's rule, on the
+     * screen and in the ticket total alike; with no parameter service behind
+     * the container, the rules fall back on grouping and half up.
+     */
+    @Test
+    void theAdministeredRoundingRuleRoundsTheLines() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        org.mockito.Mockito.when(settings.calcRoundingMode()).thenReturn(java.math.RoundingMode.DOWN);
+        try (org.mockito.MockedStatic<io.quarkus.arc.Arc> arc = org.mockito.Mockito.mockStatic(io.quarkus.arc.Arc.class)) {
+            container(arc, settings);
+            TicketState ticket = new TicketState();
+            ticket.addItem(null, "4000", "POMMES", new BigDecimal("2.99"), new BigDecimal("1.257"), BigDecimal.ZERO);
+            assertEquals(0, new BigDecimal("3.75").compareTo(ticket.totalAmount));
+            assertEquals("3,75", ticket.items.get(0).getPriceFormatted());
+            container(arc, null);
+            assertTrue(TicketState.linesGrouped());
+            assertEquals(java.math.RoundingMode.HALF_UP, TicketState.roundingMode());
+        }
+        assertTrue(TicketState.linesGrouped());
+        assertEquals(java.math.RoundingMode.HALF_UP, TicketState.roundingMode());
+    }
+
+    /**
+     * BO-04-01-34: an event recorded without a ticket waits for it; one
+     * already named, one never saved and no event at all do not.
+     */
+    @Test
+    void anUnnamedEventAwaitsTheTicket() {
+        TicketState ticket = new TicketState();
+        com.intermarche.pos.domain.session.TechnicalEvent waiting = new com.intermarche.pos.domain.session.TechnicalEvent();
+        waiting.id = 3L;
+        com.intermarche.pos.domain.session.TechnicalEvent named = new com.intermarche.pos.domain.session.TechnicalEvent();
+        named.id = 4L;
+        named.ticketNumber = "C04-00000001";
+        ticket.awaitTicket(waiting);
+        ticket.awaitTicket(named);
+        ticket.awaitTicket(new com.intermarche.pos.domain.session.TechnicalEvent());
+        ticket.awaitTicket(null);
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of(3L), ticket.eventsAwaitingTicket);
+    }
+
+    /**
+     * LC-02-13-03: with no owning register state there is nothing armed, so
+     * nothing is refused.
+     */
+    @Test
+    void armedDecimalRefusedWithoutParentRefusesNothing() {
+        assertFalse(new TicketState().armedDecimalRefused(false));
+    }
+
+    /**
+     * LC-02-13-03: nothing armed refuses nothing.
+     */
+    @Test
+    void armedDecimalRefusedWithNothingArmedRefusesNothing() {
+        PosState state = new PosState();
+        assertFalse(state.ticket.armedDecimalRefused(false));
+    }
+
+    /**
+     * LC-02-13-04: an article of the decimal-quantity type takes the decimal
+     * armed, which stays armed for the line.
+     */
+    @Test
+    void armedDecimalRefusedLetsADecimalArticleTakeIt() {
+        PosState state = new PosState();
+        state.armedQuantity = new BigDecimal("1.5");
+        assertFalse(state.ticket.armedDecimalRefused(true));
+        assertEquals(new BigDecimal("1.5"), state.armedQuantity);
+    }
+
+    /**
+     * LC-02-13-04: a whole armed quantity — trailing zeros included — goes to a
+     * unit article.
+     */
+    @Test
+    void armedDecimalRefusedLetsAWholeQuantityThrough() {
+        PosState state = new PosState();
+        state.armedQuantity = new BigDecimal("2.00");
+        assertFalse(state.ticket.armedDecimalRefused(false));
+        assertEquals(new BigDecimal("2.00"), state.armedQuantity);
+    }
+
+    /**
+     * LC-02-13-03: a decimal armed before a unit article is refused and consumed,
+     * so it does not wait for the next article either.
+     */
+    @Test
+    void armedDecimalRefusedConsumesADecimalForAUnitArticle() {
+        PosState state = new PosState();
+        state.armedQuantity = new BigDecimal("1.5");
+        assertTrue(state.ticket.armedDecimalRefused(false));
+        assertNull(state.armedQuantity);
     }
 }

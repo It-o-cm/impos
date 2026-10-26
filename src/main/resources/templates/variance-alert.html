@@ -35,7 +35,7 @@
 </head>
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
-    <div class="top-bar"><span class="title">Écart de caisse</span></div>
+    <div class="top-bar"><span class="title">{inject:i18n.get('variancealert.ecartCaisse')}</span></div>
     <div class="work">
       {#if error}<div class="close-error">{error}</div>{/if}
       {! Le MONTANT de l'ecart n'est montre que si le back-office l'autorise
@@ -44,7 +44,7 @@
        ! cesse d'etre un comptage. Le chiffre reste sur le Z, dans le journal et pour
        ! la responsable; les deux issues, elles, ne changent pas. !}
       <div class="variance-box">
-        <div class="variance-label">Écart constaté (seuil {threshold} €)</div>
+        <div class="variance-label">{#let shown=inject:units.money(threshold)}{inject:i18n.format('variancealert.x21EcartConstate', shown)}{/let}</div>
         {#if amountVisible}
           <div class="variance-amount">{pending.varianceFormatted} €</div>
         {#else}

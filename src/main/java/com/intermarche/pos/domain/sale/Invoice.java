@@ -1,9 +1,19 @@
 package com.intermarche.pos.domain.sale;
 
-import com.intermarche.pos.domain.BaseEntity;
 import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.domain.store.Address;
-import jakarta.persistence.*;
+import com.intermarche.pos.domain.BaseEntity;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
@@ -179,6 +189,39 @@ public class Invoice extends BaseEntity {
     /** How many times it has been printed; the first print is the original. */
     @Column(name = "print_count", nullable = false)
     public int printCount = 0;
+
+    /**
+     * The customer's ORDER number the document states (BO-03-03-02), as typed
+     * at the register; null when the operator typed none.
+     */
+    @Column(name = "order_number", length = 50)
+    public String orderNumber;
+
+    /**
+     * The code of the administered DOCUMENT this paper was drawn as
+     * (BO-03-04-09), null when it was drawn as one of the built-in kinds.
+     */
+    @Column(name = "document_code", length = 30)
+    public String documentCode;
+
+    /**
+     * The NAME printed at the top of the document (BO-03-03-02, « type de
+     * document issu du nom du document »), null when the kind's own title
+     * stands.
+     */
+    @Column(name = "document_title", length = 60)
+    public String documentTitle;
+
+    /**
+     * The title this document carries on paper: the administered document's
+     * name when it was drawn as one, the kind's own title otherwise.
+     *
+     * @return the printed title, never null
+     */
+    public String printedTitle() {
+        return documentTitle == null || documentTitle.isBlank()
+                ? documentType.getTitle() : documentTitle;
+    }
 
     /**
      * Copies onto the document what must survive a later change of the customer.

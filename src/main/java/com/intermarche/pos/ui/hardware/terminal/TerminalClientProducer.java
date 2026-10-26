@@ -97,7 +97,83 @@ public class TerminalClientProducer {
     @ApplicationScoped
     public PaymentTerminalClient paymentTerminalClient() {
         return new DegradedModePaymentTerminalClient(
-                resolveConfigured(), new AutoAcceptTerminalClient(), posSettingsService, state);
+                this::currentConfigured, new AutoAcceptTerminalClient(VerifoneTags.DEGRADED_SERVER),
+                posSettingsService, state);
+    }
+
+    /** The mode, host and port the current client was built for (BO-03-09-19). */
+    private String builtFor;
+
+    /** The client built for {@link #builtFor}. */
+    private PaymentTerminalClient built;
+
+    /**
+     * The terminal client for what is administered NOW (BO-03-09-19): the
+     * family and the address reach the register with its referential, after
+     * it started, so the client is rebuilt when either changes and reused
+     * otherwise.
+     *
+     * @return the configured (non-degraded) payment-terminal implementation
+     */
+    synchronized PaymentTerminalClient currentConfigured() {
+        String key = effectiveMode() + "|" + host() + ":" + port();
+        if (built == null || !key.equals(builtFor)) {
+            built = resolveConfigured();
+            builtFor = key;
+        }
+        return built;
+    }
+
+    /**
+     * The terminal family administered for this register wins over the
+     * deployment's mode (BO-03-09-19): Verifone is the centralised monetique
+     * this register speaks itself; Ingenico (SIBS, Portugal) and Worldline
+     * (Belgium) terminals are driven by the hardware module, which receives the
+     * family in its driver configuration. Nothing administered: the
+     * deployment's {@code pos.tpe.mode}.
+     *
+     * @return the mode the client is built for
+     */
+    String effectiveMode() {
+        String administered = posSettingsService.paymentTerminalType();
+        if ("VERIFONE".equals(administered)) {
+            return "verifone";
+        }
+        return administered.isEmpty() ? mode : "bridge";
+    }
+
+    /**
+     * The host of the monetique client: the administered address's, else the
+     * deployment's (BO-03-09-19).
+     *
+     * @return the host
+     */
+    String host() {
+        String address = posSettingsService.paymentTerminalAddress();
+        int colon = address.lastIndexOf(':');
+        if (address.isEmpty()) {
+            return verifoneHost;
+        }
+        return colon > 0 ? address.substring(0, colon) : address;
+    }
+
+    /**
+     * The port of the monetique client: the administered address's, else the
+     * deployment's (BO-03-09-19).
+     *
+     * @return the port
+     */
+    int port() {
+        String address = posSettingsService.paymentTerminalAddress();
+        int colon = address.lastIndexOf(':');
+        if (colon <= 0) {
+            return verifonePort;
+        }
+        try {
+            return Integer.parseInt(address.substring(colon + 1).trim());
+        } catch (NumberFormatException e) {
+            return verifonePort;
+        }
     }
 
     /**
@@ -106,7 +182,7 @@ public class TerminalClientProducer {
      * @return the configured (non-degraded) payment-terminal implementation
      */
     private PaymentTerminalClient resolveConfigured() {
-        switch (mode) {
+        switch (effectiveMode()) {
             case "auto":
                 return new AutoAcceptTerminalClient();
             case "verifone":
@@ -114,7 +190,7 @@ public class TerminalClientProducer {
                 // HANDED OVER, like the message resolver beside them — the
                 // client is built here and not by the container.
                 return new VerifoneTerminalClient(
-                        new VerifoneTransport(verifoneHost, verifonePort, verifoneTimeoutMs),
+                        new VerifoneTransport(host(), port(), verifoneTimeoutMs),
                         i18n, posSettingsService);
             case "bridge":
                 return new HardwareBridgeTerminalClient(hardwareClient, bridgePollMs,

@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -70,16 +71,49 @@ public class BackOfficeDocumentClient {
             LOGGER.info("Exiting method fetch with blank code");
             return null;
         }
+        LOGGER.info("Exiting method fetch");
+        return get("/api/orders/" + URLEncoder.encode(code.trim(), StandardCharsets.UTF_8), code);
+    }
+
+    /**
+     * Fetches the latest recallable document of a kind issued for a CUSTOMER
+     * NUMBER (BO-10-01-18): where the self-scanning baskets are identified by
+     * the customer and not by their transaction barcode.
+     *
+     * @param customerNumber the customer number keyed at the till
+     * @param kind the kind of document looked for
+     * @return the document, or null when the number is blank, no store is
+     *         configured, the store holds none, or the node could not be reached
+     */
+    public RecalledDocument fetchByCustomer(String customerNumber, RecalledDocument.Kind kind) {
+        LOGGER.info("Entering method fetchByCustomer");
+        if (customerNumber == null || customerNumber.isBlank()) {
+            LOGGER.info("Exiting method fetchByCustomer with blank number");
+            return null;
+        }
+        LOGGER.info("Exiting method fetchByCustomer");
+        return get("/api/orders/customer/" + URLEncoder.encode(customerNumber.trim(), StandardCharsets.UTF_8)
+                + "?kind=" + kind.name(), customerNumber);
+    }
+
+    /**
+     * Reads one document from the store node, tolerantly.
+     *
+     * @param path the path under the document-store URL, already encoded
+     * @param what the code or number named, for the log
+     * @return the document, or null when no store is configured, the node
+     *         answers no document or could not be reached
+     */
+    private RecalledDocument get(String path, String what) {
         if (documentUrl.isEmpty() || documentUrl.get().isBlank()) {
             // No document store configured: the standalone lane knows no
             // document, so nothing resolves (the connected fetch needs imedge).
-            LOGGER.info("Exiting method fetch with local stub (no document)");
+            LOGGER.info("Local stub (no document)");
             return null;
         }
         try {
-            String encoded = URLEncoder.encode(code.trim(), StandardCharsets.UTF_8);
             HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(documentUrl.get().trim() + "/api/orders/" + encoded))
+                    .uri(URI.create(documentUrl.get().trim() + path))
                     .timeout(Duration.ofSeconds(3))
                     .GET();
             token.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
@@ -87,18 +121,15 @@ public class BackOfficeDocumentClient {
                     HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300
                     || response.body() == null || response.body().isBlank()) {
-                LOGGER.info("Exiting method fetch (node answered no document)");
+                LOGGER.info("Node answered no document");
                 return null;
             }
-            RecalledDocument document =
-                    objectMapper.readValue(response.body(), RecalledDocument.class);
-            LOGGER.info("Exiting method fetch (document recalled from node)");
-            return document;
+            LOGGER.info("Document recalled from node");
+            return objectMapper.readValue(response.body(), RecalledDocument.class);
         } catch (Exception e) {
             // Tolerant: a node down or a malformed answer is "no document",
             // never a thrown error that could disturb the lane.
-            LOGGER.warnf("Nœud magasin injoignable pour le document %s : %s", code, e.getMessage());
-            LOGGER.info("Exiting method fetch (node unreachable, no document)");
+            LOGGER.warnf("Nœud magasin injoignable pour le document %s : %s", what, e.getMessage());
             return null;
         }
     }
@@ -154,6 +185,55 @@ public class BackOfficeDocumentClient {
             LOGGER.warnf("Nœud magasin injoignable pour la commande %s : %s",
                     order.code, e.getMessage());
             LOGGER.info("Exiting method pushOrder (node unreachable)");
+            return false;
+        }
+    }
+
+    /**
+     * Tells the store node a deposit was taken at this till on a document it
+     * holds (LC-06-02-04, -07): the node updates the document — its deposit VAT,
+     * its status — for the back office and the commercial management tool that
+     * issued it. The deposit's MONEY travels as the {@code CUSTOMER_DEPOSIT}
+     * movement, imputed by the code; this call carries its VAT ventilation.
+     *
+     * <p>Tolerant like every call of this seam: the deposit was collected and its
+     * slip printed whatever the network says.
+     *
+     * @param code the code of the document
+     * @param amount the deposit taken, TTC
+     * @param vatDetail the per-rate VAT of the deposit, compact form
+     * @return true when the node recorded it, false when it could not be told
+     */
+    public boolean recordDeposit(String code, BigDecimal amount, String vatDetail) {
+        LOGGER.info("Entering method recordDeposit with code: " + code + ", amount: " + amount);
+        if (code == null || code.isBlank()) {
+            LOGGER.info("Exiting method recordDeposit (no code)");
+            return false;
+        }
+        if (documentUrl.isEmpty() || documentUrl.get().isBlank()) {
+            LOGGER.info("Exiting method recordDeposit (no document store configured)");
+            return false;
+        }
+        try {
+            String encoded = URLEncoder.encode(code.trim(), StandardCharsets.UTF_8);
+            java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("amount", amount);
+            body.put("vatDetail", vatDetail);
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(documentUrl.get().trim() + "/api/orders/" + encoded + "/deposits"))
+                    .timeout(Duration.ofSeconds(3))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)));
+            token.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
+            HttpResponse<String> response = httpClient.send(builder.build(),
+                    HttpResponse.BodyHandlers.ofString());
+            boolean recorded = response.statusCode() >= 200 && response.statusCode() < 300;
+            LOGGER.info("Exiting method recordDeposit (recorded: " + recorded + ")");
+            return recorded;
+        } catch (Exception e) {
+            LOGGER.warnf("Nœud magasin injoignable pour l'acompte du document %s : %s",
+                    code, e.getMessage());
+            LOGGER.info("Exiting method recordDeposit (node unreachable)");
             return false;
         }
     }

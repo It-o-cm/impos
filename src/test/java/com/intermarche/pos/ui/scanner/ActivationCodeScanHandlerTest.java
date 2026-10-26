@@ -12,6 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link ActivationCodeScanHandler} (BO-03-06-44).
@@ -38,7 +42,52 @@ class ActivationCodeScanHandlerTest {
     private ActivationCodeScanHandler newHandler() {
         ActivationCodeScanHandler handler = new ActivationCodeScanHandler();
         handler.i18n = TestMessages.french();
+        handler.dematerialisedService = mock(com.intermarche.pos.ui.ticket.DematerialisedService.class);
+        handler.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
         return handler;
+    }
+
+    /**
+     * LC-02-09-01: with a payment hub, the code is sent for activation and the
+     * line, accepted, stays; nothing is cancelled and the plain acknowledgement
+     * gives way to the hub's.
+     */
+    @Test
+    void anAcceptedActivationKeepsTheLine() {
+        TicketState ticket = new TicketState();
+        TicketState.TicketItem line = addLine(ticket);
+        ticket.pendingActivationUid = line.uid;
+        PosState state = newState(ticket);
+        ActivationCodeScanHandler handler = newHandler();
+        when(handler.dematerialisedService.thirdPartyActivation(state, "ACT-123")).thenReturn(true);
+        when(handler.dematerialisedService.activate(state, line)).thenReturn(null);
+        ScanContext ctx = new ScanContext("ACT-123", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        assertEquals("ACT-123", line.activationCode);
+        verify(handler.ticketService, never()).cancelItemById(any(), any());
+        assertNull(ticket.transientError);
+    }
+
+    /**
+     * LC-02-09-01: a refused activation cancels the line and shows the hub's
+     * refusal.
+     */
+    @Test
+    void aRefusedActivationCancelsTheLine() {
+        TicketState ticket = new TicketState();
+        TicketState.TicketItem line = addLine(ticket);
+        ticket.pendingActivationUid = line.uid;
+        PosState state = newState(ticket);
+        ActivationCodeScanHandler handler = newHandler();
+        when(handler.dematerialisedService.thirdPartyActivation(state, "ACT-123")).thenReturn(true);
+        when(handler.dematerialisedService.activate(state, line)).thenReturn("REFUS");
+        ScanContext ctx = new ScanContext("ACT-123", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(handler.ticketService).cancelItemById(state, line.uid);
+        assertEquals("REFUS", ticket.transientError);
+        assertFalse(ticket.transientOk);
     }
 
     /**
@@ -187,5 +236,48 @@ class ActivationCodeScanHandlerTest {
         assertNull(ticket.pendingActivationUid);
         assertEquals("LIGNE A ACTIVER INTROUVABLE", ticket.transientError);
         assertFalse(ticket.transientOk);
+    }
+
+    /**
+     * BO-03-02-37: a type of prepaid card forbidding the activation cancels
+     * the line with its refusal, and the hub is not asked.
+     */
+    @Test
+    void aForbiddenActivationCancelsTheLine() {
+        TicketState ticket = new TicketState();
+        TicketState.TicketItem line = addLine(ticket);
+        ticket.pendingActivationUid = line.uid;
+        PosState state = newState(ticket);
+        ActivationCodeScanHandler handler = newHandler();
+        when(handler.dematerialisedService.activationRefusal("ACT-123")).thenReturn("INTERDIT");
+        ScanContext ctx = new ScanContext("ACT-123", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(handler.ticketService).cancelItemById(state, line.uid);
+        assertEquals("INTERDIT", ticket.transientError);
+        verify(handler.dematerialisedService, never()).activate(any(), any());
+    }
+
+    /**
+     * BO-11-03-04: where the NEXO exchange is administered at payment, the code
+     * is stored on its line and NOT sent: the article is announced as activated
+     * on entering payment.
+     */
+    @Test
+    void anActivationDeferredToPaymentIsOnlyRegistered() {
+        TicketState ticket = new TicketState();
+        TicketState.TicketItem line = addLine(ticket);
+        ticket.pendingActivationUid = line.uid;
+        PosState state = newState(ticket);
+        ActivationCodeScanHandler handler = newHandler();
+        when(handler.dematerialisedService.thirdPartyActivation(state, "ACT-123")).thenReturn(true);
+        when(handler.dematerialisedService.activationAtPayment()).thenReturn(true);
+        ScanContext ctx = new ScanContext("ACT-123", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        assertEquals("ACT-123", line.activationCode);
+        verify(handler.dematerialisedService, never()).activate(any(), any());
+        assertEquals("PRODUIT DÉMATÉRIALISÉ ENREGISTRÉ : ACTIVATION À L'ENTRÉE EN PAIEMENT", ticket.transientError);
+        assertTrue(ticket.transientOk);
     }
 }

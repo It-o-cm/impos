@@ -496,6 +496,18 @@ public class CreditClientService {
         if (!posSettingsService.showCustomerDiscount()) {
             return false;
         }
+        return discountApplies(customer);
+    }
+
+    /**
+     * Tells whether the discount of an account's record applies to the sale
+     * (BO-10-04-07, LC-03-02-09): a positive rate on the record and, where the
+     * store administers a segment, an account of that segment.
+     *
+     * @param customer the account, null when none is named
+     * @return true when the account's discount is granted
+     */
+    public boolean discountApplies(AccountCustomer customer) {
         if (customer == null || customer.discountPercent == null
                 || customer.discountPercent.signum() <= 0) {
             return false;

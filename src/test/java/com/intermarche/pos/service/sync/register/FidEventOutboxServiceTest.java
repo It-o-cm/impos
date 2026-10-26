@@ -54,6 +54,9 @@ class FidEventOutboxServiceTest {
     /** The Authorization header of the last call, or null. */
     private final AtomicReference<String> receivedAuthorization = new AtomicReference<>();
 
+    /** The loyalty call each request named, in order (BO-11-04-05, -06). */
+    private final List<String> receivedCalls = new ArrayList<>();
+
     /** The status the stub answers next. */
     private final AtomicInteger answeredStatus = new AtomicInteger(202);
 
@@ -66,6 +69,7 @@ class FidEventOutboxServiceTest {
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/events", this::record);
+        server.createContext("/api/gt", this::record);
         server.start();
         service = new FidEventOutboxService();
         service.url = Optional.of("http://127.0.0.1:" + server.getAddress().getPort());
@@ -90,6 +94,7 @@ class FidEventOutboxServiceTest {
      */
     private void record(HttpExchange exchange) throws IOException {
         receivedPaths.add(exchange.getRequestURI().getPath());
+        receivedCalls.add(exchange.getRequestHeaders().getFirst(FidEventOutboxService.CALL_HEADER));
         receivedAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
         receivedBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         exchange.sendResponseHeaders(answeredStatus.get(), -1);
@@ -144,12 +149,12 @@ class FidEventOutboxServiceTest {
     // --- lifecycle ---
 
     /**
-     * An UNCONFIGURED service starts NO thread at all: loyalty is disabled,
-     * and a register that does not talk to imfid must not carry a background
-     * loop for nothing.
+     * An UNCONFIGURED service still arms its loop: the address is read on every
+     * tick (BO-11-04-06), so a register administered later declares its sales
+     * without a restart; a tick with no address drains nothing.
      */
     @Test
-    void onStartCreatesNoLoopWhenUnconfigured() {
+    void onStartArmsTheLoopEvenUnconfigured() {
         FidEventOutboxService bare = new FidEventOutboxService();
         bare.url = Optional.empty();
         bare.onStart(null);
@@ -380,6 +385,83 @@ class FidEventOutboxServiceTest {
         assertNull(receivedAuthorization.get());
     }
 
+    // --- administered loyalty configuration (BO-10-03-08, -10) ---
+
+    /**
+     * The ADMINISTERED URL, user and password win over the deployment keys:
+     * the event reaches the administered imfid with the administered account,
+     * the surrounding blanks of the URL and the user trimmed.
+     */
+    @Test
+    void drainUsesTheAdministeredUrlAndAccount() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(settings.fidelityUrl()).thenReturn(" " + service.url.get() + " ");
+        when(settings.fidelityUser()).thenReturn(" admin-user ");
+        when(settings.fidelityPassword()).thenReturn("S3cret!");
+        when(settings.fidelityReadTimeoutMs()).thenReturn(4000);
+        service.url = Optional.of("http://127.0.0.1:1");
+        service.posSettingsService = settings;
+        answeredStatus.set(202);
+        drainWith(List.of(event(1L, FidEvent.EventType.TICKET_CLOSED, "{\"a\":1}")));
+        String expected = "Basic " + java.util.Base64.getEncoder()
+                .encodeToString("admin-user:S3cret!".getBytes(StandardCharsets.UTF_8));
+        assertEquals(List.of("/api/events/ticket-closed"), receivedPaths);
+        assertEquals(expected, receivedAuthorization.get());
+        assertEquals(java.time.Duration.ofMillis(4000), service.readTimeout());
+    }
+
+    /**
+     * BLANK administered values (an empty password, a blank URL and user, a
+     * zero delay) leave the deployment keys and the historical 2500 ms delay
+     * in force.
+     */
+    @Test
+    void blankAdministeredValuesKeepTheDeploymentKeys() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(settings.fidelityUrl()).thenReturn("  ");
+        when(settings.fidelityUser()).thenReturn(" ");
+        when(settings.fidelityPassword()).thenReturn("");
+        service.posSettingsService = settings;
+        assertEquals(service.url.get(), service.baseUrl());
+        assertEquals("pos", service.authUser());
+        assertEquals("pos-password", service.authPassword());
+        assertEquals(java.time.Duration.ofMillis(2500), service.readTimeout());
+    }
+
+    /**
+     * NULL administered values (parameters never read) leave the deployment
+     * keys in force; without a container no settings exist at all and the
+     * deployment keys apply alone, the delay being the historical one.
+     */
+    @Test
+    void absentAdministeredValuesKeepTheDeploymentKeys() {
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        assertEquals(service.url.get(), service.baseUrl());
+        assertEquals("pos", service.authUser());
+        assertEquals("pos-password", service.authPassword());
+        service.posSettingsService = null;
+        assertEquals("pos", service.authUser());
+        assertEquals("pos-password", service.authPassword());
+        assertEquals(java.time.Duration.ofMillis(2500), service.readTimeout());
+    }
+
+    /**
+     * An URL administered while no URL is deployed is enough to start the
+     * drain loop: the back office alone enables the loyalty events.
+     */
+    @Test
+    void onStartStartsTheLoopOnAnAdministeredUrlAlone() {
+        FidEventOutboxService administered = new FidEventOutboxService();
+        administered.url = Optional.empty();
+        administered.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(administered.posSettingsService.fidelityUrl()).thenReturn("http://127.0.0.1:1");
+        administered.onStart(null);
+        assertEquals("http://127.0.0.1:1", administered.baseUrl());
+        assertDoesNotThrow(administered::onStop);
+    }
+
     // --- the loop never dies ---
 
     /**
@@ -489,5 +571,96 @@ class FidEventOutboxServiceTest {
         drainWith(List.of(event(1L, FidEvent.EventType.TICKET_CLOSED, payload)));
 
         assertEquals(payload, receivedBodies.get(0));
+    }
+
+    // --- BO-11-04-05 / -06: the VT and GT calls ---
+
+    /**
+     * The GT resend is due at first, then once the cadence has elapsed — ten
+     * seconds without the administered parameters, the administered cadence
+     * otherwise — and never while the GT call is switched off.
+     */
+    @Test
+    void theGtResendFollowsItsSwitchAndCadence() {
+        java.time.LocalDateTime now = java.time.LocalDateTime.of(2026, 10, 25, 9, 0);
+        assertTrue(service.resendDue(now));
+        assertFalse(service.resendDue(now.plusSeconds(9)));
+        assertTrue(service.resendDue(now.plusSeconds(10)));
+        FidEventOutboxService administered = new FidEventOutboxService();
+        administered.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(administered.posSettingsService.fidelityGtEnabled()).thenReturn(true);
+        when(administered.posSettingsService.fidelityGtSeconds()).thenReturn(60);
+        assertTrue(administered.resendDue(now));
+        assertFalse(administered.resendDue(now.plusSeconds(59)));
+        assertTrue(administered.resendDue(now.plusSeconds(60)));
+        when(administered.posSettingsService.fidelityGtEnabled()).thenReturn(false);
+        assertFalse(administered.resendDue(now.plusSeconds(600)));
+    }
+
+    /**
+     * A tick whose resend is not due drains nothing.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void aTickNotDueDrainsNothing() throws Exception {
+        java.lang.reflect.Method drainSafely = FidEventOutboxService.class.getDeclaredMethod("drainSafely");
+        drainSafely.setAccessible(true);
+        service.lastDrain = java.time.LocalDateTime.now().plusMinutes(5);
+        drainSafely.invoke(service);
+        assertTrue(receivedPaths.isEmpty());
+    }
+
+    /**
+     * The GT call resends on the administered path, or on the VT path of the
+     * event's kind when none is administered, and names itself GT.
+     */
+    @Test
+    void theGtCallUsesItsAdministeredPath() {
+        assertEquals("/api/events/ticket-closed", service.gtPath(FidEvent.EventType.TICKET_CLOSED));
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(service.posSettingsService.fidelityGtPath()).thenReturn(" ");
+        assertEquals("/api/events/ticket-return", service.gtPath(FidEvent.EventType.TICKET_RETURN));
+        when(service.posSettingsService.fidelityGtPath()).thenReturn(null);
+        assertEquals("/api/events/ticket-return", service.gtPath(FidEvent.EventType.TICKET_RETURN));
+        when(service.posSettingsService.fidelityGtPath()).thenReturn(" /api/gt ");
+        when(service.posSettingsService.fidelityUrl()).thenReturn("");
+        answeredStatus.set(202);
+        drainWith(List.of(event(1L, FidEvent.EventType.TICKET_CLOSED, "{}")));
+        assertEquals(List.of("/api/gt"), receivedPaths);
+        assertEquals(List.of("GT"), receivedCalls);
+    }
+
+    /**
+     * The synchronous VT call: accepted, the event is recorded as SENT; refused,
+     * unreachable or unconfigured, it is recorded PENDING with its error for
+     * the GT resend.
+     */
+    @Test
+    void theVtCallIsSynchronousAndNeverLosesAnEvent() {
+        try (MockedConstruction<FidEvent> rows = mockConstruction(FidEvent.class)) {
+            answeredStatus.set(202);
+            assertTrue(service.sendNow(FidEvent.EventType.TICKET_CLOSED, "{\"t\":1}"));
+            FidEvent sent = rows.constructed().get(0);
+            assertNotNull(sent.sentAt);
+            assertNull(sent.lastError);
+            assertEquals(1, sent.attempts);
+            assertEquals(List.of("/api/events/ticket-closed"), receivedPaths);
+            assertEquals(List.of("VT"), receivedCalls);
+            verify(sent).persist();
+            answeredStatus.set(500);
+            assertFalse(service.sendNow(FidEvent.EventType.TICKET_RETURN, "{}"));
+            FidEvent refused = rows.constructed().get(1);
+            assertNull(refused.sentAt);
+            assertEquals("HTTP 500", refused.lastError);
+            assertEquals("/api/events/ticket-return", receivedPaths.get(1));
+            service.url = Optional.of("http://127.0.0.1:1");
+            assertFalse(service.sendNow(FidEvent.EventType.TICKET_CLOSED, "{}"));
+            assertNull(rows.constructed().get(2).sentAt);
+            service.url = Optional.empty();
+            assertFalse(service.sendNow(FidEvent.EventType.TICKET_CLOSED, "{}"));
+            assertEquals("service fidélité non configuré", rows.constructed().get(3).lastError);
+            verify(rows.constructed().get(3)).persist();
+        }
     }
 }

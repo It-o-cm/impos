@@ -148,7 +148,7 @@ public class DrawerMethodService {
             return Map.of();
         }
         LOGGER.info("Exiting method theoreticalByMethod");
-        return cashSessionService.buildReport(session).totalsByMethod;
+        return cashSessionService.buildReport(session).theoreticalByMethod;
     }
 
     /**

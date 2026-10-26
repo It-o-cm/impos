@@ -1,0 +1,96 @@
+{!
+ ! SELFSCANNING (SelfScanResource, LC-06-05-01 to -06). The basket a customer
+ ! built on a selfscanning device, recalled at the till by its code: its control
+ ! (none, partial or total), the articles the cashier re-scans counted as the
+ ! hardware scanner reads them, then the basket loaded into the sale or put aside.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('selfscan.titre')}</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .main-area { display: flex; justify-content: center; align-items: center; overflow: hidden; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 16px 20px; width: 46rem; max-width: calc(100% - 20px); max-height: 100%; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
+    .panel h3 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
+    .mode { font-weight: bold; text-transform: uppercase; color: var(--warning); font-size: var(--fs-body); }
+    .mode.none { color: var(--success); }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 8px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .ss-lines { max-height: 14rem; overflow-y: auto; border-top: 1px solid var(--border-strong); }
+    .ss-lines table { width: 100%; border-collapse: collapse; font-size: var(--fs-row-sub); }
+    .ss-lines th { color: var(--text-muted); text-align: right; font-weight: normal; padding: 4px 6px; position: sticky; top: 0; background: var(--bg-panel); }
+    .ss-lines th:first-child, .ss-lines td:first-child { text-align: left; }
+    .ss-lines td { text-align: right; padding: 4px 6px; border-bottom: 1px dashed var(--border-strong); }
+    .ss-lines tr.gap td { color: var(--danger); font-weight: bold; }
+    .ss-totals { display: flex; justify-content: space-between; gap: 10px; font-size: var(--fs-body); flex-wrap: wrap; }
+    .ss-totals strong { font-size: var(--fs-row); }
+    .ss-actions { display: flex; gap: 10px; justify-content: space-between; }
+    .ss-actions form { margin: 0; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('selfscan.titre')}</span>
+      <span id="clock"></span>
+    </div>
+    <div class="main-area">
+      <div class="panel">
+        {#if control}
+        <h3>{inject:i18n.get(control.basket.kindKey)} {control.basket.code}{#if control.basket.label} — {control.basket.label}{/if}</h3>
+        <div class="mode {#if !control.partial && !control.total}none{/if}" id="ssMode">{modeLabel}{#if progress} — {progress}{/if}</div>
+        {#if control.message}<div class="{#if control.messageOk}ok-box{#else}error-box{/if}" id="ssMessage">{control.message}</div>{/if}
+        <div class="ss-lines">
+          <table>
+            <tr><th>{inject:i18n.get('selfscan.article')}</th><th>{inject:i18n.get('selfscan.declare')}</th><th>{inject:i18n.get('selfscan.controle')}</th></tr>
+            {#for row in rows}
+            <tr class="{#if row.gap == 'true'}gap{/if}"><td>{row.label}</td><td>{row.declared}</td><td>{#if control.partial || control.total}{row.controlled}{/if}</td></tr>
+            {/for}
+          </table>
+        </div>
+        <div class="ss-totals">
+          <span>{inject:i18n.get('selfscan.total')} <strong>{total}</strong></span>
+          {#for voucher in vouchers}<span>{voucher.label} <strong>-{voucher.amount}</strong></span>{/for}
+          {#if control.total}<span>{inject:i18n.get('selfscan.ecarts')} <strong id="ssGaps">{control.discrepancies}</strong></span>{/if}
+        </div>
+        <div class="ss-actions">
+          <form method="post" action="/action/selfscan/abandon"><button type="submit" class="btn btn-muted">{inject:i18n.get('selfscan.mettreDeCote')}</button></form>
+          {#if !control.total}
+          <form method="post" action="/action/selfscan/total"><button type="submit" class="btn btn-warning">{inject:i18n.get('selfscan.provoquer')}</button></form>
+          {/if}
+          {#if control.loadable}
+          <form method="post" action="/action/selfscan/load"><button type="submit" class="btn btn-primary">{inject:i18n.get('selfscan.integrer')}</button></form>
+          {/if}
+        </div>
+        {#else}
+        {! BO-10-01: a basket its channel refused says why, in place of the basket. !}
+        <div class="error-box">{#if state.ticket.transientError}{state.ticket.transientError}{#else}{inject:i18n.get('selfscan.aucunPanier')}{/if}</div>
+        {/if}
+      </div>
+    </div>
+    <div class="bottom-nav">
+      {#if !control}<a class="btn btn-muted" href="/" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>{/if}
+    </div>
+  </div>
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    /* Les articles re-scannés arrivent par le scanner matériel : la page suit
+       la version de l'état et se redessine dès qu'elle change. */
+    const renderedVersion = {version};
+    setInterval(() => {
+        fetch('/selfscan-data').then(r => r.json()).then(data => {
+            if (data.version !== renderedVersion) { window.location.reload(); }
+        }).catch(() => {});
+    }, 1000);
+  </script>
+</body>
+</html>

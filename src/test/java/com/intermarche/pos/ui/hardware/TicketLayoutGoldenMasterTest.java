@@ -83,8 +83,11 @@ class TicketLayoutGoldenMasterTest {
         service.hardwareService = mock(HardwareService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.ticketBarcodeEnabled()).thenReturn(true);
+        when(service.posSettingsService.parkingReceiptDetailed()).thenReturn(true);
         when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(true);
         when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(true);
+        when(service.posSettingsService.vatTableMode()).thenReturn("COMBINED");
         // The currency defaults of the catalogue, which print exactly what the
         // register printed before the symbol became administrable: the symbol
         // E, after the amount (BO-10-07-04/-05/-06).
@@ -318,13 +321,17 @@ class TicketLayoutGoldenMasterTest {
     }
 
     /**
-     * The parked-ticket slip — templateless, and the very document
-     * BO-03-03-07 asks to make administrable.
+     * The parked-ticket slip — the register's own layout of the document
+     * BO-03-03-06 makes administrable, its printing moment included.
      */
     @Test
     void goldenParkedTicket() {
         TicketPrinterService service = newService();
-        service.printParkedTicket(sale());
+        // BO-03-03-06: the slip states the moment it was printed.
+        try (MockedStatic<DateTimeProvider> time = mockStatic(DateTimeProvider.class)) {
+            time.when(DateTimeProvider::now).thenReturn(NOW);
+            service.printParkedTicket(sale());
+        }
         assertGolden("parked-ticket", captureReceipt(service));
     }
 

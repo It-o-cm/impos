@@ -143,7 +143,7 @@
               {! L'aval ne se saisit plus ici: au-dela du seuil le prelevement
                ! est PARQUE et la modale partagee s'ouvre. !}
               <div class="manager-block" id="managerBlock" style="display:none;">
-                <div class="hint">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+                <div class="hint">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
               </div>
               <div class="numpad-container" id="numpadArea"></div>
             </div>
@@ -153,12 +153,12 @@
             <input type="hidden" name="method" value="{selected.key}">
             <div class="fixed-card">
               <div class="name">{selected.label}</div>
-              <div class="qty">{selected.count} transaction(s)</div>
+              <div class="qty">{selected.count} {inject:i18n.get('withdrawal.x21Transactions')}</div>
               <div class="amount">{selected.amountFormatted} €</div>
             </div>
             <div class="fixed-hint">{inject:i18n.get('withdrawal.prelevementPorteTotaliteTheorique')}</div>
             <div class="dest-box">
-              <label class="total-label" for="destinationFixed">Destination</label>
+              <label class="total-label" for="destinationFixed">{inject:i18n.get('withdrawal.destination')}</label>
               <select id="destinationFixed" name="destination" class="dest-select">
                 <option value="">—</option>
                 <option value="{safeDestination}">{safeDestination}</option>
@@ -169,7 +169,7 @@
             </div>
             {#if needsEndorsement}
               <div class="manager-block">
-                <div class="hint">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+                <div class="hint">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
               </div>
             {/if}
           </form>
@@ -179,7 +179,7 @@
           {#for method in methods}
             <a class="method-row" href="/withdrawal?method={method.key}">
               <span class="method-name">{method.label}</span>
-              <span class="method-count">{method.count} transaction(s)</span>
+              <span class="method-count">{method.count} {inject:i18n.get('withdrawal.x21Transactions')}</span>
               <span class="method-amount">{method.amountFormatted} €</span>
             </a>
           {/for}
@@ -198,14 +198,14 @@
              magasin ; la caisse n'enregistre que le mouvement qui l'alimente). -->
         <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 13.75rem;">{inject:i18n.get('withdrawal.validerPrelevement')}</button>
       {#else}
-        <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+        <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
         <span></span>
       {/if}
     </div>
   </div>
 
-  {#include endorsement /}
   {#include keyboard-lib /}
+  {#include endorsement /}
 
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);

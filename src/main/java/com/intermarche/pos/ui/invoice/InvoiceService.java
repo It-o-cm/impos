@@ -40,8 +40,15 @@ public class InvoiceService {
     /** How many closed tickets the shortlist offers. */
     private static final int SHORTLIST = 12;
 
+    /** LC-08-02-06: frozen customer invoice, independent of its paper target. */
+    @Inject
+    com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
+
     /** How many customers a search returns at most. */
     private static final int CUSTOMER_MATCHES = 12;
+
+    /** The longest order number a document stores ({@code BO-03-03-02}). */
+    private static final int ORDER_NUMBER_LENGTH = 50;
 
 
     /**
@@ -97,9 +104,7 @@ public class InvoiceService {
     List<String> renderLines(InvoiceDocument laid) {
         java.util.Map<String, Object> data = laid.asDocumentData();
         String administered = documentTemplateService == null ? null
-                : documentTemplateService.render(
-                        com.intermarche.pos.domain.setting.DocumentTemplate
-                                .DocumentType.INVOICE, data);
+                : documentLayout(laid, data);
         if (administered != null) {
             return List.of(administered.split("\\n", -1));
         }
@@ -130,6 +135,31 @@ public class InvoiceService {
      * @param data the values the layout may read
      * @return the banner's lines, or null when none is administered
      */
+    /**
+     * The administered layout of a document's roll rendering: the template of
+     * the administered document it is drawn as ({@code BO-03-04-09}) when that
+     * template lays out the roll, the shop's invoice template otherwise.
+     *
+     * @param laid the laid-out document
+     * @param data the document values
+     * @return the rendered layout, or null when the register lays it out itself
+     */
+    private String documentLayout(InvoiceDocument laid, java.util.Map<String, Object> data) {
+        // BO-03-04-09: the administered document's own template first, when it
+        // lays out the roll; the shop's invoice template otherwise.
+        String own = null;
+        if (!laid.templateCode.isEmpty()) {
+            com.intermarche.pos.domain.setting.DocumentTemplate template =
+                    com.intermarche.pos.domain.setting.DocumentTemplate.findByCode(laid.templateCode);
+            if (template != null && template.documentType
+                    != com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_A4) {
+                own = documentTemplateService.renderTemplate(template, data);
+            }
+        }
+        return own != null ? own : documentTemplateService.render(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE, data);
+    }
+
     private List<String> banner(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type, java.util.Map<String, Object> data) {
         String rendered = documentTemplateService == null ? null
                 : documentTemplateService.render(type, data);
@@ -209,6 +239,16 @@ public class InvoiceService {
             return;
         }
         state.invoice.ticket = found;
+        // BO-03-04-06/09: the documents the back office created and activated are
+        // what the operator is offered; the built-in kinds stand only while the
+        // shop created none.
+        state.invoice.documents = repository.activePrintableDocuments();
+        if (!state.invoice.documents.isEmpty()) {
+            chooseAmongDocuments();
+            LOGGER.info("Exiting method chooseTicket");
+            return;
+        }
+        state.invoice.document = null;
         // LC-08-04-04/05: the kind of document is resolved here, because the ticket is
         // what it is drawn over. One eligible kind and there is nothing to ask — the
         // step is skipped rather than shown with a single button, which is exactly what
@@ -251,6 +291,24 @@ public class InvoiceService {
     public void chooseDocumentType(String typeName) {
         LOGGER.info("Entering method chooseDocumentType with typeName: " + typeName);
         state.invoice.error = "";
+        // BO-03-04-09: an administered document is named by its code.
+        if (!state.invoice.documents.isEmpty()) {
+            com.intermarche.pos.domain.setting.PrintableDocument picked = null;
+            for (com.intermarche.pos.domain.setting.PrintableDocument offered : state.invoice.documents) {
+                if (offered.code.equals(typeName)) {
+                    picked = offered;
+                }
+            }
+            if (picked == null) {
+                state.invoice.error = i18n.get("op.typeDocumentIndisponible");
+                state.touch();
+                LOGGER.info("Exiting method chooseDocumentType");
+                return;
+            }
+            useDocument(picked);
+            LOGGER.info("Exiting method chooseDocumentType");
+            return;
+        }
         DocumentType chosen = DocumentType.byName(typeName);
         if (chosen == null || !state.invoice.documentTypes.contains(chosen)) {
             state.invoice.error = i18n.get("op.typeDocumentIndisponible");
@@ -281,6 +339,63 @@ public class InvoiceService {
         LOGGER.info("Entering method eligibleDocumentTypes");
         LOGGER.info("Exiting method eligibleDocumentTypes");
         return DocumentType.activated(posSettingsService.invoiceDocumentTypes());
+    }
+
+    /**
+     * How many documents the operator may choose among ({@code BO-03-04-06},
+     * {@code LC-08-04-05}): the administered documents where the shop created
+     * some, the activated built-in kinds otherwise.
+     *
+     * @return the number of choices, at least one
+     */
+    public int documentChoiceCount() {
+        LOGGER.info("Entering method documentChoiceCount");
+        int administered = state.invoice.documents.size();
+        LOGGER.info("Exiting method documentChoiceCount");
+        return administered > 0 ? administered : eligibleDocumentTypes().size();
+    }
+
+    /**
+     * Resolves the document over the ticket among the ADMINISTERED documents
+     * ({@code BO-03-04-09}): one of them and there is nothing to ask, several
+     * and the operator chooses — and a document chosen before that the back
+     * office has since removed is not kept.
+     */
+    private void chooseAmongDocuments() {
+        if (state.invoice.documents.size() == 1) {
+            useDocument(state.invoice.documents.get(0));
+            return;
+        }
+        com.intermarche.pos.domain.setting.PrintableDocument kept = null;
+        for (com.intermarche.pos.domain.setting.PrintableDocument offered : state.invoice.documents) {
+            if (state.invoice.document != null && offered.code.equals(state.invoice.document.code)) {
+                kept = offered;
+            }
+        }
+        if (kept == null) {
+            state.invoice.document = null;
+            state.invoice.documentType = null;
+            state.invoice.step = InvoiceState.Step.DOCUMENT;
+            state.touch();
+            return;
+        }
+        useDocument(kept);
+    }
+
+    /**
+     * Draws the document as an administered one ({@code BO-03-04-09}): its
+     * nature decides the numbering, its name is printed, and the flow moves on
+     * to the customer or straight back to the review.
+     *
+     * @param document the administered document
+     */
+    private void useDocument(com.intermarche.pos.domain.setting.PrintableDocument document) {
+        state.invoice.document = document;
+        state.invoice.documentType = document.kind;
+        state.invoice.step = state.invoice.customer == null
+                ? InvoiceState.Step.CUSTOMER
+                : InvoiceState.Step.PREVIEW;
+        state.touch();
     }
 
     /**
@@ -725,6 +840,13 @@ public class InvoiceService {
         return storeImageService == null ? "" : storeImageService.receiptLogo();
     }
 
+    /**
+     * Reads the figures a commercial document is written with: the
+     * administered decimals (BO-10-02-19), the rounding rule (BO-10-02-18) and
+     * the writing of quantities the receipt uses (BO-10-08-28, BO-10-08-29).
+     *
+     * @return the document's figures
+     */
     private InvoiceDocument.Decimals documentDecimals() {
         LOGGER.info("Entering method documentDecimals");
         InvoiceDocument.Decimals decimals = new InvoiceDocument.Decimals(
@@ -732,7 +854,10 @@ public class InvoiceService {
                 posSettingsService.invoiceVatBaseDecimals(),
                 posSettingsService.invoiceVatAmountDecimals(),
                 posSettingsService.invoiceTotalExcludingTaxDecimals(),
-                posSettingsService.invoiceTotalIncludingTaxDecimals());
+                posSettingsService.invoiceTotalIncludingTaxDecimals(),
+                posSettingsService.invoiceLineTotalExcludingTaxDecimals(),
+                posSettingsService.calcRoundingMode(),
+                posSettingsService.unitFormat());
         LOGGER.info("Exiting method documentDecimals");
         return decimals;
     }
@@ -797,8 +922,8 @@ public class InvoiceService {
         }
         Invoice draft = build(ticket, customer, "");
         LOGGER.info("Exiting method preview");
-        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft), i18n,
-                documentDecimals(), administeredLogo());
+        return electronic(InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft), i18n,
+                documentDecimals(), administeredLogo(), documentOptions()), draft);
     }
 
     /**
@@ -823,6 +948,18 @@ public class InvoiceService {
         }
         if (state.trainingMode) {
             state.invoice.error = i18n.get("op.factureIndisponibleFormation");
+            state.touch();
+            LOGGER.info("Exiting method issue");
+            return null;
+        }
+        // BO-03-04-16: where the shop makes it mandatory, a document is only
+        // ever addressed to a customer carrying an account number. A passing
+        // customer opened at the till carries none: the number it is stored
+        // under is the register's own sequence, never a customer account.
+        if (posSettingsService.invoiceAccountNumberRequired()
+                && (isBlank(state.invoice.customer.accountNumber)
+                || state.invoice.customer.origin == AccountCustomer.Origin.VOLATILE)) {
+            state.invoice.error = i18n.get("op.compteClientObligatoire");
             state.touch();
             LOGGER.info("Exiting method issue");
             return null;
@@ -867,8 +1004,8 @@ public class InvoiceService {
             return null;
         }
         LOGGER.info("Exiting method issued");
-        return InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
-                documentDecimals(), administeredLogo());
+        return electronic(InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
+                documentDecimals(), administeredLogo(), documentOptions()), document);
     }
 
     /**
@@ -953,7 +1090,94 @@ public class InvoiceService {
      * @return the document, transient
      */
     private Invoice build(Ticket ticket, AccountCustomer customer, String number) {
-        return build(ticket, customer, number, state.invoice.documentType);
+        Invoice document = build(ticket, customer, number, state.invoice.documentType);
+        // BO-03-03-02: the order number typed at the register; BO-03-04-09: the
+        // administered document it is drawn as, whose name it prints.
+        document.orderNumber = blankToNull(state.invoice.orderNumber);
+        com.intermarche.pos.domain.setting.PrintableDocument administered = state.invoice.document;
+        document.documentCode = administered == null ? null : administered.code;
+        document.documentTitle = administered == null ? null : administered.label;
+        return document;
+    }
+
+    /**
+     * Carries the e-invoicing mention the back office administered onto a
+     * laid-out invoice ({@code BO-05-01-02}): read at each document, so a
+     * mention changed at the node is printed from the next invoice on.
+     *
+     * <p>Only an invoice the store node deposits on the platform carries it: a
+     * FACTURE to a business established in France, named by its SIRET or its
+     * French VAT number. An invoice to a foreign buyer goes to the e-reporting
+     * instead, and a credit note or a pro-forma is never deposited.
+     *
+     * @param document the laid-out invoice
+     * @param invoice the invoice it lays out
+     * @return the same invoice, its mention set
+     */
+    private InvoiceDocument electronic(InvoiceDocument document, Invoice invoice) {
+        document.einvoicingMention = electronicallyInvoiced(invoice) ? posSettingsService.einvoicingMention() : "";
+        return document;
+    }
+
+    /**
+     * Whether the store node deposits an invoice on the platform, as its
+     * e-invoicing reads it: a FACTURE whose buyer has a SIRET or a French VAT
+     * number.
+     *
+     * @param invoice the invoice
+     * @return true when it is an electronic invoice
+     */
+    static boolean electronicallyInvoiced(Invoice invoice) {
+        if (invoice.documentType != com.intermarche.pos.domain.sale.DocumentType.FACTURE) {
+            return false;
+        }
+        String siret = invoice.customerSiret == null ? "" : invoice.customerSiret.replaceAll("[^0-9]", "");
+        return siret.length() >= 9 || (invoice.customerVatNumber != null
+                && invoice.customerVatNumber.trim().toUpperCase(java.util.Locale.ROOT).startsWith("FR"));
+    }
+
+    /**
+     * What the shop administered for its documents beyond their content
+     * ({@code BO-03-03-02}, {@code -04}, {@code -21}, {@code BO-03-05-08}): the
+     * VAT codes — printed exactly where the receipt prints them, so the two
+     * tables agree —, the article attributes, the foot's address and the lines
+     * of an A4 page.
+     *
+     * @return the options the document is laid out with
+     */
+    private InvoiceDocument.Options documentOptions() {
+        return new InvoiceDocument.Options(posSettingsService.ticketVatCode(),
+                posSettingsService.invoiceArticleAttributes(), posSettingsService.ticketFooterUrl(),
+                posSettingsService.ticketFooterUrlFormat(), posSettingsService.invoiceA4LinesPerPage());
+    }
+
+    /**
+     * Opens the entry of the customer's ORDER number on the review step
+     * ({@code BO-03-03-02}).
+     */
+    public void editOrderNumber() {
+        LOGGER.info("Entering method editOrderNumber");
+        state.invoice.error = "";
+        state.invoice.enteringOrderNumber = true;
+        state.touch();
+        LOGGER.info("Exiting method editOrderNumber");
+    }
+
+    /**
+     * Records the customer's ORDER number the document states
+     * ({@code BO-03-03-02}) and goes back to the review; blank clears it.
+     *
+     * @param orderNumber the number typed, possibly blank
+     */
+    public void setOrderNumber(String orderNumber) {
+        LOGGER.info("Entering method setOrderNumber with orderNumber: " + orderNumber);
+        String typed = trimmed(orderNumber);
+        state.invoice.orderNumber = typed.length() > ORDER_NUMBER_LENGTH
+                ? typed.substring(0, ORDER_NUMBER_LENGTH) : typed;
+        state.invoice.enteringOrderNumber = false;
+        state.invoice.error = "";
+        state.touch();
+        LOGGER.info("Exiting method setOrderNumber");
     }
 
     /**
@@ -981,8 +1205,18 @@ public class InvoiceService {
         document.ticket = ticket;
         document.ticketNumber = ticket.ticketNumber;
         document.addressTo(customer);
-        VatBreakdown breakdown = new VatBreakdown();
+        // BO-10-02-18: the totals are cut by the shop's rounding rule, the one the
+        // document's VAT table is written with, so the two never disagree.
+        // BO-10-02-19: and computed at the decimals the foot prints its total
+        // excluding tax with, not rounded to the cent and padded.
+        VatBreakdown breakdown = new VatBreakdown(posSettingsService.calcRoundingMode(),
+                InvoiceDocument.scale(posSettingsService.invoiceTotalExcludingTaxDecimals()));
         BigDecimal ecoTax = BigDecimal.ZERO;
+        // BO-10-06-05: every eco-tax the articles carry, printed on the ticket
+        // or not — the invoice and its extraction state them all.
+        java.util.List<com.intermarche.pos.domain.catalog.attribute.EcoTaxDefinition> ecoTaxes =
+                com.intermarche.pos.domain.catalog.attribute.EcoTaxDefinition.orBuiltIn(
+                        posSettingsService.ecoTaxes());
         for (com.intermarche.pos.domain.sale.TicketLine line : ticket.lines) {
             if (line.cancelled) {
                 continue;
@@ -991,8 +1225,8 @@ public class InvoiceService {
             // BO-10-04-14: the eco-tax is borne per unit, so a line of three bears
             // it three times. Cancelled lines bear none, exactly as they bear no
             // VAT — the same loop decides both, so the two can never disagree.
-            ecoTax = ecoTax.add(com.intermarche.pos.domain.catalog.attribute.ProductAttributes
-                    .ecoTax(line.product).multiply(line.quantity == null
+            ecoTax = ecoTax.add(com.intermarche.pos.domain.catalog.attribute.EcoTaxDefinition
+                    .totalUnitAmount(line.product, ecoTaxes).multiply(line.quantity == null
                             ? BigDecimal.ONE : line.quantity));
         }
         document.totalExcludingTax = breakdown.getTotalExcludingTax();
@@ -1054,8 +1288,8 @@ public class InvoiceService {
             Invoice document = build(ticket, customer,
                     ticketNumberService.nextDocumentNumber(kind), kind);
             InvoiceDocument laid =
-                    InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
-                            documentDecimals(), administeredLogo());
+                    electronic(InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
+                            documentDecimals(), administeredLogo(), documentOptions()), document);
             List<String> lines = renderLines(laid);
             if (outputFor(kind) != DocumentOutput.A4 || !networkPrinter.print(laid, lines)) {
                 hardwareService.printReceipt(String.join("\n", lines) + "\n");
@@ -1134,13 +1368,25 @@ public class InvoiceService {
      * @param ticket   the ticket it states
      */
     private void print(Invoice document, Ticket ticket) {
-        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
-                documentDecimals(), administeredLogo());
+        InvoiceDocument laid = electronic(InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n,
+                documentDecimals(), administeredLogo(), documentOptions()), document);
+        // BO-03-04-09: the administered document's own template lays it out.
+        com.intermarche.pos.domain.setting.PrintableDocument administered = state.invoice.document;
+        laid.templateCode = administered == null || administered.templateCode == null
+                ? "" : administered.templateCode.trim();
         List<String> lines = renderLines(laid);
-        DocumentOutput target = outputFor(document.documentType);
+        if (ticketPrinterService != null) {
+            ticketPrinterService.archiveCustomerDocument(com.intermarche.pos.domain.sale.CustomerDocument.Kind.INVOICE,
+                document.documentNumber, String.join("\n", lines) + "\n");
+        }
+        // BO-03-04-14: the printer the administered document names, the one
+        // its kind is administered to otherwise.
+        DocumentOutput named = administered == null ? null : DocumentOutput.byName(administered.output);
+        DocumentOutput target = named != null ? named : outputFor(document.documentType);
         if (target.needsInsertion()) {
+            // BO-03-03-02: each sheet states its « page X / Y ».
             state.invoice.slipPages =
-                    InvoiceRenderer.paginate(lines, posSettingsService.invoiceSlipLines());
+                    InvoiceRenderer.paginateNumbered(lines, posSettingsService.invoiceSlipLines(), i18n);
             state.invoice.slipPrinted = 0;
             state.invoice.step = InvoiceState.Step.INSERT;
             return;
@@ -1179,7 +1425,8 @@ public class InvoiceService {
             return false;
         }
         List<String> sheet = state.invoice.slipPages.get(state.invoice.slipPrinted);
-        hardwareService.printReceipt(String.join("\n", sheet) + "\n");
+        // BO-03-04-14: the sheet goes to the slip station, not to the roll.
+        hardwareService.printSlip(String.join("\n", sheet) + "\n");
         hardwareService.cutPaper();
         state.invoice.slipPrinted++;
         if (state.invoice.slipPrinted >= state.invoice.slipPages.size()) {
@@ -1293,6 +1540,16 @@ public class InvoiceService {
         String name = contactName == null ? "" : contactName.trim();
         int space = name.indexOf(' ');
         return space < 0 ? name : name.substring(space + 1).trim();
+    }
+
+    /**
+     * Tells whether a text carries nothing.
+     *
+     * @param value the text, possibly null
+     * @return true when null or blank
+     */
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     /**

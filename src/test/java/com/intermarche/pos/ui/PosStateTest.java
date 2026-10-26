@@ -148,6 +148,8 @@ class PosStateTest {
         state.selectedTicketIndex = 3;
         state.lastEnteredItemId = "abc";
         state.donationLineUid = "don";
+        state.blockingArticleMessage = "Read before continuing";
+        state.blockingArticleMessageId = "message-1";
         state.ticketCurrentPage = 5;
         state.clearTicket();
         verify(state.ticket).clear();
@@ -157,6 +159,8 @@ class PosStateTest {
         assertEquals(-1, state.selectedTicketIndex);
         assertNull(state.lastEnteredItemId);
         assertNull(state.donationLineUid);
+        assertNull(state.blockingArticleMessage);
+        assertNull(state.blockingArticleMessageId);
         assertEquals(0, state.ticketCurrentPage);
     }
 
@@ -964,8 +968,35 @@ class PosStateTest {
     void clearTicketForgetsTheRecalledOrder() {
         PosState state = new PosState();
         state.recalledOrderCode = "C04-CMD000001";
+        state.recalledDocumentCodes.add("BV1");
+        state.pendingDocument = new com.intermarche.pos.ui.recall.RecalledDocument();
+        state.documentChoiceRequested = true;
+        state.selfScan = new com.intermarche.pos.ui.recall.SelfScanControl(
+                new com.intermarche.pos.ui.recall.RecalledDocument(), "NONE", 1);
+        state.selfScanRequested = true;
+        state.functionPath = "/recall";
         state.clearTicket();
+        assertNull(state.functionPath);
         assertNull(state.recalledOrderCode);
+        assertTrue(state.recalledDocumentCodes.isEmpty());
+        assertNull(state.pendingDocument);
+        assertFalse(state.documentChoiceRequested);
+        assertNull(state.selfScan);
+        assertFalse(state.selfScanRequested);
+    }
+
+    /**
+     * {@code clearTicket()} forgets the language the customer chose on the
+     * customer display (LC-13-06-08 / -13), and leaves the operator's own.
+     */
+    @Test
+    void clearTicketForgetsTheCustomersLanguage() {
+        PosState state = new PosState();
+        state.customerLanguage = "nl";
+        state.language = "pt";
+        state.clearTicket();
+        assertNull(state.customerLanguage);
+        assertEquals("pt", state.language);
     }
 
     /**
@@ -997,5 +1028,43 @@ class PosStateTest {
         assertEquals(PosState.ServiceRequestStatus.NONE, state.serviceRequest);
         assertNull(state.serviceRequestReason);
         assertFalse(state.boMessageArrived);
+    }
+
+    /** LC-03-07: a blank survey response type follows the default options mode. */
+    @Test
+    void blankSurveyResponseTypeUsesOptions() {
+        var survey = new PosState.BackOfficeSurvey();
+        survey.responseType = " ";
+        assertTrue(survey.isOptionsType());
+    }
+
+    /** LC-07-02-02/-09 and LC-07-03-04: screen cash keys use the unpaid remainder and the five-cent denomination rule. */
+    @Test
+    void screenCashKeysRespectRemainderAndRounding() {
+        var state = newState();
+        var spy = spy(state);
+        doReturn(new BigDecimal("12.32")).when(spy).getRemaining();
+        spy.cashRoundingStepCents = 5;
+        assertEquals(List.of(new BigDecimal("12.30"), new BigDecimal("13.00"), new BigDecimal("15.00"), new BigDecimal("20.00")), spy.getCashAmountSuggestions());
+        assertEquals(List.of(new BigDecimal("0.05"), new BigDecimal("0.10"), new BigDecimal("0.20"), new BigDecimal("0.50"), new BigDecimal("1.00"), new BigDecimal("2.00"), new BigDecimal("5.00"), new BigDecimal("10.00"), new BigDecimal("20.00"), new BigDecimal("50.00"), new BigDecimal("100.00"), new BigDecimal("200.00"), new BigDecimal("500.00")), spy.getCashDenominations());
+    }
+
+
+    /**
+     * BO-03-02-48: the degraded mode the back office switched on holds from the
+     * moment the register first sees it until the administered delay has run,
+     * then lapses; switched off, it is armed afresh the next time.
+     */
+    @org.junit.jupiter.api.Test
+    void theAdministeredDegradedModeLapsesAfterItsDelay() {
+        PosState state = new PosState();
+        org.junit.jupiter.api.Assertions.assertFalse(state.administeredDegradedActive(false, 15));
+        org.junit.jupiter.api.Assertions.assertTrue(state.administeredDegradedActive(true, 15));
+        org.junit.jupiter.api.Assertions.assertNotNull(state.administeredDegradedSince);
+        state.administeredDegradedSince = java.time.LocalDateTime.now().minusMinutes(16);
+        org.junit.jupiter.api.Assertions.assertFalse(state.administeredDegradedActive(true, 15));
+        org.junit.jupiter.api.Assertions.assertFalse(state.administeredDegradedActive(false, 15));
+        org.junit.jupiter.api.Assertions.assertNull(state.administeredDegradedSince);
+        org.junit.jupiter.api.Assertions.assertTrue(state.administeredDegradedActive(true, 0));
     }
 }

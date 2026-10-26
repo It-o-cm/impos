@@ -126,13 +126,17 @@ public class AuthResource {
                 .data("welcomeMessage", posSettingsService.welcomeMessage())
                 .data("paused", state.auth.isPaused())
                 .data("lockedBadge", state.auth.lockedOperatorBadgeId)
-                .data("lockedName", state.auth.lockedOperatorName);
+                .data("lockedName", state.auth.lockedOperatorName)
+                // BO-10-02-23: the PIN pad stops at the shop's number of digits.
+                .data("pinLength", authService.pinLength());
     }
 
     /**
-     * Polling endpoint returning the last scanned badge on the lock screen.
+     * Polling endpoint returning the last scanned badge on the lock screen,
+     * and the Dallas key read since the last poll (BO-01-02-07).
      *
-     * @return a JSON map with the scanned badge, or an empty string
+     * @return a JSON map with the scanned badge and the read Dallas key, each
+     *         or an empty string
      */
     @GET
     @Path("/lock-data")
@@ -142,9 +146,15 @@ public class AuthResource {
         LOGGER.info("Entering method getLockData");
         String badge = state.auth.scannedBadgeId;
         if (badge != null) state.auth.clearScannedBadge();
+        // BO-01-02-07: a Dallas key read while locked is handed to the page
+        // only where the back office lets the key open the register alone;
+        // elsewhere it is dropped, never left waiting in the mailbox.
+        String dallasKey = state.auth.takeScannedDallasKey();
+        boolean dallasOpens = dallasKey != null && posSettingsService.dallasKeyOpens();
         LOGGER.info("Exiting method getLockData");
         return Map.of("scannedBadge", badge != null ? badge : "",
-                "passwordRequired", posSettingsService.passwordRequiredOnOpen());
+                "passwordRequired", posSettingsService.passwordRequiredOnOpen(),
+                "dallasKey", dallasOpens ? dallasKey : "");
     }
 
     /**

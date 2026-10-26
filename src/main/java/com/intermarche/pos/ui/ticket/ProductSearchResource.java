@@ -169,7 +169,7 @@ public class ProductSearchResource {
         LOGGER.info("Entering method scanTypedCode with code: " + code);
         String typed = code == null ? "" : code.trim();
         if (!typed.isEmpty()) {
-            ticketService.processScan(typed);
+            ticketService.processKeyed(typed);
         }
         LOGGER.info("Exiting method scanTypedCode");
         return Response.seeOther(URI.create("/")).build();
@@ -207,7 +207,7 @@ public class ProductSearchResource {
         boolean known = !code.isEmpty()
                 && (Product.findActiveByEan(code) != null || Product.findActiveByPlu(code) != null);
         if (known) {
-            ticketService.processScan(code);
+            ticketService.processKeyed(code);
             LOGGER.info("Exiting method searchDirect");
             return Response.seeOther(URI.create("/")).build();
         }

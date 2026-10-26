@@ -73,7 +73,12 @@ public class Employee extends BaseEntity {
         /**
          * Cashier operating the Point of Sale (POS) system.
          */
-        CASHIER
+        CASHIER,
+        /**
+         * Technical hostess supervising self-service points of contact
+         * (BO-03-09-08): the list a self-service point picks its hostess from.
+         */
+        TECHNICAL_HOSTESS
     }
 
     // --------------------------------------------------
@@ -151,6 +156,23 @@ public class Employee extends BaseEntity {
     public String badgeId;
 
     /**
+     * Whether this holder carries a SUPERVISOR CARD (BO-03-06-51): the card the
+     * back office printed for them, their badge behind the supervisor prefix,
+     * which lets them endorse the guarded gestures whatever their role.
+     */
+    @Column(name = "supervisor_card", nullable = false)
+    public boolean supervisorCard = false;
+
+    /**
+     * The names of the back-office profiles this holder is bound to, joined by
+     * semicolons, as the store node distributes them to the registers
+     * (BO-04-02-01): a register endorses by PROFILE as well as by role. Null on
+     * a holder bound to no profile.
+     */
+    @Column(name = "profile_names", length = 500)
+    public String profileNames;
+
+    /**
      * Personal display theme of this employee (data-theme value), or null to
      * follow the store's theme. Referential data: travels in the phase 6
      * pull like the other employee fields.
@@ -160,11 +182,13 @@ public class Employee extends BaseEntity {
 
     /**
      * Interface language administered for this employee (fr, nl or pt), or null
-     * to follow the store's system language (LC-13-06-02). Referential data, like
-     * {@link #theme}: it is administered in the back office and travels in the
-     * referential pull, and it applies on its own as soon as this operator signs
-     * in — which is what a bilingual region needs, a till serving a
-     * French-speaking cashier and a Dutch-speaking one on the same day.
+     * to follow the echelon's language, that is the store's system language
+     * (BO-01-01-04, LC-13-06-02). Referential data, like {@link #theme}: it is
+     * administered in the back office and travels in the referential pull to
+     * the registers, where it overrides the store's system language and applies
+     * on its own as soon as this operator signs in — which is what a bilingual
+     * region needs, a till serving a French-speaking cashier and a
+     * Dutch-speaking one on the same day.
      */
     @jakarta.persistence.Column(name = "language", length = 10)
     public String language;
@@ -266,8 +290,54 @@ public class Employee extends BaseEntity {
     public boolean mustChangePassword = false;
 
     /**
-     * When this employee's secret was last changed, or null when it never was
+     * Telephone of the account holder, or null (BO-01-01-06).
+     *
+     * <p>Optional by the requirement's own words — "sans être obligatoires" —
+     * and back-office data: a register has no use for it and the diffusion does
+     * not carry it.
+     */
+    @jakarta.persistence.Column(name = "phone", length = 30)
+    public String phone;
+
+    /**
+     * The day this account takes effect, or null (BO-01-01-06).
+     *
+     * <p>Declarative and not enforced: an account dated tomorrow still opens
+     * today, because refusing a sign-in on a date nobody checked at creation
+     * would lock a shop out of its own back office on a typo.
+     */
+    @jakarta.persistence.Column(name = "start_date")
+    public java.time.LocalDate startDate;
+
+    /**
+     * The department the account belongs to — promotion, marketing, finance,
+     * training — or null (BO-01-01-02).
+     *
+     * <p>A free text and not an enumeration: the requirement lists examples and
+     * says "etc.", and a shop that invents a department must not need a
+     * release to declare it.
+     */
+    @jakarta.persistence.Column(name = "department", length = 60)
+    public String department;
+
+    /**
+     * The hierarchical level of the account, zero being the lowest
+     * (BO-01-01-02).
+     *
+     * <p>What makes delegated administration possible: an account administers
+     * only accounts of a level STRICTLY BELOW its own, so a department head
+     * manages their team and nobody manages their own rights.
+     */
+    @jakarta.persistence.Column(name = "hierarchy_level", nullable = false)
+    public int hierarchyLevel = 0;
+
+    /**
+     * When the account's secret was last changed, or null when it never was
      * (BO-01-02-12).
+     *
+     * <p>Null is not "never expires" but "never changed": an account still
+     * carrying the password it was created with is exactly the one an expiry
+     * policy is written for, so the creation stamps this column too.
      *
      * <p>Referential data like the password itself: the node is the authority
      * on both, and the register compares this stamp against the administered
@@ -275,6 +345,94 @@ public class Employee extends BaseEntity {
      */
     @jakarta.persistence.Column(name = "password_changed_at")
     public LocalDateTime passwordChangedAt;
+
+    /**
+     * The echelons the account is attached to (BO-01-01-03, BO-01-02-03), as
+     * {@link EchelonScope}s separated by semicolons: countries, enseignes and
+     * points of sale say WHERE the holder belongs, types of point of contact
+     * and points of contact say on WHICH registers of those points of sale
+     * they may sign in. Null means the whole organisation.
+     */
+    @jakarta.persistence.Column(name = "echelon_scopes", length = 500)
+    public String echelonScopes;
+
+    /**
+     * How the account may sign in to the back office (BO-01-02-01,
+     * BO-01-02-09): by password, through the group's single sign-on, or both.
+     */
+    @Enumerated(EnumType.STRING)
+    @jakarta.persistence.Column(name = "auth_mode", length = 10)
+    public AuthMode authMode = AuthMode.ANY;
+
+    /**
+     * Whether the account was distributed by the central node (BO-01-01-03):
+     * the centre owns it, so the next distribution rewrites it and deactivates
+     * it when the centre stops sending it; the store's own accounts are never
+     * touched by a distribution.
+     */
+    @jakarta.persistence.Column(name = "central_managed", nullable = false)
+    public boolean centralManaged = false;
+
+    /**
+     * The identifier of the operator's Dallas key (iButton, BO-01-02-07): the
+     * 64-bit registration number the reader returns, stored as sixteen
+     * upper-case hexadecimal digits. Where the back office allows it
+     * (parameter {@code auth.dallas-key}), touching the reader with the key
+     * opens the register alone, without a PIN — the self-checkout lanes'
+     * passwordless sign-in. Null when the operator holds no key.
+     */
+    @jakarta.persistence.Column(name = "dallas_key", unique = true, length = 16)
+    public String dallasKey;
+
+    /** The ways an account may sign in to the back office. */
+    public enum AuthMode {
+
+        /** Password or single sign-on. */
+        ANY,
+
+        /** Password only. */
+        PASSWORD,
+
+        /** Single sign-on only: no local password opens the back office. */
+        SSO;
+
+        /**
+         * Resolves a mode from a form or a payload, defaulting to {@link #ANY}.
+         *
+         * @param raw the name, any case, possibly null
+         * @return the mode, ANY when null, blank or unknown
+         */
+        public static AuthMode from(String raw) {
+            if (raw != null) {
+                for (AuthMode mode : values()) {
+                    if (mode.name().equalsIgnoreCase(raw.trim())) {
+                        return mode;
+                    }
+                }
+            }
+            return ANY;
+        }
+    }
+
+    /**
+     * Tells whether the account may open the back office with its local
+     * password.
+     *
+     * @return false only for a single-sign-on-only account
+     */
+    public boolean allowsPasswordLogin() {
+        return authMode != AuthMode.SSO;
+    }
+
+    /**
+     * Tells whether the account may open the back office through the single
+     * sign-on.
+     *
+     * @return false only for a password-only account
+     */
+    public boolean allowsSsoLogin() {
+        return authMode != AuthMode.PASSWORD;
+    }
 
     /**
      * Indicates whether the account is currently locked out after repeated
@@ -337,6 +495,24 @@ public class Employee extends BaseEntity {
      */
     public void setBackOfficePassword(String rawPassword) {
         this.backOfficePassword = rawPassword == null ? null : hashPassword(rawPassword);
+    }
+
+    /**
+     * Adopts a back-office password ALREADY HASHED elsewhere — the central
+     * node's, distributed with the account (BO-01-01-03), so the holder signs
+     * in to the store with the same password as at the centre.
+     *
+     * <p>Written by an update query, never by assigning the field: every
+     * write of that field, even from this class, goes through
+     * {@link #setBackOfficePassword(String)}, which hashes what it is given,
+     * and a hash hashed again opens nothing.
+     *
+     * @param id the account's id
+     * @param hash the BCrypt hash, or null for no back-office access
+     * @return the number of rows written
+     */
+    public static int adoptBackOfficePasswordHash(Long id, String hash) {
+        return update("backOfficePassword = ?1 where id = ?2", hash, id);
     }
 
     /**
@@ -423,6 +599,46 @@ public class Employee extends BaseEntity {
     }
 
     /**
+     * Brings a Dallas key identifier to its stored form: separators (spaces,
+     * dashes, colons) removed, upper case (BO-01-02-07).
+     *
+     * @param raw the identifier as read or typed, possibly null
+     * @return the normalized identifier, or null when nothing was given
+     */
+    public static String normalizeDallasKey(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String compact = raw.replaceAll("[\\s:-]", "").toUpperCase(java.util.Locale.ROOT);
+        return compact.isEmpty() ? null : compact;
+    }
+
+    /**
+     * Tells whether a normalized identifier is a Dallas key's: sixteen
+     * hexadecimal digits.
+     *
+     * @param key the normalized identifier, possibly null
+     * @return true for sixteen hexadecimal digits
+     */
+    public static boolean isDallasKey(String key) {
+        return key != null && key.matches("[0-9A-F]{16}");
+    }
+
+    /**
+     * Finds the active employee holding a Dallas key (BO-01-02-07).
+     *
+     * @param key the identifier as read, possibly null
+     * @return the active employee, or null when none holds it
+     */
+    public static Employee findActiveDallasKey(String key) {
+        String normalized = normalizeDallasKey(key);
+        if (normalized == null) {
+            return null;
+        }
+        return find("dallasKey = ?1 and active = true", normalized).firstResult();
+    }
+
+    /**
      * Finds an active employee by their physical badge ID.
      * Combines badge lookup with active status check.
      *
@@ -451,7 +667,7 @@ public class Employee extends BaseEntity {
     @Override
     public int getChecksum() {
         return Objects.hash(firstName, lastName, password, role, badgeId, active, email,
-                legalEntity, forcingLevel, advanceLimit);
+                legalEntity, forcingLevel, advanceLimit, dallasKey);
     }
 
     /**

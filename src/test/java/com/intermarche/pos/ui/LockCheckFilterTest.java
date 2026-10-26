@@ -216,7 +216,7 @@ class LockCheckFilterTest {
         assertTrue(state.version > beforeVersion);
         verify(filter.technicalEventService).log(
                 com.intermarche.pos.domain.session.TechnicalEvent.EventType.REGISTER_LOCKED,
-                null, "12341234");
+                com.intermarche.pos.domain.session.TechnicalEvent.LOCK_AUTOMATIC, "12341234");
         ArgumentCaptor<Response> captor = ArgumentCaptor.forClass(Response.class);
         verify(ctx).abortWith(captor.capture());
         assertEquals("/lock", captor.getValue().getLocation().toString());

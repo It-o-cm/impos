@@ -45,6 +45,21 @@ public class RefundService {
 
     private static final int EXPIRATION_DAYS = 30;
 
+    /** LC-07: the configured monetary client owns card credits. */
+    @Inject com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient terminalClient;
+
+    /** Numbers the issued credit notes from their administered range (BO-03-06-30 to -38). */
+    @Inject
+    com.intermarche.pos.service.StoredValueNumberService storedValueNumberService;
+
+    /** The loyalty half of the return's recalculation, line by line (LC-05-07-02). */
+    @Inject
+    ReturnLoyaltyService returnLoyaltyService;
+
+    /** The payment hub, for the dematerialised articles handed back (LC-05-03-01). */
+    @Inject
+    com.intermarche.pos.ui.payment.NexoHubClient nexoHubClient;
+
     /**
      * The validity span of an avoir (credit note) from its issue, in days
      * (LC-05-06-07). A store-wide policy; a back-office parameter could later
@@ -69,6 +84,10 @@ public class RefundService {
 
     @Inject
     TicketPrinterService ticketPrinterService;
+
+    /** The credit note a return is stated on, where the register issues Portuguese documents (LC-05-07-03). */
+    @Inject
+    com.intermarche.pos.ui.invoice.PortugueseFiscalService portugueseFiscalService;
 
     /** The conditional-printing rule — carries the forced credit slip (LC-08-03-10). */
     @jakarta.inject.Inject
@@ -104,6 +123,14 @@ public class RefundService {
     @Inject
     com.intermarche.pos.ui.ticket.TicketSearchService ticketSearchService;
 
+    /** Brings an e-commerce ticket back from the store node (BO-10-01-04, -05). */
+    @Inject
+    EcommerceTicketClient ecommerceTicketClient;
+
+    /** The e-commerce return rules (BO-10-01-04, -05). */
+    @Inject
+    com.intermarche.pos.ui.recall.ChannelRules channelRules;
+
     /** Re-prices the basket the return leaves behind (LC-05-02-13). */
     @Inject
     ReturnValuationService returnValuationService;
@@ -138,13 +165,75 @@ public class RefundService {
 
     public void searchTickets(PosState state) {
         LOGGER.info("Entering method searchTickets with state: " + state);
+        // BO-03-13-04: under a return type in TICKET mode the original ticket
+        // must be IDENTIFIED — its full number, as the receipt barcode carries
+        // it — and a fragment, a date or an amount found nothing.
+        boolean forced = identificationForced(state);
         // EXP-47: the return search now runs through the ONE ticket search engine,
         // so its single field accepts a number, a date or an amount — the same
         // engine the duplicata search uses.
-        List<Ticket> results = ticketSearchService.searchByPattern(state.refund.searchPattern);
+        List<Ticket> results = forced
+                ? exactTicket(state.refund.searchPattern)
+                : ticketSearchService.searchByPattern(state.refund.searchPattern);
+        // BO-10-01-04 / -05: an e-commerce ticket lives on the store node; its
+        // full number, found nowhere here, brings it back for the return.
+        if (results.isEmpty()) {
+            Ticket imported = ecommerceTicketClient.importTicket(state.refund.searchPattern, state.auth.operatorId);
+            if (imported != null) {
+                results = List.of(imported);
+            }
+        }
         state.refund.foundTickets = results;
+        if (forced) {
+            identified(state, results);
+        }
         state.touch();
         LOGGER.info("Exiting method searchTickets");
+    }
+
+    /**
+     * Whether the return in progress must identify its original ticket
+     * before anything is given back ({@code BO-03-13-04}): the return type the
+     * operator chose is administered in TICKET mode.
+     *
+     * @param state the current POS state
+     * @return true when the original ticket must be scanned or keyed by number and date
+     */
+    public boolean identificationForced(PosState state) {
+        com.intermarche.pos.service.PosSettingsService.ReturnType type =
+                posListService.returnType(state.returnTypeLabel);
+        return type != null && type.dedicatedTicket();
+    }
+
+    /**
+     * Finds the CLOSED ticket carrying exactly a number ({@code BO-03-13-04}).
+     *
+     * @param number the full ticket number, possibly null
+     * @return the ticket in a list of one, or an empty list
+     */
+    private List<Ticket> exactTicket(String number) {
+        String typed = number == null ? "" : number.trim();
+        if (typed.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        return new java.util.ArrayList<>(Ticket.<Ticket>find("ticketNumber = ?1 and status = ?2",
+                typed, Ticket.TicketStatus.CLOSED).list());
+    }
+
+    /**
+     * Closes a forced identification ({@code BO-03-13-04}): no ticket found
+     * says how the ticket must be identified, exactly one is selected and the
+     * return opens on it.
+     *
+     * @param state the current POS state
+     * @param results the identified tickets
+     */
+    private void identified(PosState state, List<Ticket> results) {
+        if (results.isEmpty()) {
+            state.refund.errorMessage = i18n.get("op.retourTicketIdentification");
+        } else if (results.size() == 1) {
+            selectTicket(state, results.get(0).id);
+        }
     }
 
     /**
@@ -155,6 +244,16 @@ public class RefundService {
      */
     public void selectTicket(PosState state, Long ticketId) {
         LOGGER.info("Entering method selectTicket with state: " + state + ", ticketId: " + ticketId);
+        // BO-03-13-04: in TICKET mode only a ticket the identification found
+        // may be selected — a stale result of a free search is refused.
+        if (identificationForced(state) && state.refund.foundTickets.stream()
+                .noneMatch(found -> java.util.Objects.equals(found.id, ticketId))) {
+            state.refund.clearSelection();
+            state.refund.errorMessage = i18n.get("op.retourTicketIdentification");
+            state.touch();
+            LOGGER.info("Exiting method selectTicket (not identified)");
+            return;
+        }
         Ticket t = Ticket.findById(ticketId);
         // LC-05-02-07: the origin ticket's POINT OF SALE is CHECKED, not assumed.
         // Tickets being register-local, a foreign one historically just never
@@ -378,6 +477,22 @@ public class RefundService {
             // Gift cards are non-returnable: refunding a sold card while the
             // registry instrument stays ACTIVE would double the value
             // (phase: credit notes & gift cards).
+            // LC-05-03-01: a dematerialised article comes back by its unique code,
+            // read on the payment hub, before any quantity is taken back.
+            if (dematerialised(line) && nexoHubClient.isConfigured()) {
+                if (quantity.signum() <= 0) {
+                    state.refund.deactivations.remove(lineId);
+                    state.refund.returnQuantities.remove(lineId);
+                } else if (!state.refund.deactivations.containsKey(lineId)) {
+                    state.refund.pendingActivationLineId = lineId;
+                    state.refund.errorMessage = null;
+                    state.refund.infoMessage = i18n.get("op.retourCodeActivationAttendu");
+                }
+                state.refund.manualTotalAmount = null;
+                state.touch();
+                LOGGER.info("Exiting method setReturnQuantity (dematerialised)");
+                return;
+            }
             if (line.ean != null) {
                 com.intermarche.pos.domain.catalog.Product product =
                         com.intermarche.pos.domain.catalog.Product.find("ean", line.ean).firstResult();
@@ -434,6 +549,11 @@ public class RefundService {
             LOGGER.info("Exiting method enterArticleByCode");
             return;
         }
+        if (state.refund.pendingActivationLineId != null) {
+            acceptActivationCode(state, typed);
+            LOGGER.info("Exiting method enterArticleByCode (activation code)");
+            return;
+        }
         boolean codeOnTicket = false;
         for (TicketLine line : selected.lines) {
             if (line.cancelled || !matchesCode(line, typed)) {
@@ -458,6 +578,133 @@ public class RefundService {
         state.refund.errorMessage = i18n.get(codeOnTicket ? "op.articleDejaEntierementRetourne" : "op.articleAbsentTicketOrigine");
         state.touch();
         LOGGER.info("Exiting method enterArticleByCode");
+    }
+
+    /**
+     * Reads on the payment hub the dematerialised article handed back
+     * (LC-05-03-01, Nexo {@code BalanceInquiry}): its code must be the one the
+     * sale recorded, and what it still carries is what its deactivation will
+     * unload and what the customer gets back, never more than was paid.
+     *
+     * @param state the current POS state
+     * @param code the code scanned or keyed, trimmed and not empty
+     */
+    private void acceptActivationCode(PosState state, String code) {
+        Long lineId = state.refund.pendingActivationLineId;
+        TicketLine line = state.refund.selectedTicket.lines.stream()
+                .filter(l -> lineId.equals(l.id)).findFirst().orElse(null);
+        if (line == null) {
+            state.refund.pendingActivationLineId = null;
+            state.refund.errorMessage = i18n.get("op.articleAbsentTicketOrigine");
+            state.touch();
+            return;
+        }
+        if (line.activationCode != null && !line.activationCode.equals(code)) {
+            state.refund.infoMessage = null;
+            state.refund.errorMessage = i18n.get("op.retourCodeActivationDifferent");
+            state.touch();
+            return;
+        }
+        state.refund.pendingActivationLineId = null;
+        com.intermarche.pos.ui.payment.NexoHubClient.HubResult result = nexoHubClient.balance(code);
+        if (!result.success()) {
+            state.refund.infoMessage = null;
+            String refusal = hubRefusal(result, null);
+            state.refund.errorMessage = refusal;
+            state.touch();
+            return;
+        }
+        BigDecimal balance = result.balance() == null ? BigDecimal.ZERO : result.balance();
+        if (balance.signum() <= 0) {
+            state.refund.infoMessage = null;
+            state.refund.errorMessage = i18n.get("op.retourArticleSansSolde");
+            state.touch();
+            return;
+        }
+        state.refund.deactivations.put(lineId, new RefundState.Deactivation(code,
+                line.activationProvider == null ? result.provider() : line.activationProvider, balance));
+        state.refund.returnQuantities.put(lineId, BigDecimal.ONE);
+        state.refund.manualTotalAmount = null;
+        state.refund.selectedLineId = lineId;
+        state.refund.errorMessage = null;
+        state.refund.infoMessage = i18n.format("op.retourSoldeADesactiver", money(balance),
+                money(state.refund.lineRefund(line, BigDecimal.ONE)));
+        state.touch();
+    }
+
+    /**
+     * The operator's message of a hub refusal on a dematerialised article handed
+     * back (LC-05-03-01).
+     *
+     * @param result the hub's answer
+     * @param provider the provider the request went to, or null when unknown
+     * @return the message
+     */
+    private String hubRefusal(com.intermarche.pos.ui.payment.NexoHubClient.HubResult result,
+                              String provider) {
+        if (result.unavailable()) {
+            return i18n.get("op.hubIndisponible");
+        }
+        // BO-03-08-06: the shop's own sentence for this provider's code.
+        String administered = result.screenText(provider);
+        if (administered != null) {
+            return administered;
+        }
+        return i18n.format("op.retourArticleRefuseHub",
+                result.message() == null ? result.errorCondition() : result.message());
+    }
+
+    /**
+     * An amount written the French way, two decimals.
+     *
+     * @param amount the amount
+     * @return the written amount
+     */
+    private static String money(BigDecimal amount) {
+        return new java.text.DecimalFormat("0.00", java.text.DecimalFormatSymbols.getInstance(java.util.Locale.FRANCE))
+                .format(amount.setScale(2, RoundingMode.HALF_UP));
+    }
+
+    /**
+     * Whether an original line sold a dematerialised article (BO-03-06-44).
+     *
+     * @param line the original line
+     * @return true when the line carries an activation code or provider
+     */
+    private static boolean dematerialised(TicketLine line) {
+        return line.activationCode != null || line.activationProvider != null;
+    }
+
+    /**
+     * Deactivates on the payment hub every dematerialised article of the refund
+     * (LC-05-03-01, Nexo {@code StoredValue Unload}). One refusal undoes the
+     * deactivations already made and stops the refund before anything is
+     * written.
+     *
+     * @param state the current POS state
+     * @param refund the refund being built
+     * @return true when every article was deactivated
+     */
+    private boolean deactivateArticles(PosState state, Refund refund) {
+        java.util.List<String> done = new java.util.ArrayList<>();
+        for (var entry : state.refund.deactivations.entrySet()) {
+            RefundState.Deactivation deactivation = entry.getValue();
+            com.intermarche.pos.ui.payment.NexoHubClient.HubResult result = nexoHubClient.unload(
+                    refund.refundNumber + "-" + entry.getKey(), deactivation.provider(),
+                    deactivation.code(), deactivation.balance());
+            if (!result.success()) {
+                for (String reference : done) {
+                    nexoHubClient.reverseStoredValue(refund.refundNumber + "-R", reference);
+                }
+                state.refund.infoMessage = null;
+                String refusal = hubRefusal(result, deactivation.provider());
+                state.refund.errorMessage = refusal;
+                state.touch();
+                return false;
+            }
+            done.add(result.transactionId());
+        }
+        return true;
     }
 
     /**
@@ -522,6 +769,14 @@ public class RefundService {
             LOGGER.info("Exiting method requestRefund");
             return;
         }
+        // BO-10-01-04 / -05: a return on an e-commerce ticket takes one of the
+        // types the store allows for it — refused before any endorsement.
+        if (!ecommerceReturnTypeAllowed(state)) {
+            state.refund.errorMessage = i18n.get("recall.typeRetourEcommerce");
+            state.touch();
+            LOGGER.info("Exiting method requestRefund");
+            return;
+        }
         // BO-03-02-15: a tender the back office does not allow for refunds is
         // refused here, before the endorsement is even asked for — a manager
         // must not be made to authorize something the store forbids outright.
@@ -576,6 +831,58 @@ public class RefundService {
     }
 
     /**
+     * Whether the return in progress is allowed on its original ticket by the
+     * e-commerce return rules (BO-10-01-04, -05): a ticket the e-commerce
+     * virtual register booked accepts, for the return of the WHOLE ticket, the
+     * types administered for a ticket return, and for the return of part of its
+     * articles, the types administered for an article return. An empty list
+     * allows every return; any other ticket is not concerned.
+     *
+     * @param state the current POS state, a ticket selected
+     * @return true when the return may go on
+     */
+    private boolean ecommerceReturnTypeAllowed(PosState state) {
+        Ticket original = state.refund.selectedTicket;
+        String terminal = channelRules.ecommerceTerminal();
+        if (terminal.isEmpty() || !terminal.equals(original.terminalId)) {
+            return true;
+        }
+        List<String> allowed = channelRules.ecommerceReturnTypes(wholeTicketReturn(state));
+        if (allowed.isEmpty()) {
+            return true;
+        }
+        String chosen = state.returnTypeLabel == null ? "" : state.returnTypeLabel.trim();
+        for (String type : allowed) {
+            if (type.equalsIgnoreCase(chosen)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the return in progress takes back the WHOLE ticket: every line not
+     * cancelled is returned in full, what past refunds already took back
+     * included (BO-10-01-04).
+     *
+     * @param state the current POS state, a ticket selected
+     * @return true for a ticket return, false for an article return
+     */
+    private boolean wholeTicketReturn(PosState state) {
+        for (TicketLine line : state.refund.selectedTicket.lines) {
+            if (line.cancelled) {
+                continue;
+            }
+            BigDecimal returned = state.refund.returnQuantities.getOrDefault(line.id, BigDecimal.ZERO)
+                    .add(alreadyRefunded(line.id));
+            if (returned.compareTo(line.quantity) < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Tells whether the back office allows a refund on the tender behind a
      * refund method (BO-03-02-15).
      *
@@ -627,6 +934,9 @@ public class RefundService {
         LOGGER.info("Entering method performRefund with state: " + state + ", method: " + method);
         Ticket original = state.refund.selectedTicket;
         if (original == null) { LOGGER.info("Exiting method performRefund"); return; }
+        if (state.refund.pendingCardRefund != null) {
+            return;
+        }
 
         // Loyalty refund guard (imfid spec §28): crediting a loyalty balance
         // requires the ORIGIN ticket's card. Checked HERE, before the refund
@@ -677,7 +987,9 @@ public class RefundService {
             refund.creditAccountNumber = state.refund.creditAccountNumber;
         }
 
-        VatBreakdown breakdown = new VatBreakdown();
+        // BO-10-02-18: the refund's ventilation is cut by the shop's rounding rule,
+        // the one its printed return ticket is written with.
+        VatBreakdown breakdown = new VatBreakdown(posSettingsService.calcRoundingMode());
         for (var entry : state.refund.returnQuantities.entrySet()) {
             Long lineId = entry.getKey();
             BigDecimal qty = entry.getValue();
@@ -703,14 +1015,18 @@ public class RefundService {
             // refunding the unit price would hand back an advantage the customer
             // already received. The VAT restituted follows the same amount.
             BigDecimal paidUnitPrice = orig.getEffectiveUnitPrice();
+            // LC-05-03-01: a dematerialised article refunds what it still
+            // carried, never more than was paid for it.
+            BigDecimal lineAmount = state.refund.lineRefund(orig, qty);
             RefundLine rl = new RefundLine();
             rl.originalLineId = lineId;
             rl.productLabel = orig.productLabel;
             rl.quantity = qty;
-            rl.price = paidUnitPrice;
+            rl.price = state.refund.deactivations.containsKey(lineId)
+                    ? lineAmount.divide(qty, 4, RoundingMode.HALF_UP) : paidUnitPrice;
             rl.vatRate = orig.vatRate;
             refund.lines.add(rl);
-            breakdown.add(orig.vatRate, paidUnitPrice.multiply(qty).setScale(2, RoundingMode.HALF_UP));
+            breakdown.add(orig.vatRate, lineAmount);
         }
 
         refund.totalAmount = state.refund.getTotalRefundAmount();
@@ -735,8 +1051,9 @@ public class RefundService {
         // is part of the refund document or there is no refund document at all;
         // it never throws and never blocks — an engine that cannot answer leaves
         // UNAVAILABLE on the paper and the customer is refunded all the same.
+        java.util.Map<Long, BigDecimal> kept = keptQuantitiesAfter(original, refund);
         ReturnValuationService.Recalculation recalculation =
-                returnValuationService.recompute(original, keptQuantitiesAfter(original, refund));
+                returnValuationService.recompute(original, kept);
         refund.recalculationStatus = recalculation.status.name();
         if (recalculation.status == ReturnValuationService.RecalculationStatus.RECOMPUTED) {
             refund.withdrawnGenerosity = recalculation.withdrawnGenerosity;
@@ -748,7 +1065,108 @@ public class RefundService {
         // refund records that it was sent — never an amount the register did not
         // compute.
         refund.loyaltyRecalculationSent = original.fidelityCard != null;
+        // LC-05-07-02: and what the programme says the return takes back, rule
+        // by rule, frozen on the refund so its paper details it.
+        refund.fidelityLines = new java.util.ArrayList<>(
+                returnLoyaltyService.withdrawal(original, kept, recalculation));
 
+        // LC-05-03-01: the dematerialised articles handed back are deactivated
+        // on the hub before the refund is written; a refusal writes nothing.
+        if (!deactivateArticles(state, refund)) {
+            LOGGER.info("Exiting method performRefund (deactivation refused)");
+            return;
+        }
+
+        if (method == Refund.RefundMethod.CARD) {
+            requestCardCredit(state, original, refund, alreadyRefundedTotal);
+            return;
+        }
+        completeRefund(state, original, refund, alreadyRefundedTotal, null);
+    }
+
+    /** Requests c2 after all refund controls, without persisting an assumed card payout.
+     * @param state current return
+     * @param original original sale
+     * @param refund validated return
+     * @param previous already returned total
+     */
+    private void requestCardCredit(PosState state, Ticket original, Refund refund, BigDecimal previous) {
+        state.refund.pendingCardRefund = refund;
+        state.refund.pendingCardOriginal = original;
+        state.refund.pendingCardAlreadyRefunded = previous;
+        state.refund.pendingCardOutcome = null;
+        // The decision may arrive at once from the terminal's own thread (the
+        // hardware bridge's follower): each leg runs under the register's lock,
+        // the one completeCardRefund takes, so the request side reads either no
+        // decision or a whole one, and only the first decision of the refund
+        // still pending counts.
+        terminalClient.requestCredit(refund.totalAmount,
+                new com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback() {
+            /** Deposits acceptance for transactional completion on the request thread. */
+            @Override
+            public void onAccepted(com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
+                synchronized (state) {
+                    if (state.refund.pendingCardRefund == refund && state.refund.pendingCardOutcome == null) {
+                        state.refund.pendingCardOutcome = outcome;
+                        state.touch();
+                    }
+                }
+            }
+            /** Refused credit leaves the original return unpaid. */
+            @Override
+            public void onRefused(com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
+                onError(i18n.get("op.paiementRefuseTpe"));
+            }
+            /** Communication failure never creates a closed refund. */
+            @Override
+            public void onError(String message) {
+                synchronized (state) {
+                    if (state.refund.pendingCardRefund == refund && state.refund.pendingCardOutcome == null) {
+                        state.refund.pendingCardRefund = null;
+                        state.refund.pendingCardOriginal = null;
+                        state.refund.pendingCardAlreadyRefunded = null;
+                        state.refund.errorMessage = message;
+                        state.touch();
+                    }
+                }
+            }
+        });
+        // The auto-accept demo may answer synchronously; real WCL completes on GET /return.
+        completeCardRefund(state);
+    }
+
+    /** Completes an accepted credit on the request thread, once only (LC-07).
+     * @param state current return
+     */
+    @Transactional
+    public void completeCardRefund(PosState state) {
+        synchronized (state) {
+            var outcome = state.refund.pendingCardOutcome;
+            Refund prepared = state.refund.pendingCardRefund;
+            if (prepared == null || outcome == null) {
+                return;
+            }
+            Ticket original = state.refund.pendingCardOriginal;
+            BigDecimal previous = state.refund.pendingCardAlreadyRefunded;
+            prepared.moneticServer = outcome.server;
+            state.refund.pendingCardOutcome = null;
+            state.refund.pendingCardRefund = null;
+            state.refund.pendingCardOriginal = null;
+            state.refund.pendingCardAlreadyRefunded = null;
+            completeRefund(state, original, prepared, previous, outcome);
+        }
+    }
+
+    /** Persists and prints the validated refund after the selected tender actually settled.
+     * @param state current return
+     * @param original original sale
+     * @param refund validated return
+     * @param alreadyRefundedTotal previously returned total
+     * @param outcome actual credit decision, null for other tenders
+     */
+    private void completeRefund(PosState state, Ticket original, Refund refund, BigDecimal alreadyRefundedTotal,
+            com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
+        Refund.RefundMethod method = refund.refundMethod;
         refund.persist();
 
         // LC-05-05-01: journal the reason with the refund so it is exploitable
@@ -767,39 +1185,63 @@ public class RefundService {
         // the ORIGIN couple's line ids (the lineUid echoed by /valuation).
         Ticket originForFid = original;
         if (originForFid.fidelityCard != null) {
-            StringBuilder fidLines = new StringBuilder("[");
-            boolean firstFidLine = true;
+            java.time.LocalDate fidFiscalDate = java.time.LocalDate.now();
+            String originRef = fidFiscalDate.getYear() + "-" + originForFid.ticketNumber;
+            com.fasterxml.jackson.databind.node.ObjectNode fidEvent =
+                    com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                            .put("returnTicketRef", originRef + "-R" + refund.id)
+                            .put("originTicketRef", originRef)
+                            .put("fiscalDate", fidFiscalDate.toString());
+            com.fasterxml.jackson.databind.node.ArrayNode fidLines = fidEvent.putArray("lines");
             for (RefundLine refundLine : refund.lines) {
                 com.intermarche.pos.domain.sale.TicketLine originLine =
                         com.intermarche.pos.domain.sale.TicketLine.findById(refundLine.originalLineId);
                 if (originLine == null || originLine.lineUid == null) continue;
-                if (!firstFidLine) fidLines.append(',');
-                firstFidLine = false;
-                fidLines.append("{\"lineId\":\"").append(originLine.lineUid)
-                        .append("\",\"quantity\":").append(refundLine.quantity.toPlainString())
-                        .append('}');
+                fidLines.addObject().put("lineId", originLine.lineUid)
+                        .put("quantity", refundLine.quantity);
             }
-            fidLines.append(']');
-            java.time.LocalDate fidFiscalDate = java.time.LocalDate.now();
-            String originRef = fidFiscalDate.getYear() + "-" + originForFid.ticketNumber;
             // The voluntary loyalty refund travels with the return event
             // (spec §28): the ingestion creates the REFUND_CREDIT, capped
             // POS-side to the refund amount by construction.
-            String refundToCard = refund.refundMethod == Refund.RefundMethod.LOYALTY
-                    ? ",\"refundToCard\":{\"card\":\"" + originForFid.fidelityCard
-                            + "\",\"amount\":" + refund.totalAmount.toPlainString() + "}"
-                    : "";
-            String fidPayload = "{\"returnTicketRef\":\"" + originRef + "-R" + refund.id + "\","
-                    + "\"originTicketRef\":\"" + originRef + "\","
-                    + "\"fiscalDate\":\"" + fidFiscalDate + "\","
-                    + "\"lines\":" + fidLines
-                    + refundToCard + "}";
+            if (refund.refundMethod == Refund.RefundMethod.LOYALTY) {
+                fidEvent.putObject("refundToCard")
+                        .put("card", originForFid.fidelityCard)
+                        .put("amount", refund.totalAmount);
+            }
+            String fidPayload = com.intermarche.pos.ui.fidelity.ImfidClient.json(fidEvent);
             fidEventOutboxService.enqueue(
                     com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN, fidPayload);
         }
 
-        applyMethodSideEffects(refund);
-        ticketPrinterService.printRefund(refund.id);
+        boolean vendorFrames = outcome != null && (outcome.customerReceiptFrame != null || outcome.merchantReceiptFrame != null || !outcome.additionalReceiptFrames.isEmpty());
+        if (!vendorFrames) {
+            applyMethodSideEffects(refund);
+        }
+        // BO-03-02-34: the store may print no card receipt at all; the
+        // customer frame is archived all the same.
+        boolean cardPrinted = posSettingsService.cardReceiptPrinted();
+        boolean attached = vendorFrames && cardPrinted && outcome.customerReceiptFrame != null && posSettingsService.cardReceiptAttached();
+        // LC-05-07-03: the return is stated on its credit note before its paper.
+        portugueseFiscalService.issueCreditNoteForRefund(refund.id);
+        if (attached) {
+            ticketPrinterService.printRefund(refund.id, false);
+        } else {
+            ticketPrinterService.printRefund(refund.id);
+        }
+        if (vendorFrames && outcome.customerReceiptFrame != null) {
+            ticketPrinterService.archiveCustomerDocument(com.intermarche.pos.domain.sale.CustomerDocument.Kind.CARD, refund.id, outcome.customerReceiptFrame);
+        }
+        if (vendorFrames && cardPrinted) {
+            if (outcome.customerReceiptFrame != null) {
+                ticketPrinterService.printTerminalFrame(outcome.customerReceiptFrame, outcome.entryMode);
+            }
+            if (outcome.merchantReceiptFrame != null) {
+                ticketPrinterService.printTerminalFrame(outcome.merchantReceiptFrame, outcome.entryMode);
+            }
+            for (String frame : outcome.additionalReceiptFrames) {
+                ticketPrinterService.printTerminalFrame(frame, outcome.entryMode);
+            }
+        }
 
         // LC-05-06-01: a PARTIAL refund (a hand-keyed amount smaller than what
         // the ticket still has to give back) keeps the ticket selected and
@@ -877,9 +1319,10 @@ public class RefundService {
      * @param refund the persisted refund
      */
     private void applyMethodSideEffects(Refund refund) {
-        switch (refund.refundMethod) {
-            case CASH -> hardwareService.openDrawer();
-            case VOUCHER -> {
+        // LC-05-06: every refund method must select its effect at compile time.
+        Runnable effect = switch (refund.refundMethod) {
+            case CASH -> () -> hardwareService.openDrawer();
+            case VOUCHER -> () -> {
                 // The credit note is a REGISTRY instrument: persisted first,
                 // numbered from its own row id (pure identifier — the
                 // registry stays authoritative for the balance), then
@@ -896,6 +1339,9 @@ public class RefundService {
                 // the instrument and printed on the AVOIR ticket.
                 note.validUntil = note.issuedAt.plusDays(VOUCHER_VALIDITY_DAYS);
                 note.issuingRefundId = refund.id;
+                // BO-03-06-62: the note remembers the register and the refund that printed it.
+                note.issuingTerminalId = refund.terminalId;
+                note.issuingDocumentNumber = refund.refundNumber;
                 // The number is derived from the generated id, but the column
                 // is NOT NULL and only 20 characters wide: the INSERT carries
                 // a SHORT unique placeholder (a base-36 random, 14 chars at
@@ -904,11 +1350,12 @@ public class RefundService {
                 note.number = "T" + Long.toUnsignedString(
                         java.util.UUID.randomUUID().getMostSignificantBits(), 36);
                 note.persistAndFlush();
-                note.number = com.intermarche.pos.domain.payment.StoredValue.CREDIT_NOTE_PREFIX
-                        + String.format("%012d", note.id);
+                // BO-03-06-30 to -38: composed from the administered issuing range.
+                note.number = storedValueNumberService.numberOf(note, refund.refundNumber);
+                syncOutboxService.enqueue(SyncOutbox.EntityType.STORED_VALUE, note.id);
                 ticketPrinterService.printRefundVoucher(refund, note.number, note.validUntil);
-            }
-            case CREDIT -> {
+            };
+            case CREDIT -> () -> {
                 // LC-05-06-05: the refund lowers what the in-account customer
                 // owes the store. The account is credited by the refund amount
                 // (its outstanding balance goes down, possibly into an advance
@@ -926,24 +1373,25 @@ public class RefundService {
                     account.creditBalance = balance.subtract(refund.totalAmount);
                     account.persist();
                 }
-            }
-            case LOYALTY -> {
+            };
+            case LOYALTY -> () -> {
                 // The credit itself is born at imfid's ingestion of the
                 // ticket-return event (REFUND_CREDIT); the till hands the
                 // customer a printed proof and announces it.
                 hardwareService.displayMessage(String.format(i18n.get("display.creditFidelite"),
                         refund.totalAmount.toPlainString().replace('.', ',')));
                 ticketPrinterService.printLoyaltyCredit(refund.totalAmount);
-            }
-            case CARD -> {
-                LOGGER.info("Remboursement carte à traiter sur le TPE (monétique hors périmètre)");
+            };
+            case CARD -> () -> {
+                LOGGER.info("LC-07 card credit accepted by the configured terminal");
                 // LC-08-03-10: a card refund is a "credit" card transaction —
                 // its slip is printed on its own when the back office forces it.
                 if (printPolicy.isCreditCardReceiptForced()) {
                     ticketPrinterService.printCardCreditReceipt(refund);
                 }
-            }
-        }
+            };
+        };
+        effect.run();
     }
 
     /**
@@ -1001,4 +1449,40 @@ public class RefundService {
                 .map(r -> r.totalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
+    /** LC-04-05-01: searches the same combined criteria as duplicata without changing any ticket.
+     * @param state the current return state
+     * @param criteria the independently entered filters
+     */
+    public void searchCriteria(PosState state, com.intermarche.pos.ui.ticket.TicketSearchCriteria criteria) {
+        state.refund.clearSelection();
+        state.refund.searchCriteria = criteria;
+        // BO-03-13-04: in TICKET mode the criteria identify the ticket only
+        // with BOTH its number and its date.
+        if (identificationForced(state)) {
+            if (blank(criteria.number) || blank(criteria.date)) {
+                criteria.submitted = true;
+                state.refund.foundTickets = new java.util.ArrayList<>();
+                state.refund.errorMessage = i18n.get("op.retourTicketNumeroEtDate");
+                state.touch();
+                return;
+            }
+            state.refund.foundTickets = ticketSearchService.searchCriteria(criteria, false);
+            identified(state, state.refund.foundTickets);
+            state.touch();
+            return;
+        }
+        state.refund.foundTickets = ticketSearchService.searchCriteria(criteria, false);
+        state.touch();
+    }
+
+    /**
+     * Tells whether a criterion was left empty.
+     *
+     * @param value the posted criterion, possibly null
+     * @return true when nothing but blanks was posted
+     */
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
 }
+

@@ -137,4 +137,77 @@ class UnknownScanHandlerTest {
         assertTrue(ctx.handled);
         verify(ticket).setError("CODE INCONNU: " + CODE);
     }
+
+    /**
+     * BO-10-02-14: where the shop asks for it, the unknown code is announced as
+     * an unknown ARTICLE and the register chains to the direct entry, the code
+     * travelling URL-encoded so the screen can name it.
+     */
+    @Test
+    void anAdministeredShopChainsToTheFamilyOrCodeEntry() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket, false);
+        UnknownScanHandler handler = newHandler();
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(handler.posSettingsService.unknownScanManualEntry()).thenReturn(true);
+        ScanContext ctx = new ScanContext("AB C&1", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(ticket).setError("ARTICLE INCONNU : AB C&1 — SAISISSEZ LA FAMILLE OU LE CODE");
+        assertEquals("/manual?unknown=AB+C%261", state.functionPath);
+    }
+
+    /**
+     * BO-10-02-14: a shop that does not ask for the proposal keeps the plain
+     * message and stays on the sale screen.
+     */
+    @Test
+    void aShopWithoutTheProposalKeepsThePlainMessage() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket, false);
+        UnknownScanHandler handler = newHandler();
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        ScanContext ctx = new ScanContext(CODE, state);
+        handler.handle(ctx);
+        verify(ticket).setError("CODE INCONNU: " + CODE);
+        assertNull(state.functionPath);
+    }
+
+    /**
+     * BO-04-01-34: the unknown code is journalled, naming the ticket under
+     * way; before the first article it waits for the ticket to be created.
+     */
+    @Test
+    void theUnknownCodeIsJournalled() {
+        UnknownScanHandler handler = newHandler();
+        handler.technicalEventService = mock(com.intermarche.pos.service.TechnicalEventService.class);
+        TicketState ticket = new TicketState();
+        PosState state = newState(ticket, false);
+        state.payment = new com.intermarche.pos.ui.payment.PaymentState();
+        state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        state.auth.operatorBadgeId = "12341234";
+        com.intermarche.pos.domain.session.TechnicalEvent recorded = new com.intermarche.pos.domain.session.TechnicalEvent();
+        recorded.id = 8L;
+        when(handler.technicalEventService.record(any(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(recorded, (com.intermarche.pos.domain.session.TechnicalEvent) null,
+                        new com.intermarche.pos.domain.session.TechnicalEvent());
+        handler.handle(new ScanContext(CODE, state));
+        assertEquals(java.util.List.of(8L), ticket.eventsAwaitingTicket);
+        handler.handle(new ScanContext(CODE, state));
+        handler.handle(new ScanContext(CODE, state));
+        assertEquals(java.util.List.of(8L), ticket.eventsAwaitingTicket);
+        state.payment.ticketDbId = 4L;
+        com.intermarche.pos.domain.sale.Ticket draft = new com.intermarche.pos.domain.sale.Ticket();
+        draft.ticketNumber = "T4";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.findById(4L)).thenReturn(draft, (Object) null);
+            handler.handle(new ScanContext(CODE, state));
+            handler.handle(new ScanContext(CODE, state));
+        }
+        verify(handler.technicalEventService).record(
+                com.intermarche.pos.domain.session.TechnicalEvent.EventType.UNKNOWN_ARTICLE_SCANNED,
+                "Code inconnu " + CODE, "12341234", "T4", null, CODE);
+        assertEquals(java.util.List.of(8L), ticket.eventsAwaitingTicket);
+    }
 }

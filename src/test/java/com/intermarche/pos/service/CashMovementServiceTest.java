@@ -191,6 +191,21 @@ class CashMovementServiceTest {
     }
 
     /**
+     * BO-10-01-27: a down-payment taken in an administered tender names it, and
+     * the historical call names none, which reads as cash.
+     */
+    @Test
+    void recordAcompteNamesTheTenderItWasTakenIn() {
+        CashMovementService service = serviceWith(mock(SyncOutboxService.class));
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            service.recordAcompte(mock(CashSession.class), null, new BigDecimal("20.00"), "CMD9", "CARD");
+            service.recordAcompte(mock(CashSession.class), null, new BigDecimal("20.00"), "CMD9");
+            assertEquals("CARD", created.constructed().get(0).paymentMethod);
+            assertNull(created.constructed().get(1).paymentMethod);
+        }
+    }
+
+    /**
      * A non-positive amount is refused: nothing is constructed or enqueued.
      */
     @Test
@@ -245,6 +260,47 @@ class CashMovementServiceTest {
             verify(movement, times(1)).persist();
             verify(outbox, times(1)).enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
         }
+    }
+
+    /**
+     * LC-07-15-04: the cash changer's cash is transferred to the safe without
+     * any endorsement, whatever the amount: a WITHDRAWAL flagged
+     * {@code safeDeposit}, persisted and enqueued for the node.
+     */
+    @Test
+    void recordCashChangerTransferFlagsAndEnqueuesWithoutEndorsement() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            CashMovement result = service.recordCashChangerTransfer(mock(CashSession.class),
+                    mock(Employee.class), new BigDecimal("500.00"));
+            CashMovement movement = created.constructed().get(0);
+            assertSame(movement, result);
+            assertEquals(CashMovement.MovementType.WITHDRAWAL, movement.type);
+            assertEquals(new BigDecimal("500.00"), movement.amount);
+            assertTrue(movement.safeDeposit);
+            assertEquals("Prélèvement automatique monnayeur", movement.reason);
+            assertEquals(CashMovement.CASH, movement.paymentMethod);
+            assertNull(movement.endorsedBy);
+            verify(movement, times(1)).persist();
+            verify(outbox, times(1)).enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        }
+    }
+
+    /**
+     * LC-07-15-04: a missing or non-positive transfer is refused: nothing is
+     * constructed or enqueued.
+     */
+    @Test
+    void recordCashChangerTransferRefusesNonPositiveAmounts() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            assertNull(service.recordCashChangerTransfer(null, null, null));
+            assertNull(service.recordCashChangerTransfer(null, null, BigDecimal.ZERO));
+            assertTrue(created.constructed().isEmpty());
+        }
+        verifyNoInteractions(outbox);
     }
 
     /**
@@ -355,4 +411,44 @@ class CashMovementServiceTest {
         }
         verifyNoInteractions(outbox);
     }
+    /** EXP-85/87: zero down payments and invalid safe amounts are refused before persistence. */
+    @Test
+    void depositGuardsRefuseZeroAndMissingAmounts() {
+        var outbox = mock(SyncOutboxService.class);
+        var service = serviceWith(outbox);
+        assertNull(service.recordAcompte(null, null, BigDecimal.ZERO, "ORDER"));
+        assertNull(service.recordSafeDeposit(null, null, null, null, null));
+        assertNull(service.recordSafeDeposit(null, null, BigDecimal.ZERO, null, null));
+        assertNull(service.recordSafeDeposit(null, null, new BigDecimal("150.00"), null, null));
+        verifyNoInteractions(outbox);
+    }
+
+    /** EXP-87: an above-threshold safe deposit persists only after the supplied supervisor endorsement. */
+    @Test
+    void endorsedSafeDepositCarriesItsSupervisor() {
+        var outbox = mock(SyncOutboxService.class);
+        var service = serviceWith(outbox);
+        try (var created = mockConstruction(CashMovement.class)) {
+            CashMovement movement = service.recordSafeDeposit(null, null, new BigDecimal("150.00"), null, "MANAGER");
+            assertEquals(created.constructed().get(0), movement);
+            assertEquals("MANAGER", movement.endorsedBy);
+            assertTrue(movement.safeDeposit);
+            verify(movement).persist();
+        }
+    }
+
+
+    /** LC-06-03: a missing or non-positive deposit cannot create a cash movement, independently of its valid order reference. */
+    @Test
+    void invalidOrderDepositAmountsCreateNoMovement() {
+        var outbox = mock(SyncOutboxService.class);
+        var service = serviceWith(outbox);
+        for (BigDecimal amount : new BigDecimal[]{null, BigDecimal.ZERO, BigDecimal.ONE.negate()}) {
+            assertNull(service.recordAcompte(null, null, amount, "ORDER"));
+        }
+        assertNull(service.recordAcompte(null, null, BigDecimal.ONE, null));
+        assertNull(service.recordAcompte(null, null, BigDecimal.ONE, " "));
+        verifyNoInteractions(outbox);
+    }
+
 }

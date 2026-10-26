@@ -16,7 +16,8 @@ import java.util.Map;
  * General Specifications and not only the identifiers this register has a rule for.
  *
  * <p>The predefined-length families are keyed on the FIRST TWO DIGITS: 00, 01, 02, 03,
- * 04, 11 to 20, 31 to 36 and 41. Everything else is variable-length and closed by a
+ * 04, 11 to 20, 31 to 36 and 41 (whose identifiers are the three-digit 410 to 417).
+ * Everything else is variable-length and closed by a
  * separator or by the end of the payload. An identifier this version does not know is
  * therefore still readable when it is separated — which is exactly what
  * {@code LC-11-03-03} requires of an unknown AI.
@@ -132,7 +133,17 @@ public record Gs1ApplicationIdentifier(String code, String label, int dataLength
         put(table, "18", "Date de conditionnement", 6);
         put(table, "19", "Date de durabilité maximale", 6);
         put(table, "20", "Variante interne", 2);
-        put(table, "41", "GLN partenaire", 13);
+        // The 410 to 417 location numbers: the predefined-length family 41 is keyed on
+        // its first two digits, but the identifier itself has three, so the thirteen
+        // digits of the location start after the third one.
+        put(table, "410", "GLN destinataire", 13);
+        put(table, "411", "GLN facturé", 13);
+        put(table, "412", "GLN fournisseur", 13);
+        put(table, "413", "GLN destinataire final", 13);
+        put(table, "414", "GLN localisation physique", 13);
+        put(table, "415", "GLN facturant", 13);
+        put(table, "416", "GLN lieu de production", 13);
+        put(table, "417", "GLN partie", 13);
         // The 31nn to 36nn measure families: four-digit codes whose last digit is the
         // number of decimals, six digits of data, no separator.
         for (String stem : new String[] {"310", "311", "312", "313", "314", "315", "316",
@@ -144,18 +155,69 @@ public record Gs1ApplicationIdentifier(String code, String label, int dataLength
             table.put(stem, new Gs1ApplicationIdentifier(stem, measureLabel(stem), 6, 6, true));
         }
         // --- Variable-length identifiers, closed by a separator or the end of payload.
+        //     Every one of them is listed under its TRUE code: an identifier missing from
+        //     this table is read on its first two digits only, so a 240 would be taken
+        //     for a 24 and an alert administered on 240 would never fire.
         putVariable(table, BATCH, "Numéro de lot", 20, false);
         putVariable(table, SERIAL, "Numéro de série", 20, false);
         putVariable(table, VARIANT, "Variante du produit", 20, false);
-        putVariable(table, COUNT, "Quantité", 8, false);
+        putVariable(table, "235", "Numéro de série tiers", 28, false);
+        putVariable(table, "240", "Identification complémentaire du produit", 30, false);
+        putVariable(table, "241", "Référence article client", 30, false);
+        putVariable(table, "242", "Variante sur commande", 6, false);
+        putVariable(table, "243", "Code composant d'emballage", 20, false);
+        putVariable(table, "250", "Numéro de série secondaire", 30, false);
+        putVariable(table, "251", "Référence à l'entité source", 30, false);
         putVariable(table, GDTI, "GDTI (chèque cadeau)", 30, false);
+        putVariable(table, "254", "Extension de GLN", 20, false);
         putVariable(table, GCN, "GCN (coupon)", 25, false);
+        putVariable(table, COUNT, "Quantité", 8, false);
+        putVariable(table, "37", "Nombre d'unités contenues", 8, false);
         putVariable(table, AMOUNT_PAYABLE, "Montant à payer / valeur du coupon", 15, true);
         putVariable(table, "391", "Montant à payer avec code devise", 18, true);
         putVariable(table, AMOUNT_VARIABLE_MEASURE, "Montant à payer (unité variable)", 15, true);
         putVariable(table, "393", "Montant unité variable avec code devise", 18, true);
+        putVariable(table, "394", "Pourcentage de remise du coupon", 4, true);
+        putVariable(table, "395", "Montant par unité de mesure", 6, true);
+        putVariable(table, "400", "Numéro de commande client", 30, false);
+        putVariable(table, "401", "Numéro d'envoi (GINC)", 30, false);
+        putVariable(table, "402", "Numéro d'expédition (GSIN)", 17, false);
+        putVariable(table, "403", "Code de routage", 30, false);
+        putVariable(table, "420", "Code postal de livraison", 20, false);
+        putVariable(table, "421", "Code postal de livraison avec pays", 12, false);
         putVariable(table, ORIGIN, "Pays d'origine", 3, false);
+        putVariable(table, "423", "Pays de première transformation", 15, false);
+        putVariable(table, "424", "Pays de transformation", 3, false);
+        putVariable(table, "425", "Pays de découpe", 15, false);
+        putVariable(table, "426", "Pays de transformation complète", 3, false);
+        putVariable(table, "427", "Subdivision du pays d'origine", 3, false);
+        putVariable(table, "7001", "Numéro de stock OTAN", 13, false);
+        putVariable(table, "7002", "Classification carcasse et découpe", 30, false);
+        putVariable(table, "7003", "Date et heure d'expiration", 10, false);
+        putVariable(table, "7004", "Puissance active", 4, false);
+        putVariable(table, "7005", "Zone de capture", 12, false);
+        putVariable(table, "7006", "Date de première congélation", 6, false);
+        putVariable(table, "7007", "Date de récolte", 12, false);
+        putVariable(table, "7008", "Espèce aquatique", 3, false);
+        putVariable(table, "7009", "Engin de pêche", 10, false);
+        putVariable(table, "7010", "Méthode de production", 2, false);
+        putVariable(table, "8001", "Dimensions des rouleaux", 14, false);
+        putVariable(table, "8002", "Numéro de téléphone mobile", 20, false);
+        putVariable(table, "8003", "GRAI (actif consigné)", 30, false);
+        putVariable(table, "8004", "GIAI (actif individuel)", 30, false);
         putVariable(table, PRICE_PER_UNIT, "Prix par unité de mesure", 6, false);
+        putVariable(table, "8006", "Composant d'article (ITIP)", 18, false);
+        putVariable(table, "8007", "IBAN", 34, false);
+        putVariable(table, "8008", "Date et heure de production", 12, false);
+        putVariable(table, "8012", "Version du logiciel", 20, false);
+        putVariable(table, "8017", "GSRN prestataire", 18, false);
+        putVariable(table, "8018", "GSRN bénéficiaire", 18, false);
+        putVariable(table, "8019", "Numéro d'instance de service", 10, false);
+        putVariable(table, "8020", "Référence du bordereau de paiement", 25, false);
+        putVariable(table, "8110", "Code coupon (Amérique du Nord)", 70, false);
+        putVariable(table, "8111", "Points de fidélité du coupon", 4, false);
+        putVariable(table, "8112", "Coupon dématérialisé (Amérique du Nord)", 70, false);
+        putVariable(table, "8200", "URL du produit", 70, false);
         putVariable(table, PARTNER_INFO, "Information entre partenaires", 30, false);
         putVariable(table, COMPANY_INFO, "Information interne entreprise", 90, false);
         return table;

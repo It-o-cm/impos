@@ -16,6 +16,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -522,6 +523,82 @@ class TenderRulesServiceTest {
             wire(mocked, queries);
             assertTrue(service.opensDrawer("TR", false, true, false));
             assertFalse(service.opensDrawer("TR", false, false, true));
+        }
+    }
+
+    /**
+     * Builds a tender of the given code.
+     *
+     * @param code the code
+     * @param active whether it is in service
+     * @return the tender
+     */
+    private TenderDefinition coded(String code, boolean active) {
+        TenderDefinition tender = new TenderDefinition();
+        tender.code = code;
+        tender.active = active;
+        return tender;
+    }
+
+    /**
+     * BO-03-02-01/-44: the lookups the payment screen asks for delegate to the
+     * referential, and a tender the store added answers its own pre-fill.
+     */
+    @Test
+    void theReferentialLookupsDelegateAndAddedTendersAnswerTheirPrefill() {
+        TenderRulesService service = new TenderRulesService();
+        TenderDefinition amex = coded("AMEX", true);
+        amex.nature = "CARD";
+        amex.defaultsToTotal = false;
+        try (MockedStatic<TenderDefinition> tenders = mockStatic(TenderDefinition.class)) {
+            tenders.when(() -> TenderDefinition.findByCode("AMEX")).thenReturn(amex);
+            tenders.when(() -> TenderDefinition.findByMonetic("43", null)).thenReturn(amex);
+            tenders.when(TenderDefinition::listActiveAdditional).thenReturn(List.of(amex));
+            assertSame(amex, service.tender("AMEX"));
+            assertSame(amex, service.moneticTender("43", null));
+            assertEquals(List.of(amex), service.additional());
+            assertEquals(Map.of("AMEX", false), service.administeredDefaultAmounts());
+        }
+    }
+
+    /**
+     * BO-03-02-36: the cash key goes through the coin machine only where the
+     * register has one AND the active cash tender is administered so.
+     */
+    @Test
+    void theCashGoesThroughTheCoinMachineOnlyWhenBothSaySo() {
+        TenderRulesService service = new TenderRulesService();
+        assertFalse(service.cashViaCoinMachine(false));
+        TenderDefinition cash = coded("CASH", true);
+        try (MockedStatic<TenderDefinition> tenders = mockStatic(TenderDefinition.class)) {
+            tenders.when(() -> TenderDefinition.findByCode("CASH")).thenReturn(null);
+            assertFalse(service.cashViaCoinMachine(true));
+            tenders.when(() -> TenderDefinition.findByCode("CASH")).thenReturn(cash);
+            assertFalse(service.cashViaCoinMachine(true));
+            cash.coinMachine = true;
+            assertTrue(service.cashViaCoinMachine(true));
+            cash.active = false;
+            assertFalse(service.cashViaCoinMachine(true));
+        }
+    }
+
+    /**
+     * BO-03-02-20: the movement tenders are the active tenders allowed for
+     * floats and expenses, cash excepted.
+     */
+    @Test
+    void theMovementTendersAreTheActiveAllowedOnesButCash() {
+        TenderRulesService service = new TenderRulesService();
+        TenderDefinition cheque = coded("CHEQUE", true);
+        cheque.movementAllowed = true;
+        TenderDefinition cash = coded("CASH", true);
+        cash.movementAllowed = true;
+        TenderDefinition sleeping = coded("TR", false);
+        sleeping.movementAllowed = true;
+        TenderDefinition card = coded("CARD", true);
+        try (MockedStatic<TenderDefinition> tenders = mockStatic(TenderDefinition.class)) {
+            tenders.when(TenderDefinition::listAllOrdered).thenReturn(List.of(cheque, cash, sleeping, card));
+            assertEquals(List.of("CHEQUE"), service.movementTenders());
         }
     }
 }

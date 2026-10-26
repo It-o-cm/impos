@@ -141,6 +141,10 @@ public class TicketRecoveryService {
         for (TicketLine line : orderedLines) {
             TicketState.TicketItem item = new TicketState.TicketItem(
                     line.ean, line.plu, line.productLabel, line.unitPrice, line.quantity, line.vatRate);
+            item.linkedParentUid = line.linkedParentUid;
+            item.linkedArticleEan = line.linkedArticleEan;
+            item.linkedRecordedQuantity = line.linkedRecordedQuantity;
+            item.linkedArticleMultiplier = line.linkedArticleMultiplier;
             if (line.lineUid != null) {
                 item.uid = line.lineUid;
             }
@@ -168,6 +172,9 @@ public class TicketRecoveryService {
             // re-derived. Without this the ban vanished at the first restart
             // and the article became discountable again.
             item.discountForbidden = line.discountForbidden;
+            item.vatExempt = line.vatExempt;
+            item.thirdPartySale = line.thirdPartySale;
+            item.service = line.service;
             // LC-02-08: read back too. A restart between the marking and the
             // payment must not send to the customer's arms an article the desk
             // was going to hand over.
@@ -176,14 +183,29 @@ public class TicketRecoveryService {
             // still shows each shopper's part on screen and on the ticket.
             item.subtotalBoundary = line.subtotalBoundary;
             item.returnLine = line.returnLine;
+            // BO-04-01-14 / BO-06-04-05: how the line was rung survives a restart.
+            item.scanned = line.scanned;
+            item.priceEntered = line.priceEntered;
+            item.returnTypeLabel = line.returnTypeLabel;
             // LC-09-01-11 to -18: read back too, so the eligible bases shown during
             // the sale survive a restart instead of falling back to zero.
             item.restrictedTenders = line.restrictedTenders;
+            item.orderedQuantity = line.orderedQuantity;
             item.unitName = line.unitName;
             item.decimalQuantity = line.decimalQuantity;
+            // LC-02-09-02: a resumed or recovered dematerialised line keeps its
+            // code and its activation, so it can still be reversed and its
+            // activation ticket still printed.
+            item.activationCode = line.activationCode;
+            item.activationProvider = line.activationProvider;
+            item.activationReference = line.activationReference;
+            item.activationApproval = line.activationApproval;
+            item.activationBalanceBefore = line.activationBalanceBefore;
+            item.activationBalanceAfter = line.activationBalanceAfter;
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();
+        state.ticket.customerTaxId = draft.customerTaxId;
 
         if (draft.globalDiscountType != null) {
             // The REQUEST is restored; the allocation reruns at the next
@@ -249,6 +271,7 @@ public class TicketRecoveryService {
             } else {
                 state.payment.addPayment(methodKeyOf(payment), payment.amount);
             }
+            state.payment.payments.get(state.payment.payments.size() - 1).moneticServer = payment.moneticServer;
         }
 
         if (!state.payment.payments.isEmpty() && state.getRemaining().signum() <= 0) {

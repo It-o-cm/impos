@@ -91,6 +91,10 @@ class EanScanHandlerTest {
         // Back-office parameters: the EAN13 check-digit control defaults to
         // OFF (mock's false), the pre-existing behavior every other case relies on.
         handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        // BO-04-03-08: no administered alert unless a test says so.
+        handler.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(handler.controlGateService.onArticle(any(), any(), any(), any()))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.NO_RULE);
         return handler;
     }
 
@@ -161,17 +165,65 @@ class EanScanHandlerTest {
     }
 
     /**
-     * A code that is not an 8-to-13 digit EAN is not recognized: no catalog
-     * lookup happens and the context stays unhandled for the next link.
+     * A code that is neither an EAN nor an article code (a separator in it) is
+     * not recognized: no catalog lookup happens and the context stays unhandled
+     * for the next link.
      */
     @Test
     void nonEanCodeIsNotRecognized() {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
-        ScanContext ctx = new ScanContext("ABC123", state);
-        newHandler().handle(ctx);
+        ScanContext ctx = new ScanContext("ABC-123", state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            newHandler().handle(ctx);
+            panache.verifyNoInteractions();
+        }
         assertFalse(ctx.handled);
         verifyNoInteractions(ticket);
+    }
+
+    /**
+     * An alphanumeric article code the catalog does not carry stays unhandled
+     * (BO-03-06-01/-10): a voucher or a badge of the same shape walks on.
+     */
+    @Test
+    void anUnknownArticleCodeIsLeftToTheChain() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext("ABC123", state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "ABC123")).thenReturn(query);
+            newHandler().handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verifyNoInteractions(ticket);
+    }
+
+    /**
+     * An alphanumeric article code the catalog carries — a Code 128 or the text
+     * of a QR code — rings the article like an EAN (BO-03-06-01/-10).
+     */
+    @Test
+    void aKnownArticleCodeRingsTheArticle() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext("ART2024QR", state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(newProduct(false));
+            panache.when(() -> Product.find("ean = ?1 and active = true", "ART2024QR")).thenReturn(query);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq("ART2024QR"), isNull(), eq("COCA COLA"),
+                eq(BigDecimal.ZERO), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
     }
 
     /**
@@ -184,6 +236,7 @@ class EanScanHandlerTest {
         PosState state = newState(ticket);
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, null);
             newHandler().handle(ctx);
         }
@@ -202,6 +255,7 @@ class EanScanHandlerTest {
         Product p = newProduct(true);
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             newHandler().handle(ctx);
         }
@@ -226,6 +280,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -248,6 +303,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -272,6 +328,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         EanScanHandler handler = newHandler(true);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             handler.handle(ctx);
         }
@@ -295,12 +352,37 @@ class EanScanHandlerTest {
         EanScanHandler handler = newHandler(false);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             handler.handle(ctx);
         }
         verify(handler.ticketService).suspendForAgeCheck(state, p, "SCAN", CODE, null);
         assertTrue(ctx.handled);
+    }
+
+    /**
+     * BO-04-03-08: an alert on the scanned article stops it before any line is
+     * rung, the gate replaying the code as read.
+     */
+    @Test
+    void anArticleAlertStopsTheScan() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler(false);
+        when(handler.controlGateService.onArticle(p, null,
+                com.intermarche.pos.ui.control.ControlGateService.Kind.SCAN, CODE))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+        verify(handler.ticketService, never()).suspendForEntry(any(), any(), any());
     }
 
     /**
@@ -315,6 +397,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         EanScanHandler handler = newHandler(true);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             handler.handle(ctx);
         }
@@ -338,6 +421,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -360,6 +444,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -398,6 +483,7 @@ class EanScanHandlerTest {
         when(handler.posSettingsService.ean13CheckDigitEnabled()).thenReturn(true);
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, null);
             handler.handle(ctx);
         }
@@ -406,21 +492,20 @@ class EanScanHandlerTest {
     }
 
     /**
-     * BO-10-02-21: with the control ON, a non-13-digit EAN (e.g. an EAN8)
-     * skips the check-digit gate entirely — the key control targets EAN13
-     * only — and proceeds to the lookup.
+     * LC-11-01-01: a valid EAN-8 proceeds to lookup independently of the EAN-13 setting.
      */
     @Test
-    void shortEanSkipsCheckDigitGateWhenEnabled() {
+    void validEan8ProceedsToLookupWhenEan13ControlIsEnabled() {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         EanScanHandler handler = newHandler();
         when(handler.posSettingsService.ean13CheckDigitEnabled()).thenReturn(true);
-        ScanContext ctx = new ScanContext("12345678", state);
+        ScanContext ctx = new ScanContext("12345670", state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             PanacheQuery<Product> query = mock(PanacheQuery.class);
             when(query.firstResult()).thenReturn(null);
-            panache.when(() -> Product.find("ean = ?1 and active = true", "12345678")).thenReturn(query);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "12345670")).thenReturn(query);
             handler.handle(ctx);
         }
         assertFalse(ctx.handled);
@@ -441,6 +526,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         EanScanHandler handler = newHandler(true);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             handler.handle(ctx);
         }
@@ -468,6 +554,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -489,6 +576,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -509,14 +597,18 @@ class EanScanHandlerTest {
         PosState state = newState(ticket);
         Product p = newProduct(false);
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE, "true");
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
         }
         assertTrue(added.discountForbidden);
+        verify(ticket).snapshotMealVoucherEligibility(p.ean, true);
+        verify(ticket).snapshotRestrictedTenders(CODE, "MEAL_VOUCHER_ELIGIBLE");
     }
 
     /**
@@ -536,6 +628,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -557,6 +650,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, newProduct(false));
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -579,6 +673,7 @@ class EanScanHandlerTest {
         EanScanHandler handler = newHandler(false);
         when(handler.ticketService.suspendForEntry(state, p, null)).thenReturn(true);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             handler.handle(ctx);
         }
@@ -606,6 +701,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -632,6 +728,7 @@ class EanScanHandlerTest {
         when(handler.articleScopeService.soldHere(p)).thenReturn(false);
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             handler.handle(ctx);
         }
@@ -646,6 +743,7 @@ class EanScanHandlerTest {
         ScanContext second = new ScanContext(CODE, newState(ticket));
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             allowed.handle(second);
@@ -676,6 +774,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -701,6 +800,7 @@ class EanScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
             stubProductFind(panache, p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -726,5 +826,202 @@ class EanScanHandlerTest {
         handler.handle(ctx);
         assertTrue(ctx.handled);
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+    /** BO-03-01-20: no injected language and no catalog label yield an empty sale label. */
+    @Test
+    void absentLanguageAndCatalogWordingKeepAnEmptyLabel() throws Exception {
+        EanScanHandler handler = new EanScanHandler();
+        var product = new com.intermarche.pos.domain.catalog.Product();
+        product.name = null;
+        var method = EanScanHandler.class.getDeclaredMethod("translatedLabel", com.intermarche.pos.domain.catalog.Product.class);
+        method.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertEquals("", method.invoke(handler, product));
+    }
+
+    /** LC-11-01-01: a bad EAN-8 key is refused before product lookup, even when the EAN-13 control is disabled. */
+    @Test
+    void invalidEan8IsRejectedBeforeAnyProductLookup() {
+        var handler = newHandler();
+        var ticket = mock(TicketState.class);
+        var context = new ScanContext("12345678", newState(ticket));
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            handler.handle(context);
+            assertTrue(context.handled);
+            verify(ticket).setError("CODE EAN INVALIDE");
+            panache.verifyNoInteractions();
+        }
+    }
+
+    /** LC-11-01-01 and BO-10-02-21: mandatory EAN-8 validation does not reinterpret a non-EAN-8/13 legacy numeric product code. */
+    @Test
+    void legacyNumericLengthKeepsItsExistingLookupWhenEan13ControlIsEnabled() {
+        var handler = newHandler();
+        when(handler.posSettingsService.ean13CheckDigitEnabled()).thenReturn(true);
+        var ticket = mock(TicketState.class);
+        var context = new ScanContext("123456789", newState(ticket));
+        var query = mock(PanacheQuery.class);
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
+            panache.when(() -> PanacheEntityBase.find("ean = ?1 and active = true", "123456789")).thenReturn(query);
+            handler.handle(context);
+            assertFalse(context.handled);
+            verify(ticket, never()).setError("CODE EAN INVALIDE");
+            panache.verify(() -> PanacheEntityBase.find("ean = ?1 and active = true", "123456789"));
+        }
+    }
+
+    /** LC-11-01-01: an EAN-8 with a nonzero valid key registers its priced article through the ordinary snapshot path. */
+    @Test
+    void validEan8RegistersItsCurrentPricedArticle() {
+        var ticket = mock(TicketState.class);
+        var state = newState(ticket);
+        var handler = newHandler();
+        var product = new Product();
+        product.id = 7L;
+        product.name = "MILK";
+        product.ean = "96385074";
+        var price = new Price();
+        price.priceIncludingTax = new BigDecimal("2.35");
+        var query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(product);
+        try (var panache = mockStatic(PanacheEntityBase.class); var prices = mockStatic(Price.class)) {
+            panache.when(() -> PanacheEntityBase.find("ean = ?1 and active = true", "96385074")).thenReturn(query);
+            prices.when(() -> Price.findCurrentPrice(7L)).thenReturn(price);
+            var context = new ScanContext("96385074", state);
+            handler.handle(context);
+            assertTrue(context.handled);
+            verify(ticket).addItem("96385074", null, "MILK", new BigDecimal("2.35"), BigDecimal.ONE, DEFAULT_VAT);
+        }
+    }
+
+    /** LC-02-03-11: an ordinary scan refuses the article before age, price or quantity entry. */
+    @Test
+    void blockingArticleMessageRefusesScan() {
+        PosState state = new PosState();
+        Product product = newProduct(false);
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        ScanContext context = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
+            stubProductFind(panache, product);
+            newHandler().handle(context);
+        }
+        assertTrue(context.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        org.junit.jupiter.api.Assertions.assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
+
+    /**
+     * Answers the alias lookups of the scan (BO-02-03-03/04) with nothing: a
+     * code that is not an article's EAN is then tried as a sale code and as an
+     * internal code, and a test not concerned with them finds none.
+     *
+     * @param panache the open static mock
+     */
+    @SuppressWarnings("unchecked")
+    private void quietAliases(MockedStatic<PanacheEntityBase> panache) {
+        PanacheQuery<Product> none = mock(PanacheQuery.class);
+        panache.when(() -> Product.find(org.mockito.ArgumentMatchers.eq(
+                "select p from Product p join p.saleCodes c where c = ?1 and p.active = true"),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(none);
+        panache.when(() -> Product.find(org.mockito.ArgumentMatchers.eq("internalCode = ?1 and active = true"),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(none);
+    }
+
+    /**
+     * BO-02-03-03: a code the catalog knows as an additional sale code of an
+     * article rings that article, and the line names it by its own EAN.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aSaleCodeRingsTheArticleUnderItsEan() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.ean = CODE;
+        ScanContext ctx = new ScanContext("PROMO24", state);
+        PanacheQuery<Product> none = mock(PanacheQuery.class);
+        PanacheQuery<Product> found = mock(PanacheQuery.class);
+        when(found.firstResult()).thenReturn(p);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            panache.when(() -> Product.find("ean = ?1 and active = true", "PROMO24")).thenReturn(none);
+            panache.when(() -> Product.find("select p from Product p join p.saleCodes c where c = ?1 and p.active = true",
+                    "PROMO24")).thenReturn(found);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(CODE), isNull(), eq("COCA COLA"),
+                eq(BigDecimal.ZERO), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
+    }
+
+    /**
+     * BO-02-03-24: an article that must be weighed is taken over by the
+     * weighing and rings no unit line.
+     */
+    @Test
+    void aWeighedArticleIsRoutedToTheScale() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler();
+        when(handler.ticketService.routeWeighed(state, p)).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-02-03-05: an "appel prix" article the referential prices nowhere is
+     * refused and rings no line.
+     */
+    @Test
+    void aPriceCallArticleWithoutPriceIsRefused() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler();
+        when(handler.ticketService.priceCallRefused(state, p, null)).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            quietAliases(panache);
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * LC-02-13-03/04: a decimal quantity armed before a scanned UNIT article is
+     * refused — « QUANTITÉ INVALIDE », the scan consumed, no line rung and no
+     * age gate opened.
+     */
+    @Test
+    void anArmedDecimalBeforeAUnitArticleIsRefused() {
+        TicketState ticket = mock(TicketState.class);
+        when(ticket.armedDecimalRefused(false)).thenReturn(true);
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            quietAliases(panache);
+            stubProductFind(panache, newProduct(false));
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("QUANTITÉ INVALIDE");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+        verify(handler.ticketService, never()).suspendForAgeCheck(any(), any(), any(), any(), any());
     }
 }

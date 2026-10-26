@@ -76,7 +76,7 @@
           </div>
           <div class="keyboard" id="amountKbArea"></div>
 
-          <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+          <div class="hint" id="managerHint" style="display:none;">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
 
           <div class="actions">
             <button type="submit" class="btn btn-success">{inject:i18n.get('financialmovement.enregistrerMouvement')}</button>
@@ -90,8 +90,8 @@
     </div>
   </div>
 
-  {#include endorsement /}
   {#include keyboard-lib /}
+  {#include endorsement /}
 
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);

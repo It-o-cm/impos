@@ -3,15 +3,15 @@ package com.intermarche.pos.domain.catalog;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
-
-import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link Price}, targeting 100% branch coverage.
@@ -224,15 +224,49 @@ class PriceTest {
     }
 
     /**
-     * A price naming no regime reports a null rate and a null number — the
-     * null-regime arm of both readers, which every priced regime leaves
-     * uncovered.
+     * vatRate reads the rate through the named regime (false arm of the ternary).
      */
     @Test
-    void vatRateAndNumberAreNullWhenThePriceNamesNoRegime() {
+    void vatRateReadsTheRegimeRate() {
+        Price price = new Price();
+        VatRate regime = new VatRate();
+        regime.rate = new BigDecimal("0.0550");
+        price.vat = regime;
+        Assertions.assertEquals(new BigDecimal("0.0550"), price.vatRate());
+    }
+
+    /**
+     * vatRate answers null when the price names no regime (true arm of the
+     * ternary).
+     */
+    @Test
+    void vatRateIsNullWhenNoRegime() {
         Price price = new Price();
         price.vat = null;
         Assertions.assertNull(price.vatRate());
+    }
+
+    /**
+     * vatNumber reads the number through the named regime (false arm of the
+     * ternary).
+     */
+    @Test
+    void vatNumberReadsTheRegimeNumber() {
+        Price price = new Price();
+        VatRate regime = new VatRate();
+        regime.number = 3;
+        price.vat = regime;
+        Assertions.assertEquals(3, price.vatNumber());
+    }
+
+    /**
+     * vatNumber answers null when the price names no regime (true arm of the
+     * ternary).
+     */
+    @Test
+    void vatNumberIsNullWhenNoRegime() {
+        Price price = new Price();
+        price.vat = null;
         Assertions.assertNull(price.vatNumber());
     }
 }

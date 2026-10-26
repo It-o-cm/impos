@@ -312,4 +312,37 @@ class ChangeOrderResourceTest {
                 .compareTo(resource.state.changeOrder.total()));
         assertEquals("0,00", resource.state.changeOrder.getTotalFormatted());
     }
+
+    /** LC-12-05: absent and blank amount/roll fields remain zero without requiring a register session. */
+    @org.junit.jupiter.api.Test
+    void coverageBlankAmountAndRollParsers() throws Exception {
+        var resource = new ChangeOrderResource();
+        for (String name : new String[]{"parseAmount", "parseRolls"}) {
+            var method = ChangeOrderResource.class.getDeclaredMethod(name, String.class);
+            method.setAccessible(true);
+            Object expected;
+            if (name.equals("parseAmount")) expected = java.math.BigDecimal.ZERO;
+            else expected = Integer.valueOf(0);
+            org.junit.jupiter.api.Assertions.assertEquals(expected, method.invoke(resource, (Object) null));
+            org.junit.jupiter.api.Assertions.assertEquals(expected, method.invoke(resource, " "));
+        }
+    }
+    /** LC-12 and LC-04: malformed monetary input is neutralized before creating any financial document; covers numeric parsing failures. */
+    @Test
+    void malformedMoneyCannotBecomeAFinancialAmount() throws Exception {
+        var method = ChangeOrderResource.class.getDeclaredMethod("parseAmount", String.class);
+        method.setAccessible(true);
+        assertEquals(java.math.BigDecimal.ZERO, method.invoke(newResource(), "12,3,4"));
+        assertEquals(java.math.BigDecimal.ZERO, method.invoke(newResource(), "NaN"));
+    }
+
+    /** LC-12-07: malformed and overflowing roll counts are rejected as zero; covers the integer parsing failure. */
+    @Test
+    void malformedRollCountsCannotCreateAChangeOrder() throws Exception {
+        var method = ChangeOrderResource.class.getDeclaredMethod("parseRolls", String.class);
+        method.setAccessible(true);
+        assertEquals(0, method.invoke(newResource(), "two"));
+        assertEquals(0, method.invoke(newResource(), "2147483648"));
+    }
+
 }

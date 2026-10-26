@@ -1,11 +1,4 @@
-{!
- ! INFO ARTICLE (ArticleInfoResource, EXP-93). Article lookup, reachable caisse
- ! fermée without a user code (LockCheckFilter allowlist). A code is keyed or
- ! scanned; the article's label, code, price and VAT are shown.
- ! JE PRENDS L'ARTICLE n'apparait QUE si une vente est possible (canTake: caisse
- ! deverrouillee et session ouverte) — ailleurs l'ecran reste la consultation pure
- ! qu'il a toujours ete. RETOUR garde son sens: non.
-!}
+{! Read-only price checks with one contextual touchscreen keypad (LC-02-14-01/-17/-18). !}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -14,86 +7,138 @@
   <title>{inject:i18n.get('articleinfo.infoArticle')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
-    .main-area { display: flex; justify-content: center; align-items: center; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px 40px; width: 34rem; }
-    .panel h2 { text-transform: uppercase; margin-bottom: 20px; text-align: center; letter-spacing: 1px; }
-    .lookup { display: flex; gap: 10px; margin-bottom: 12px; }
-    .lookup-kb { max-width: 18rem; margin: 0 auto 20px; }
-    .lookup input { flex: 1; padding: 12px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
-    .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); }
-    .info-row .label { color: var(--text-muted); }
-    .info-row .value { font-weight: bold; }
-    .not-found { border: 2px solid var(--warning); border-radius: 8px; padding: 12px 16px; color: var(--warning); font-weight: bold; text-align: center; }
-    .article-label { font-size: var(--fs-section); font-weight: bold; text-align: center; margin-bottom: 15px; }
+    body { background: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem minmax(0, 1fr) 5rem; }
+    .top-bar, .bottom-nav { display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: var(--bg-page); }
+    .top-bar { border-bottom: 1px solid var(--border-color); color: var(--text-muted); }
+    .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { border-top: 1px solid var(--border-color); gap: 15px; }
+    .main-area { min-height: 0; overflow: auto; display: flex; justify-content: center; align-items: center; padding: 12px; }
+    .panel { width: 56rem; max-height: 100%; overflow: auto; padding: 20px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; }
+    .consultation { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 24px; align-items: center; }
+    .consultation > div { min-width: 0; }
+    .field-label { display: block; color: var(--text-muted); margin-bottom: 6px; font-size: var(--fs-row); }
+    .entry { display: flex; gap: 10px; margin-bottom: 14px; }
+    .entry-display { flex: 1; min-width: 0; min-height: 3rem; background: var(--bg-page); color: var(--text-main); border: 2px solid var(--border-color); border-radius: 6px; padding: 8px 12px; text-align: left; font: inherit; font-size: var(--fs-field); overflow-wrap: anywhere; cursor: pointer; }
+    .entry-display.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+    .article-label { font-size: var(--fs-section); font-weight: bold; margin: 14px 0 10px; }
+    .result { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); }
+    .result span { color: var(--text-muted); }
+    .result strong { text-align: right; }
+    .total { font-size: var(--fs-section); margin-bottom: 12px; }
+    .not-found { padding: 12px; margin-bottom: 10px; border: 2px solid var(--warning); border-radius: 6px; color: var(--warning); font-weight: bold; }
+    details { margin: 10px 0; color: var(--text-muted); }
+    summary { cursor: pointer; }
+    #keypadLabel { display: block; text-align: center; margin-bottom: 12px; font-weight: bold; }
+    @media (max-width: 650px) { .consultation { grid-template-columns: 1fr; } .keypad { max-width: 20rem; width: 100%; margin: auto; } }
   </style>
 </head>
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('articleinfo.infoArticle2')}</span>
-      <span id="clock"></span>
-    </div>
-
-    <div class="main-area">
-      <div class="panel">
-        <h2>{inject:i18n.get('articleinfo.infoArticleLectureSeule')}</h2>
-        {! Pave tactile: la borne n'a pas de clavier physique, un <input> libre
-         ! n'y est pas remplissable. L'afficheur est en lecture seule et c'est
-         ! le champ cache qui part dans la requete, comme sur l'ecran de
-         ! recherche produit. !}
-        <form class="lookup" method="get" action="/article-info">
-          <div id="codeDisplay" class="pad-display"></div>
+    <div class="top-bar"><span class="store-name">{inject:i18n.get('common.store')}</span><span>{inject:i18n.get('articleinfo.infoArticleLectureSeule')}</span><span id="clock"></span></div>
+    <div class="main-area"><div class="panel"><div class="consultation">
+      <div>
+        <label class="field-label" for="codeDisplay">{inject:i18n.get('articleinfo.code')}</label>
+        <form class="entry" method="get" action="/article-info">
+          <button type="button" class="entry-display" id="codeDisplay" data-label="{inject:i18n.get('articleinfo.code')}">{code}</button>
           <input type="hidden" name="code" id="codeHidden" value="{code}">
           <button type="submit" class="btn btn-primary">{inject:i18n.get('articleinfo.chercher')}</button>
         </form>
-        <div class="lookup-kb pos-kb-compact" id="codeKbArea"></div>
-
-        {#if notFound}
-          <div class="not-found">{inject:i18n.get('articleinfo.articleInconnu')}</div>
-        {/if}
-
+        {#if notFound}<div class="not-found">{inject:i18n.get('articleinfo.articleInconnu')}</div>{/if}
         {#if info??}
           <div class="article-label">{info.label}</div>
-          <div class="info-row"><span class="label">{inject:i18n.get('articleinfo.ean')}</span><span class="value">{info.ean}</span></div>
-          <div class="info-row"><span class="label">{inject:i18n.get('articleinfo.plu')}</span><span class="value">{info.plu}</span></div>
-          <div class="info-row"><span class="label">{inject:i18n.get('articleinfo.marque')}</span><span class="value">{info.brand}</span></div>
-          <div class="info-row"><span class="label">{inject:i18n.get('articleinfo.prixTtc')}</span><span class="value">{info.priceFormatted} €</span></div>
-          <div class="info-row"><span class="label">{inject:i18n.get('articleinfo.tva')}</span><span class="value">{info.vatFormatted}</span></div>
+          {#if info.check??}
+            {#if info.check.errorKey??}<div class="not-found">{inject:i18n.get(info.check.errorKey)}</div>{/if}
+            {#if !info.check.editable}
+            <div class="result"><span>{#if info.check.weighted}{inject:i18n.get('articleinfo.weightKg')}{#else}{inject:i18n.get('articleinfo.quantity')}{/if}</span><strong>{info.check.quantity}</strong></div>
+            {/if}
+            {#if info.check.editable}
+              <label class="field-label" for="quantityDisplay">{#if info.check.weighted}{inject:i18n.get('articleinfo.weightKg')}{#else}{inject:i18n.get('articleinfo.quantity')}{/if}</label>
+              <form class="entry" method="get" action="/article-info" id="quantityForm">
+                <input type="hidden" name="code" value="{code}">
+                <button type="button" class="entry-display" id="quantityDisplay" data-label="{#if info.check.weighted}{inject:i18n.get('articleinfo.weightKg')}{#else}{inject:i18n.get('articleinfo.quantity')}{/if}">{info.check.quantity}</button>
+                <input type="hidden" id="quantityHidden" name="quantity" value="{info.check.quantity}">
+                <button class="btn btn-primary" type="submit">{inject:i18n.get('articleinfo.calculate')}</button>
+              </form>
+              {#if info.check.weighted}<a class="btn btn-muted" href="/article-info?code={code}">{inject:i18n.get('articleinfo.weighAgain')}</a>{/if}
+            {/if}
+            <div class="result"><span>{#if info.check.weighted}{inject:i18n.get('articleinfo.priceKg')}{#else}{inject:i18n.get('articleinfo.unitPrice')}{/if}</span><strong>{info.priceFormatted} €</strong></div>
+            <div class="result total"><span>{inject:i18n.get('articleinfo.total')}</span><strong>{info.check.total} €</strong></div>
+          {/if}
+          <details><summary>{inject:i18n.get('articleinfo.details')}</summary>
+            <div class="result"><span>{inject:i18n.get('articleinfo.ean')}</span><strong>{info.ean}</strong></div>
+            <div class="result"><span>{inject:i18n.get('articleinfo.plu')}</span><strong>{info.plu}</strong></div>
+            <div class="result"><span>{inject:i18n.get('articleinfo.marque')}</span><strong>{info.brand}</strong></div>
+            <div class="result"><span>{inject:i18n.get('articleinfo.prixTtc')}</span><strong>{info.priceFormatted} €</strong></div>
+            <div class="result"><span>{inject:i18n.get('articleinfo.tva')}</span><strong>{info.vatFormatted}</strong></div>
+          </details>
         {/if}
       </div>
-    </div>
-
+      <div class="keypad pos-kb-compact"><span id="keypadLabel"></span><div id="consultationKbArea"></div></div>
+    </div></div></div>
     <div class="bottom-nav">
       <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
-      {#if info?? && canTake}
-        <a href="/action/article-info/take?code={code}" class="btn btn-success"
-           style="width: 15rem;">{inject:i18n.get('articleinfo.jePrendsLArticle')}</a>
-      {/if}
+      {#if info?? && canTake}<a href="/action/article-info/take?code={code}" class="btn btn-success" style="width: 15rem;">{inject:i18n.get('articleinfo.jePrendsLArticle')}</a>{/if}
     </div>
   </div>
-
   {#include keyboard-lib /}
-
   <script>
+    // LC-02-14-12: only the current consultation page can consume scanner input.
+    const scanToken = '{scanToken}';
+    let scanBusy = false;
+    setInterval(async () => {
+      if (scanBusy) return;
+      scanBusy = true;
+      try {
+        const response = await fetch('/article-info/scan?token=' + encodeURIComponent(scanToken), { cache: 'no-store' });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.code) location.replace('/article-info?code=' + encodeURIComponent(result.code));
+      } catch (failure) {
+        // A transient network error keeps the displayed consultation unchanged.
+      } finally {
+        scanBusy = false;
+      }
+    }, 500);
+    window.addEventListener('pagehide', () => navigator.sendBeacon('/article-info/leave?token=' + encodeURIComponent(scanToken)));
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 
-    /* Un EAN, un PLU ou un code article: des chiffres, donc le pave numerique.
-       La touche CHERCHER du formulaire valide, le pave n'a pas de OK. */
-    PosInput.setup({
-        displayId: 'codeDisplay',
-        hiddenId: 'codeHidden',
-        containerId: 'codeKbArea',
-        keyboardType: 'numpad',
-        mode: 'text',
-        maxLength: 14,
-        initialValue: document.getElementById('codeHidden').value || ''
-    });
+
+    /** LC-02-14-01/-18: one contextual pad edits only the visibly active field, with gram precision. */
+    function setupConsultationPad() {
+      const code = document.getElementById('codeHidden');
+      const quantity = document.getElementById('quantityHidden');
+      const codeDisplay = document.getElementById('codeDisplay');
+      const quantityDisplay = document.getElementById('quantityDisplay');
+      const area = document.getElementById('consultationKbArea');
+      let active;
+      let pristine;
+      function selectField(field) {
+        active = field;
+        pristine = true;
+        codeDisplay.classList.toggle('active', field === code);
+        if (quantityDisplay) quantityDisplay.classList.toggle('active', field === quantity);
+        document.getElementById('keypadLabel').textContent = (field === code ? codeDisplay : quantityDisplay).dataset.label;
+        const render = field === code ? 'renderNumpad' : 'renderPriceNumpad';
+        PosKeyboards[render](area, pressKey);
+      }
+      function pressKey(key) {
+        let buffer = pristine ? '' : active.value.replace(',', '.');
+        pristine = false;
+        const limit = active === code ? 38 : 10;
+        if (key === 'C') buffer = '';
+        else if (key === '\u232b') buffer = buffer.slice(0, -1);
+        else if (key === ',' && active === quantity) {
+          if (!buffer.includes('.') && buffer.length < limit) buffer += '.';
+        } else if (/^[0-9]$/.test(key) && buffer.length < limit) buffer += key;
+        active.value = buffer;
+        (active === code ? codeDisplay : quantityDisplay).textContent = buffer.replace('.', ',') || '—';
+      }
+      codeDisplay.addEventListener('click', () => selectField(code));
+      if (quantityDisplay) quantityDisplay.addEventListener('click', () => selectField(quantity));
+      selectField(quantity || code);
+    }
+    setupConsultationPad();
   </script>
 </body>
 </html>

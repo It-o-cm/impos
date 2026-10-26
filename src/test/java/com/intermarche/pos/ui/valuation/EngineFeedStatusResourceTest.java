@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.valuation;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import org.junit.jupiter.api.Test;
 
@@ -7,20 +9,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link EngineFeedStatusResource}.
  * <p>
- * The resource is a pure renderer over {@code EngineFeedService.feedStates()},
- * so every branch it owns is exercised here: the EMPTY list (no separator, no
- * element), the SINGLE element (the {@code first} flag suppressing the comma)
- * and the PAIR (the flag flipped, one comma and only one). Both arms of
- * {@code quoted} are covered on the two fields that use it — a present
- * {@code appliedVersion} and a null one, a present {@code lastError} and a null
- * one — and both values of {@code applied}. {@code escape} is covered on its
- * null arm and on a message carrying the two characters it neutralizes.
+ * The resource is a pure renderer over {@code EngineFeedService.feedStates()}:
+ * every answer is read back with a real JSON parser, so a field name, a null
+ * or an escaped character that would break the document fails here.
  */
 class EngineFeedStatusResourceTest {
 
@@ -55,67 +54,83 @@ class EngineFeedStatusResourceTest {
     }
 
     /**
-     * No feed stored: the payload is an empty array, neither element nor
-     * separator (the loop never runs).
+     * Reads the answer back with a real JSON parser.
+     *
+     * @param resource the resource to call
+     * @return the parsed array
+     * @throws Exception when the answer is not valid JSON
      */
-    @Test
-    void noFeedRendersAnEmptyArray() {
-        assertEquals("[]", newResource(List.of()).status().getEntity());
+    private JsonNode parsed(EngineFeedStatusResource resource) throws Exception {
+        return new ObjectMapper().readTree((String) resource.status().getEntity());
     }
 
     /**
-     * A single acknowledged feed: no leading comma (the {@code first} arm), the
-     * applied version quoted, {@code applied} true and a null error.
+     * No feed stored: the payload is an empty array.
+     *
+     * @throws Exception when the answer is not valid JSON
      */
     @Test
-    void oneAcknowledgedFeedRendersWithoutSeparator() {
-        EngineFeedStatusResource resource =
-                newResource(List.of(state("PRODUCTS", "v2", "v2", true, null)));
-        assertEquals("[{\"code\":\"PRODUCTS\",\"version\":\"v2\",\"appliedVersion\":\"v2\","
-                + "\"applied\":true,\"lastError\":null}]", resource.status().getEntity());
+    void noFeedRendersAnEmptyArray() throws Exception {
+        JsonNode feeds = parsed(newResource(List.of()));
+        assertTrue(feeds.isArray());
+        assertEquals(0, feeds.size());
     }
 
     /**
-     * A feed the engine never acknowledged: {@code appliedVersion} renders as
-     * the JSON literal null (the null arm of {@code quoted}) and
-     * {@code applied} is false.
+     * A single acknowledged feed keeps the field names: the applied version
+     * as a string, {@code applied} true and a JSON null error.
+     *
+     * @throws Exception when the answer is not valid JSON
      */
     @Test
-    void neverAcknowledgedFeedRendersANullVersion() {
-        EngineFeedStatusResource resource =
-                newResource(List.of(state("OFFERS", "v1", null, false, null)));
-        assertEquals("[{\"code\":\"OFFERS\",\"version\":\"v1\",\"appliedVersion\":null,"
-                + "\"applied\":false,\"lastError\":null}]", resource.status().getEntity());
+    void oneAcknowledgedFeedKeepsItsFieldNames() throws Exception {
+        JsonNode feed = parsed(newResource(List.of(state("PRODUCTS", "v2", "v2", true, null)))).get(0);
+        assertEquals("PRODUCTS", feed.get("code").asText());
+        assertEquals("v2", feed.get("version").asText());
+        assertEquals("v2", feed.get("appliedVersion").asText());
+        assertTrue(feed.get("applied").asBoolean());
+        assertTrue(feed.get("lastError").isNull());
     }
 
     /**
-     * An error message carrying a quote and a backslash is neutralized: the
-     * backslash is doubled and the quote becomes an apostrophe, so the payload
-     * stays a single well-formed JSON string.
+     * A feed the engine never acknowledged: {@code appliedVersion} is the JSON
+     * literal null and {@code applied} is false.
+     *
+     * @throws Exception when the answer is not valid JSON
      */
     @Test
-    void errorMessageIsNeutralized() {
-        EngineFeedStatusResource resource =
-                newResource(List.of(state("PRICES", "v3", "v2", false, "a\\b \"c\"")));
-        assertEquals("[{\"code\":\"PRICES\",\"version\":\"v3\",\"appliedVersion\":\"v2\","
-                + "\"applied\":false,\"lastError\":\"a\\\\b 'c'\"}]", resource.status().getEntity());
+    void neverAcknowledgedFeedRendersANullVersion() throws Exception {
+        JsonNode feed = parsed(newResource(List.of(state("OFFERS", "v1", null, false, null)))).get(0);
+        assertTrue(feed.get("appliedVersion").isNull());
+        assertFalse(feed.get("applied").asBoolean());
     }
 
     /**
-     * Two feeds: exactly one separator between them, and none before the first
-     * — the flipped arm of the {@code first} flag.
+     * An error message carrying a quote, a backslash and a line break stays a
+     * single well-formed JSON string, read back exactly as it was raised.
+     *
+     * @throws Exception when the answer is not valid JSON
      */
     @Test
-    void twoFeedsAreSeparatedOnce() {
-        EngineFeedStatusResource resource = newResource(List.of(
+    void errorMessageIsEscapedByTheLibrary() throws Exception {
+        String error = "a\\b \"c\"\nd";
+        JsonNode feed = parsed(newResource(List.of(state("PRICES", "v3", "v2", false, error)))).get(0);
+        assertEquals(error, feed.get("lastError").asText());
+    }
+
+    /**
+     * Two feeds are two elements of the array, in catalog order.
+     *
+     * @throws Exception when the answer is not valid JSON
+     */
+    @Test
+    void twoFeedsAreTwoElements() throws Exception {
+        JsonNode feeds = parsed(newResource(List.of(
                 state("PRODUCTS", "v1", "v1", true, null),
-                state("PRICES", "v1", "v1", true, null)));
-        String json = (String) resource.status().getEntity();
-        assertEquals(1, json.split("\\},\\{", -1).length - 1);
-        assertEquals("[{\"code\":\"PRODUCTS\",\"version\":\"v1\",\"appliedVersion\":\"v1\","
-                + "\"applied\":true,\"lastError\":null},"
-                + "{\"code\":\"PRICES\",\"version\":\"v1\",\"appliedVersion\":\"v1\","
-                + "\"applied\":true,\"lastError\":null}]", json);
+                state("PRICES", "v1", "v1", true, null))));
+        assertEquals(2, feeds.size());
+        assertEquals("PRODUCTS", feeds.get(0).get("code").asText());
+        assertEquals("PRICES", feeds.get(1).get("code").asText());
     }
 
     /**

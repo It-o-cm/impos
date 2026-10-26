@@ -2,7 +2,9 @@ package com.intermarche.pos.domain.payment;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link PaymentTypes}.
@@ -39,7 +41,7 @@ class PaymentTypesTest {
      */
     @Test
     void keysAreTheKnownMethodsInDisplayOrder() {
-        assertEquals("[CASH, CARD, CHEQUE, VOUCHER, FIDELITY, TR, CREDIT, ARRONDI, DEVISE, SECOURS, TRD, RESTOFLASH, GIFTCARD, SOGEC, ACOMPTE]",
+        assertEquals("[CASH, CARD, CHEQUE, VOUCHER, FIDELITY, TR, CREDIT, ARRONDI, DEVISE, SECOURS, TRD, RESTOFLASH, GIFTCARD, SOGEC, ACOMPTE, CHEQUE_DEFERRED, CAS]",
                 PaymentTypes.keys().toString());
         assertTrue(PaymentTypes.keys().contains("TR"));
     }

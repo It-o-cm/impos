@@ -1,0 +1,63 @@
+{! Sale-only fiscal identity, independent from the invoice/customer creation flow (LC-08-06-02/-03).
+ ! Opened by the payment screen with next=pay where the NIF is required (LC-08-06-01); a NIF
+ ! scanned meanwhile (LC-08-06-05) is shown in the field by a light poll of /sale-tax-id/scanned. !}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('saletaxid.title')}</title>
+    <style>
+        {#include theme /}
+        body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
+        .pos-terminal { grid-template-rows:3.75rem 1fr 5rem; }
+        .top-bar,.bottom-nav { display:flex; align-items:center; justify-content:space-between; padding:0 20px; border:1px solid var(--border-color); }
+        .top-bar { font-size:var(--fs-title); font-weight:bold; }
+        .main-area { display:flex; flex-direction:column; gap:12px; padding:16px; min-height:0; overflow-y:auto; }
+        .hint { font-size:var(--fs-body); }
+        .error { background:var(--danger); color:#fff; padding:10px; }
+        .display { border:2px solid var(--success); padding:12px; min-height:3.5rem; font-size:var(--fs-field); overflow-wrap:anywhere; }
+        #taxIdKeyboard { min-height:0; overflow-y:auto; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+    <header class="top-bar">{inject:i18n.get('saletaxid.title')}</header>
+    <main class="main-area">
+        <p class="hint">{inject:i18n.get('saletaxid.hint')}</p>
+        {#if scanHint}<p class="hint">{inject:i18n.get('saletaxid.scanHint')}</p>{/if}
+        {#if error}<div class="error" role="alert">{error}</div>{/if}
+        <form action="/sale-tax-id" method="post" id="taxIdForm">
+            <div id="taxIdDisplay" class="display pad-display"></div>
+            <input type="hidden" id="taxIdHidden" name="taxId" value="{value}">
+            <input type="hidden" name="next" value="{next}">
+        </form>
+        <div id="taxIdKeyboard"></div>
+    </main>
+    <footer class="bottom-nav">
+        <a href="/" class="btn btn-muted">{inject:i18n.get('common.cancel')}</a>
+        <button type="submit" form="taxIdForm" class="btn btn-success">{inject:i18n.get('common.validate')}</button>
+    </footer>
+</div>
+{#include keyboard-lib /}
+<script>
+    PosInput.setup({ displayId:'taxIdDisplay', hiddenId:'taxIdHidden', containerId:'taxIdKeyboard',
+        keyboardType:'email', mode:'text', uppercase:true, maxLength:30,
+        initialValue:document.getElementById('taxIdHidden').value });
+    /* LC-08-06-05: a NIF scanned while this screen is open replaces what the field shows. */
+    let knownScans = Number('{scans}');
+    function watchScans() {
+        fetch('/sale-tax-id/scanned')
+            .then(r => r.json())
+            .then(data => {
+                if (data.scans !== knownScans) {
+                    knownScans = data.scans;
+                    PosInput.prefill(data.value);
+                }
+            })
+            .catch(() => { /* the next poll tries again */ });
+    }
+    setInterval(watchScans, 1000);
+</script>
+</body>
+</html>

@@ -25,6 +25,7 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link WeightedEanScanHandler}.
@@ -73,6 +74,54 @@ class WeightedEanScanHandlerTest {
     /** The injected fallback VAT rate used when no current price exists. */
     private static final BigDecimal DEFAULT_VAT = new BigDecimal("0.20");
 
+    /** Read-only standard labels preserve their identity, value and checksum without creating a scan context. */
+    @Test void priceChecksDecodeFallbackLabels() {
+        var handler = newHandler();
+        try (var ranges = noAdministeredRange()) {
+            var price = handler.priceCheckLabel(PRICE_CODE);
+            assertEquals(ARTICLE, price.articleCode());
+            assertEquals(new BigDecimal("1.50"), price.total());
+            assertEquals(null, price.weight());
+            var weight = handler.priceCheckLabel(WEIGHT_CODE);
+            assertEquals(new BigDecimal("0.500"), weight.weight());
+            assertEquals(null, weight.total());
+            assertEquals(null, handler.priceCheckLabel("2101234001500"));
+            assertEquals(null, handler.priceCheckLabel("3300000000002"));
+        }
+    }
+
+    /** Administered article layouts, both sources and currencies use the same referential as sales. */
+    @Test void priceChecksDecodeAdministeredLayoutsAndCurrency() {
+        var handler = newHandler();
+        var range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 2; range.articleLength = 5;
+        range.valuePosition = 7; range.valueLength = 5;
+        try (var ranges = administeredRange(range);
+             var currencies = mockStatic(com.intermarche.pos.domain.payment.Currency.class)) {
+            assertEquals(new BigDecimal("1.50"), handler.priceCheckLabel(PRICE_CODE).total());
+            range.checkDigit = true;
+            assertEquals(new BigDecimal("1.50"), handler.priceCheckLabel(PRICE_CODE).total());
+            assertEquals(null, handler.priceCheckLabel("2101234001500"));
+            assertEquals(null, handler.priceCheckLabel("bad"));
+            range.checkDigit = false;
+            range.currency = com.intermarche.pos.domain.barcode.CouponField.PriceCurrency.FRF;
+            assertEquals(null, handler.priceCheckLabel(PRICE_CODE));
+            var currency = mock(com.intermarche.pos.domain.payment.Currency.class);
+            currencies.when(() -> com.intermarche.pos.domain.payment.Currency.findActiveByCode("FRF")).thenReturn(currency);
+            org.mockito.Mockito.when(currency.toEuro(new BigDecimal("1.50"))).thenReturn(new BigDecimal("0.23"));
+            assertEquals(new BigDecimal("0.23"), handler.priceCheckLabel(PRICE_CODE).total());
+            range.valueSource = ArticleBarcodeRange.ValueSource.WEIGHT;
+            range.valueDecimals = 3;
+            assertEquals(new BigDecimal("0.500"), handler.priceCheckLabel(WEIGHT_CODE).weight());
+            range.articlePosition = 99;
+            assertEquals(null, handler.priceCheckLabel(PRICE_CODE));
+            range.articlePosition = 2; range.valuePosition = 99;
+            assertEquals(null, handler.priceCheckLabel(PRICE_CODE));
+            range.purpose = ArticleBarcodeRange.Purpose.TARE;
+            assertEquals(null, handler.priceCheckLabel(PRICE_CODE));
+        }
+    }
+
     /**
      * Builds a handler wired with the two prefix lists and the fallback VAT.
      *
@@ -87,7 +136,38 @@ class WeightedEanScanHandlerTest {
         handler.pricePrefixes = Arrays.asList("21", "22");
         handler.weightPrefixes = Arrays.asList("23", "24", "25", "26");
         handler.defaultVatRate = DEFAULT_VAT;
+        handler.depositTypes = java.util.List::of;
+        // BO-04-03-08: no administered alert unless a test says so.
+        handler.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(handler.controlGateService.onArticle(any(), any(), any(), any()))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.NO_RULE);
         return handler;
+    }
+
+    /**
+     * BO-03-13-11: a deposit voucher wears the 29 weight shape; the fallback
+     * leaves it to the voucher handler, while a code no deposit type
+     * recognizes is still decoded as a weighed article.
+     */
+    @Test
+    void depositVouchersAreLeftToTheirHandler() {
+        com.intermarche.pos.domain.barcode.CouponType voucher = new com.intermarche.pos.domain.barcode.CouponType();
+        voucher.matchPattern = "^298\\d{10}$";
+        WeightedEanScanHandler handler = newHandler();
+        handler.weightPrefixes = Arrays.asList("29");
+        handler.depositTypes = () -> java.util.List.of(voucher);
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext claimed = new ScanContext("2980000000508", state);
+        ScanContext weighed = new ScanContext("2912345005009", state);
+        try (var ranges = noAdministeredRange();
+             MockedStatic<Product> products = mockStatic(Product.class)) {
+            handler.handle(claimed);
+            handler.handle(weighed);
+        }
+        assertFalse(claimed.handled);
+        assertTrue(weighed.handled);
+        verify(ticket).setError("ARTICLE BALANCE INTROUVABLE (12345)");
     }
 
     /**
@@ -254,6 +334,33 @@ class WeightedEanScanHandlerTest {
         }
         assertTrue(ctx.handled);
         verify(ticket).setError("PRODUIT INTERDIT À LA VENTE");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-04-03-08: an alert on the weighed article stops the label before its
+     * sticker is consumed, the gate replaying the label as read.
+     */
+    @Test
+    void anArticleAlertStopsTheLabel() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.scannedStickerCodes = new java.util.HashSet<>();
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        WeightedEanScanHandler handler = newHandler();
+        when(handler.controlGateService.onArticle(p, null,
+                com.intermarche.pos.ui.control.ControlGateService.Kind.SCAN, PRICE_CODE))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            handler.handle(ctx);
+            prices.verifyNoInteractions();
+        }
+        assertTrue(ctx.handled);
+        assertTrue(ticket.scannedStickerCodes.isEmpty());
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 
@@ -527,6 +634,7 @@ class WeightedEanScanHandlerTest {
         }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
         Product p = newProduct(false);
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE, "true");
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
              MockedStatic<Price> prices = mockStatic(Price.class);
@@ -536,6 +644,7 @@ class WeightedEanScanHandlerTest {
             newHandler().handle(ctx);
         }
         assertTrue(ticket.items.get(0).discountForbidden);
+        verify(ticket).snapshotMealVoucherEligibility(p.ean, true);
     }
 
     /**
@@ -1053,4 +1162,91 @@ class WeightedEanScanHandlerTest {
         verify(ticket).setError("POIDS INVALIDE");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
+    /** BO-03-01-18: both explicit article-scope decisions apply equally to weighed labels. */
+    @Test
+    void weighedLabelsRespectTheRegisterArticleScope() {
+        for (boolean allowed : new boolean[]{false, true}) {
+            TicketState ticket = mock(TicketState.class);
+            PosState state = newState(ticket);
+            Product product = newProduct(false);
+            WeightedEanScanHandler handler = newHandler();
+            handler.articleScopeService = mock(com.intermarche.pos.ui.ticket.ArticleScopeService.class);
+            org.mockito.Mockito.when(handler.articleScopeService.soldHere(product)).thenReturn(allowed);
+            ScanContext context = new ScanContext(WEIGHT_CODE, state);
+            try (var products = mockStatic(Product.class);
+                 var prices = mockStatic(Price.class);
+                 var ranges = noAdministeredRange()) {
+                products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(product);
+                handler.handle(context);
+            }
+            assertTrue(context.handled);
+            if (allowed) {
+                verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"), eq(BigDecimal.ZERO), eq(new BigDecimal("0.500")), eq(DEFAULT_VAT));
+            } else {
+                verify(ticket).setError("ARTICLE NON VENDU SUR CETTE CAISSE");
+                verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+            }
+        }
+    }
+
+    /** LC-02-05-01: a missing or non-positive per-kilo price never invents an inferred weight. */
+    @Test
+    void priceStickersDoNotInferWeightWithoutAPositiveCatalogPrice() {
+        for (BigDecimal amount : new BigDecimal[]{null, BigDecimal.ZERO}) {
+            TicketState ticket = mock(TicketState.class);
+            PosState state = newState(ticket);
+            Price price = new Price();
+            price.priceIncludingTax = amount;
+            ScanContext context = new ScanContext(PRICE_CODE, state);
+            try (var products = mockStatic(Product.class);
+                 var prices = mockStatic(Price.class);
+                 var ranges = noAdministeredRange()) {
+                products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+                prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+                newHandler().handle(context);
+            }
+            assertTrue(context.handled);
+            org.junit.jupiter.api.Assertions.assertNull(ticket.items.get(0).embeddedWeight);
+            verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"), eq(new BigDecimal("1.50")), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
+        }
+    }
+
+    /** BO-03-06/BO-03-01-20: malformed codes fall through and missing translation inputs yield an empty label. */
+    @Test
+    void malformedCodeAndMissingLabelKeepTheirFallbacks() throws Exception {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext context = new ScanContext("NOT-A-BARCODE", state);
+        WeightedEanScanHandler handler = newHandler();
+        try (var ranges = noAdministeredRange()) {
+            handler.handle(context);
+        }
+        assertFalse(context.handled);
+        verifyNoInteractions(ticket);
+        handler.i18n = null;
+        Product product = new Product();
+        product.name = null;
+        var method = WeightedEanScanHandler.class.getDeclaredMethod("translatedLabel", Product.class);
+        method.setAccessible(true);
+        assertEquals("", method.invoke(handler, product));
+    }
+
+    /** LC-02-03-11: scale labels cannot register an article with a blocking message. */
+    @Test
+    void blockingArticleMessageRefusesScaleLabel() {
+        PosState state = new PosState();
+        Product product = newProduct(false);
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        ScanContext context = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(product);
+            newHandler().handle(context);
+        }
+        assertTrue(context.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
 }

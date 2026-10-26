@@ -183,11 +183,24 @@ public class AuthService {
      * @param rawPassword the raw PIN entered
      * @return the login outcome (success, invalid credentials, or locked account)
      */
+    /**
+     * The prefix by which the lock page presents a Dallas key read by this
+     * register (BO-01-02-07).
+     */
+    public static final String DALLAS_PREFIX = "DALLAS:";
+
     /** The action code a supervisor-forced register unlock is endorsed under (EXP-14). */
     public static final String FORCE_UNLOCK_ACTION = "REGISTER_FORCE_UNLOCK";
 
     public LoginResult login(PosState state, String loginInfo, String rawPassword) {
         LOGGER.info("Entering method login with state: " + state + ", loginInfo: " + loginInfo + ", rawPassword: ***");
+        if (loginInfo != null && loginInfo.startsWith(DALLAS_PREFIX)) {
+            // BO-01-02-07: the lock page names a Dallas key this register read
+            // by this prefix; the key, not a PIN, is the credential.
+            LoginResult dallas = dallasLogin(state, loginInfo.substring(DALLAS_PREFIX.length()), rawPassword);
+            LOGGER.info("Exiting method login");
+            return dallas;
+        }
         if (state.auth.isPaused()) {
             // A paused register RESUMES rather than logs in: only the operator who
             // verrouilla may unlock (EXP-13), and the in-memory ticket survives.
@@ -284,8 +297,9 @@ public class AuthService {
     public void pause(PosState state) {
         LOGGER.info("Entering method pause with state: " + state);
         if (state.auth.operatorBadgeId != null) {
+            // BO-06-06-02: a lock the cashier made herself, told apart from the idle one.
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
-                    null, state.auth.operatorBadgeId);
+                    TechnicalEvent.LOCK_MANUAL, state.auth.operatorBadgeId);
         }
         state.auth.pause();
         LOGGER.info("Exiting method pause");
@@ -376,6 +390,49 @@ public class AuthService {
         return presented != null && presented.equals(loginInfo);
     }
     /**
+     * Signs an operator in with the Dallas key this register just read,
+     * without a PIN (BO-01-02-07).
+     *
+     * <p>FOUR conditions, all of them: the back office allows the key
+     * ({@code auth.dallas-key}), no PIN was keyed, the presented key is the one
+     * the reader PHYSICALLY delivered — the marker {@code AuthState} kept, so a
+     * key number typed in the identifier field opens nothing — and an active,
+     * unlocked account holds it. A paused register reopens only for the
+     * operator who paused it.
+     *
+     * @param state the current register state
+     * @param key the presented key identifier
+     * @param rawPassword the keyed password, expected to be empty
+     * @return the sign-in outcome
+     */
+    LoginResult dallasLogin(PosState state, String key, String rawPassword) {
+        String presented = state.auth.takePresentedDallasKey();
+        if (!posSettingsService.dallasKeyOpens() || (rawPassword != null && !rawPassword.isBlank())
+                || presented == null || !presented.equals(Employee.normalizeDallasKey(key))) {
+            return LoginResult.INVALID;
+        }
+        Employee employee = Employee.findActiveDallasKey(presented);
+        if (employee == null) {
+            return LoginResult.INVALID;
+        }
+        if (employee.isCurrentlyLocked()) {
+            return LoginResult.LOCKED;
+        }
+        boolean paused = state.auth.isPaused();
+        if (paused && (employee.badgeId == null
+                || !employee.badgeId.equalsIgnoreCase(state.auth.lockedOperatorBadgeId))) {
+            return LoginResult.INVALID;
+        }
+        state.auth.login(employee.id, employee.getFullName(), employee.badgeId);
+        applyPasswordExpiry(state, employee);
+        if (!paused) {
+            applyDedicatedReturnRegister(state);
+        }
+        technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED, null, employee.badgeId);
+        return LoginResult.SUCCESS;
+    }
+
+    /**
      * Logs the current operator out and clears the ticket.
      *
      * @param state the current POS state
@@ -389,8 +446,9 @@ public class AuthService {
         // incomplete. Nothing is written when no operator was signed in:
         // /lock is also the landing page of an already-locked register.
         if (state.auth.operatorBadgeId != null) {
+            // BO-06-06-02: a lock the cashier made herself, told apart from the idle one.
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
-                    null, state.auth.operatorBadgeId);
+                    TechnicalEvent.LOCK_MANUAL, state.auth.operatorBadgeId);
             // LC-13-06-02: at sign-out the default language applies again — the
             // choice belonged to the OPERATOR who made it, not to the register.
             //
@@ -444,9 +502,12 @@ public class AuthService {
             LOGGER.info("Exiting method changePin");
             return i18n.get("op.codePinActuelIncorrect");
         }
-        if (newPin == null || !newPin.matches("\\d{4}")) {
+        // BO-10-02-23: the number of digits is the shop's, the same the keypads
+        // stop at and the back office draws a new account's PIN with.
+        int digits = pinLength();
+        if (newPin == null || !newPin.matches("\\d{" + digits + "}")) {
             LOGGER.info("Exiting method changePin");
-            return i18n.get("op.nouveauCodeDoitComporter");
+            return i18n.format("op.nouveauCodeDoitComporter", digits);
         }
         if (!newPin.equals(confirmPin)) {
             LOGGER.info("Exiting method changePin");
@@ -463,5 +524,15 @@ public class AuthService {
         technicalEventService.log(TechnicalEvent.EventType.PASSWORD_CHANGED, null, employee.badgeId);
         LOGGER.info("Exiting method changePin");
         return null;
+    }
+
+    /**
+     * The number of digits of a register PIN (BO-10-02-23), four on a service
+     * built without its parameters.
+     *
+     * @return between 4 and 8
+     */
+    public int pinLength() {
+        return posSettingsService == null ? 4 : posSettingsService.pinLength();
     }
 }

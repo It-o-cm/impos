@@ -34,4 +34,10 @@ public interface TerminalTransactionCallback {
      * @param message the operator-facing message (French, uppercase)
      */
     void onError(String message);
+    /** Relays LC-07-08-01 WCL display messages without inventing a validation response.
+     * @param first first terminal line
+     * @param second second terminal line
+     */
+    default void onDisplay(String first, String second) { }
+
 }

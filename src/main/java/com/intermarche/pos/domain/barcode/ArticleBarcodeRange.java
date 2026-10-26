@@ -1,7 +1,11 @@
 package com.intermarche.pos.domain.barcode;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -136,14 +140,50 @@ public class ArticleBarcodeRange extends PanacheEntity {
      * The name of the promotion a {@link Purpose#PROMOTION} range triggers
      * (BO-03-06-43); null, and meaningless, on every other range.
      *
-     * <p>A NAME and nothing more, deliberately. The register does not know what
-     * a promotion is worth and must never decide it: a promotion is a rule the
-     * valuation engine owns. The only honest thing a barcode can do is name the
-     * promotion it stands for; the scan arms that name on the ticket and the
-     * engine resolves it, exactly as it resolves a card-borne one.
+     * <p>A NAME and nothing more, deliberately. Neither this node nor the
+     * register knows what a promotion is worth, and neither must decide it: a
+     * promotion is a rule the valuation engine owns. The only honest thing a
+     * barcode can do is name the promotion it stands for; the scan arms that
+     * name on the ticket and the engine resolves it, exactly as it resolves a
+     * card-borne one.
      */
     @Column(name = "promotion_code", length = 60)
     public String promotionCode;
+
+    /**
+     * How the promotion a {@link Purpose#PROMOTION} range triggers is worth,
+     * when the back office DEFINES it on the range rather than leaving the
+     * engine to resolve the name (BO-03-06-43): {@link #PROMOTION_PERCENT} or
+     * {@link #PROMOTION_AMOUNT}; null for a promotion named and nothing more.
+     *
+     * <p>A defined promotion targets the article the code's article segment
+     * names and is worth what its value segment carries — a percentage off, or
+     * an amount off each unit. The register hands that definition to the
+     * engine in the very shape a card-borne immediate discount travels in,
+     * which the engine already turns into an offer.
+     */
+    @Column(name = "promotion_type", length = 10)
+    public String promotionType;
+
+    /** The {@link #promotionType} of a percentage off the targeted article. */
+    public static final String PROMOTION_PERCENT = "PERCENT";
+
+    /** The {@link #promotionType} of an amount off each unit of the targeted article. */
+    public static final String PROMOTION_AMOUNT = "AMOUNT";
+
+    /**
+     * Where the answer of the third-party service an {@link Purpose#EXTERNAL_LOOKUP}
+     * range asks carries what the register acts on (BO-03-06-41): the name of a
+     * field of a JSON answer, dotted for a nested one ({@code article.ean});
+     * null when the service answers plain text, read as it comes.
+     *
+     * <p>This is the mapping of one partner's response format, administered
+     * with the range rather than written into the register: each partner
+     * answers in its own shape, and the shop states where the article code or
+     * the message sits in it.
+     */
+    @Column(name = "lookup_field", length = 100)
+    public String lookupField;
 
     /**
      * The URL of the THIRD-PARTY service asked about a code of this range
@@ -156,6 +196,14 @@ public class ArticleBarcodeRange extends PanacheEntity {
      */
     @Column(name = "lookup_url", length = 255)
     public String lookupUrl;
+
+    /**
+     * The register function a {@link Purpose#FUNCTION} range calls
+     * (BO-03-06-59), as a {@link RegisterFunction} name; null when the code
+     * itself carries the function's number in its article segment.
+     */
+    @Column(name = "function_code", length = 30)
+    public String functionCode;
 
     /**
      * Returns the 0-based position just after the article segment.
@@ -366,11 +414,25 @@ public class ArticleBarcodeRange extends PanacheEntity {
         EXTERNAL_LOOKUP,
 
         /**
+         * A code TRANSMITTED to the promotion engine (BO-03-06-42): the register
+         * does not read it, it hands it verbatim to the engine with the basket,
+         * and the engine applies the promotion it associates with the code.
+         */
+        PROMOTION_ENGINE,
+
+        /**
          * A customer ORDER, quote or sale voucher recalled by its code
          * (BO-03-06-58): the article segment carries the order's reference,
          * which the scan arms on the ticket.
          */
-        CUSTOMER_ORDER
+        CUSTOMER_ORDER,
+
+        /**
+         * A register FUNCTION called by the scan (BO-03-06-59): the range names
+         * the function, or leaves the code to carry its number in the article
+         * segment, and the value segment carries the function's argument.
+         */
+        FUNCTION
     }
 
     /**
@@ -386,7 +448,7 @@ public class ArticleBarcodeRange extends PanacheEntity {
      * Indicates whether the range triggers a named promotion (BO-03-06-43).
      *
      * <p>A promotion range that names no promotion triggers nothing: the
-     * administered row is incomplete, and arming an empty name on the ticket
+     * administered row is incomplete, and arming an empty name on a ticket
      * would send the engine a promotion nobody can resolve.
      *
      * @return true when the range is a promotion range carrying a name
@@ -395,6 +457,18 @@ public class ArticleBarcodeRange extends PanacheEntity {
         return purpose == Purpose.PROMOTION
                 && promotionCode != null
                 && !promotionCode.isBlank();
+    }
+
+    /**
+     * Indicates whether the promotion range DEFINES what its promotion is worth
+     * (BO-03-06-43), so the register can hand the engine a complete offer and
+     * not only a name.
+     *
+     * @return true when the range triggers a promotion of a known type
+     */
+    public boolean definesPromotion() {
+        return triggersPromotion()
+                && (PROMOTION_PERCENT.equals(promotionType) || PROMOTION_AMOUNT.equals(promotionType));
     }
 
     /**

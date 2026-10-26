@@ -93,7 +93,23 @@ class TicketPersistenceServiceTest {
         service.syncOutboxService = mock(SyncOutboxService.class);
         service.consumptionService = mock(com.intermarche.pos.service.sync.ConsumptionService.class);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
+        service.storedValueNumberService = mock(StoredValueNumberService.class);
+        when(service.storedValueNumberService.numberOf(any(), any())).thenAnswer(
+                invocation -> historicalNumber(invocation.getArgument(0)));
         return service;
+    }
+
+    /**
+     * The historical registry number of an instrument, the one the numbering
+     * service answers when the store administers no issuing range.
+     *
+     * @param instrument the persisted instrument
+     * @return its prefix and its zero-padded row id
+     */
+    private static String historicalNumber(StoredValue instrument) {
+        return (instrument.kind == StoredValue.Kind.GIFT_CARD
+                ? StoredValue.GIFT_CARD_PREFIX : StoredValue.CREDIT_NOTE_PREFIX)
+                + String.format("%012d", instrument.id);
     }
 
     /**
@@ -219,8 +235,11 @@ class TicketPersistenceServiceTest {
             assertEquals(Ticket.TicketStatus.CANCELLED, ticket.status);
             assertNull(state.payment.ticketDbId);
             verify(ticket, times(1)).persist();
-            verify(service.technicalEventService).log(
-                    TechnicalEvent.EventType.TICKET_CANCELLED, "C04-00000001");
+            verify(service.technicalEventService).record(
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.TICKET_CANCELLED),
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.isNull());
             verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.TICKET, 5L);
         }
     }
@@ -270,6 +289,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 100L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             mocked.when(() -> Product.find("plu", "500")).thenReturn(pluQuery);
@@ -302,6 +322,9 @@ class TicketPersistenceServiceTest {
         state.fidelity.active = false;
         TicketState.TicketItem sticker = addItem(state, "S1", null, null, "3.00", "1", null);
         sticker.priceEmbedded = true;
+        sticker.linkedParentUid = "BOTTLE";
+        sticker.linkedArticleEan = "DEPOSIT";
+        sticker.linkedRecordedQuantity = new BigDecimal("3");
         // EXP-26/LC-02-05-04: the deduced weight + price/kg travel to the line too.
         sticker.embeddedWeight = new BigDecimal("0.750");
         sticker.embeddedUnitPrice = new BigDecimal("4.00");
@@ -319,6 +342,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 100L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             service.syncDraft(state);
@@ -326,12 +350,77 @@ class TicketPersistenceServiceTest {
             ArgumentCaptor<TicketLine> lineCaptor = ArgumentCaptor.forClass(TicketLine.class);
             verify(ticket, times(2)).addLine(lineCaptor.capture());
             assertTrue(lineCaptor.getAllValues().get(0).priceEmbedded);
+            assertEquals("BOTTLE", lineCaptor.getAllValues().get(0).linkedParentUid);
+            assertEquals("DEPOSIT", lineCaptor.getAllValues().get(0).linkedArticleEan);
+            assertEquals(new BigDecimal("3"), lineCaptor.getAllValues().get(0).linkedRecordedQuantity);
             assertFalse(lineCaptor.getAllValues().get(1).priceEmbedded);
             assertEquals(0, new BigDecimal("0.750").compareTo(lineCaptor.getAllValues().get(0).embeddedWeight));
             assertEquals(0, new BigDecimal("4.00").compareTo(lineCaptor.getAllValues().get(0).embeddedUnitPrice));
             assertNull(lineCaptor.getAllValues().get(1).embeddedWeight);
             assertNull(lineCaptor.getAllValues().get(1).embeddedUnitPrice);
         }
+    }
+
+    /**
+     * Runs a draft creation over a prepared state and captures the lines the
+     * draft received.
+     *
+     * @param service the service under test
+     * @param state the state whose cart is persisted
+     * @param count how many lines are expected
+     * @return the captured lines, in order
+     */
+    private List<TicketLine> capturedLines(TicketPersistenceService service, PosState state, int count) {
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            stubNoRegime(mocked);
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
+            service.syncDraft(state);
+            ArgumentCaptor<TicketLine> lineCaptor = ArgumentCaptor.forClass(TicketLine.class);
+            verify(created.constructed().get(0), times(count)).addLine(lineCaptor.capture());
+            return lineCaptor.getAllValues();
+        }
+    }
+
+    /**
+     * BO-03-13-12: a return line keeps its type's label and code; a line
+     * under no type carries neither, and without the list resolver the label
+     * alone is kept.
+     */
+    @Test
+    void syncDraftMapsTheReturnTypeOntoEachLine() {
+        TicketPersistenceService service = newService();
+        service.posListService = mock(PosListService.class);
+        when(service.posListService.returnTypeCode("Contenant")).thenReturn("CONT");
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        state.fidelity.active = false;
+        TicketState.TicketItem typed = addItem(state, "R1", null, null, "-2.00", "1", null);
+        typed.returnLine = true;
+        typed.returnTypeLabel = "Contenant";
+        addItem(state, "S1", null, null, "3.00", "1", null);
+        List<TicketLine> lines = capturedLines(service, state, 2);
+        assertEquals("Contenant", lines.get(0).returnTypeLabel);
+        assertEquals("CONT", lines.get(0).returnTypeCode);
+        assertNull(lines.get(1).returnTypeLabel);
+        assertNull(lines.get(1).returnTypeCode);
+        TicketPersistenceService bare = newService();
+        PosState other = new PosState();
+        other.auth.operatorId = 99L;
+        other.fidelity.active = false;
+        addItem(other, "R2", null, null, "-2.00", "1", null).returnTypeLabel = "Contenant";
+        List<TicketLine> unresolved = capturedLines(bare, other, 1);
+        assertEquals("Contenant", unresolved.get(0).returnTypeLabel);
+        assertNull(unresolved.get(0).returnTypeCode);
     }
 
     /**
@@ -362,6 +451,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 100L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             service.syncDraft(state);
@@ -402,6 +492,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 100L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             service.syncDraft(state);
@@ -452,6 +543,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 100L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             mocked.when(() -> Product.find("ean", "3000")).thenReturn(eanWith);
@@ -501,7 +593,38 @@ class TicketPersistenceServiceTest {
      * @return the three ticket totals of the created draft
      */
     private BigDecimal[] totalsOfSingleLineDraft(boolean withFamily) {
+        return totalsOfSingleLineDraft(withFamily, null);
+    }
+
+    /**
+     * BO-10-02-18: the ventilation of the draft follows the shop's rounding
+     * rule — 5,00 € at 20 % is 4,17 € excluding tax rounded half up, 4,16 €
+     * rounded down.
+     */
+    @Test
+    void theDraftTotalsFollowTheAdministeredRoundingRule() {
+        BigDecimal[] down = totalsOfSingleLineDraft(false, java.math.RoundingMode.DOWN);
+        assertEquals(0, new BigDecimal("4.16").compareTo(down[0]));
+        assertEquals(0, new BigDecimal("5.00").compareTo(down[1]));
+        BigDecimal[] halfUp = totalsOfSingleLineDraft(false, java.math.RoundingMode.HALF_UP);
+        assertEquals(0, new BigDecimal("4.17").compareTo(halfUp[0]));
+    }
+
+    /**
+     * Builds a single-line draft and returns its totals, under the shop's
+     * rounding rule when one is given (BO-10-02-18).
+     *
+     * @param withFamily whether the product resolves a direct family
+     * @param rule the administered rounding rule, or null for a service built
+     *        without its parameters
+     * @return the three ticket totals of the created draft
+     */
+    private BigDecimal[] totalsOfSingleLineDraft(boolean withFamily, java.math.RoundingMode rule) {
         TicketPersistenceService service = newService();
+        if (rule != null) {
+            service.posSettingsService = mock(PosSettingsService.class);
+            when(service.posSettingsService.calcRoundingMode()).thenReturn(rule);
+        }
         PosState state = new PosState();
         state.auth.operatorId = 99L;
         state.fidelity.active = false;
@@ -524,6 +647,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 100L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             mocked.when(() -> Product.find("ean", "3000")).thenReturn(eanQuery);
@@ -613,6 +737,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 200L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(mock(Employee.class));
@@ -641,6 +766,7 @@ class TicketPersistenceServiceTest {
                     mock.id = 200L;
                     mock.lines = new ArrayList<>();
                 })) {
+            stubNoRegime(mocked);
             mocked.when(() -> Ticket.findById(5L)).thenReturn(closed);
             mocked.when(Store::findAll).thenReturn(storeQuery);
             mocked.when(() -> Employee.findById(99L)).thenReturn(mock(Employee.class));
@@ -661,6 +787,7 @@ class TicketPersistenceServiceTest {
         PosState state = new PosState();
         state.fidelity.active = true;
         state.fidelity.label = "CARD-123";
+        state.ticket.customerTaxId = "123456789";
         addItem(state, "U1", "3000", null, "2.00", "1", "REMISE -10%");
         addItem(state, "U2", "4000", null, "1.00", "1", null);
         addItem(state, "U3", null, null, "3.00", "1", null);
@@ -668,11 +795,13 @@ class TicketPersistenceServiceTest {
         ticket.lines = new ArrayList<>(Arrays.asList(
                 line("U1"), line("U2"), line(null), line("GONE")));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubNoRegime(mocked);
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             state.payment.ticketDbId = 5L;
             assertEquals(5L, service.syncDraft(state));
             assertEquals(2, ticket.lines.size());
             assertEquals("CARD-123", ticket.fidelityCard);
+            assertEquals("123456789", ticket.customerTaxId);
             assertEquals(3, ticket.itemCount);
             verify(ticket, times(1)).addLine(any(TicketLine.class));
             verify(ticket, times(1)).persist();
@@ -864,7 +993,10 @@ class TicketPersistenceServiceTest {
     void syncDraftKeepsACancelledLineAndStillOrphanRemovesAVanishedOne() {
         TicketPersistenceService service = newService();
         PosState state = new PosState();
-        addItem(state, "U2", "4000", null, "1.00", "1", null);
+        var live = addItem(state, "U2", "4000", null, "1.00", "1", null);
+        live.linkedParentUid = "BOTTLE";
+        live.linkedArticleEan = "DEPOSIT";
+        live.linkedRecordedQuantity = new BigDecimal("3");
         Ticket ticket = draft(Ticket.TicketStatus.OPEN);
         TicketLine cancelled = line("U1");
         cancelled.cancelled = true;
@@ -877,6 +1009,10 @@ class TicketPersistenceServiceTest {
             assertTrue(ticket.lines.stream().anyMatch(l -> "U1".equals(l.lineUid) && l.cancelled));
             assertTrue(ticket.lines.stream().anyMatch(l -> "U2".equals(l.lineUid)));
             assertFalse(ticket.lines.stream().anyMatch(l -> "GONE".equals(l.lineUid)));
+            var persisted = ticket.lines.stream().filter(l -> "U2".equals(l.lineUid)).findFirst().orElseThrow();
+            assertEquals("BOTTLE", persisted.linkedParentUid);
+            assertEquals("DEPOSIT", persisted.linkedArticleEan);
+            assertEquals(new BigDecimal("3"), persisted.linkedRecordedQuantity);
             assertEquals(1, ticket.itemCount);
         }
     }
@@ -1041,11 +1177,13 @@ class TicketPersistenceServiceTest {
         when(cardFactory.create(any(BigDecimal.class), any())).thenReturn(payment);
         PaymentState.PaymentEntry entry =
                 new PaymentState.PaymentEntry("CARD", new BigDecimal("10.00"), true, "654321");
+        entry.customerReceiptFrame = "VERIFONE CLIENT\n";
         Ticket ticket = draft(Ticket.TicketStatus.OPEN);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.addPaymentToTicket(5L, entry);
             assertEquals("654321", payment.authorizationNumber);
+            assertEquals("VERIFONE CLIENT\n", payment.customerReceipt);
             assertTrue(payment.degradedMode);
             assertEquals(1, payment.paymentIndex);
             verify(ticket).addPayment(payment);
@@ -1273,7 +1411,7 @@ class TicketPersistenceServiceTest {
     void storeFormattedContentIgnoresNullTicketId() {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            service.storeFormattedContent(null, "Ticket printed");
+            service.storeFormattedContent(null, "Ticket printed", null);
             mocked.verify(() -> Ticket.findById(any()), never());
         }
     }
@@ -1287,7 +1425,7 @@ class TicketPersistenceServiceTest {
     void storeFormattedContentIgnoresNullContent() {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            service.storeFormattedContent(5L, null);
+            service.storeFormattedContent(5L, null, null);
             mocked.verify(() -> Ticket.findById(any()), never());
         }
     }
@@ -1301,7 +1439,7 @@ class TicketPersistenceServiceTest {
     void storeFormattedContentIgnoresBlankContent() {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            service.storeFormattedContent(5L, "   ");
+            service.storeFormattedContent(5L, "   ", null);
             mocked.verify(() -> Ticket.findById(any()), never());
         }
     }
@@ -1316,14 +1454,14 @@ class TicketPersistenceServiceTest {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
-            service.storeFormattedContent(5L, "Ticket printed");
+            service.storeFormattedContent(5L, "Ticket printed", null);
         }
     }
 
     /**
      * Covers the nominal arm of {@code storeFormattedContent} (L409 all false,
      * L413 false): a well-formed request on an existing ticket freezes its
-     * printed form and persists it.
+     * printed form and its customer language (LC-13-06-14) and persists it.
      */
     @Test
     void storeFormattedContentStoresAndPersists() {
@@ -1331,8 +1469,9 @@ class TicketPersistenceServiceTest {
         Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.storeFormattedContent(5L, "Ticket printed");
+            service.storeFormattedContent(5L, "Ticket printed", "nl");
             assertEquals("Ticket printed", ticket.formattedContent);
+            assertEquals("nl", ticket.customerLanguage);
             verify(ticket, times(1)).persist();
         }
     }
@@ -1428,6 +1567,102 @@ class TicketPersistenceServiceTest {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.storeFidelity(5L, null, null, false, List.of(), null, null, false);
             assertTrue(ticket.fidelityLines.isEmpty());
+        }
+    }
+
+    // --------------------------------------------------
+    // storePotBalances (BO-10-02-33)
+    // --------------------------------------------------
+
+    /**
+     * A null ticket id short-circuits before any Panache access — first leg of
+     * the guard.
+     */
+    @Test
+    void storePotBalancesIgnoresAnullTicketId() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storePotBalances(null, "Cagnotte\t1.00");
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * No pot to state reads nothing either — second leg of the guard.
+     */
+    @Test
+    void storePotBalancesIgnoresAbsentPots() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storePotBalances(5L, null);
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * A ticket that vanished between the closing and this write freezes
+     * nothing.
+     */
+    @Test
+    void storePotBalancesIgnoresAmissingTicket() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
+            service.storePotBalances(5L, "Cagnotte\t1.00");
+            mocked.verify(() -> Ticket.findById(5L), times(1));
+        }
+    }
+
+    /**
+     * The nominal arm: the frozen pots are written on the row, which is
+     * persisted.
+     */
+    @Test
+    void storePotBalancesFreezesThePotsAndPersists() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storePotBalances(5L, "Cagnotte\t1.00");
+            assertEquals("Cagnotte\t1.00", ticket.fidelityPotBalances);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // storeFidelityMessages (BO-03-03-26, BO-03-03-27)
+    // --------------------------------------------------
+
+    /**
+     * A null ticket id, or no message to state, reads nothing; a vanished
+     * ticket freezes nothing.
+     */
+    @Test
+    void storeFidelityMessagesIgnoresWhatItCannotFreeze() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeFidelityMessages(null, "S\tBONJOUR");
+            service.storeFidelityMessages(5L, null);
+            mocked.verify(() -> Ticket.findById(any()), never());
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
+            service.storeFidelityMessages(5L, "S\tBONJOUR");
+            mocked.verify(() -> Ticket.findById(5L), times(1));
+        }
+    }
+
+    /**
+     * The nominal arm: the frozen messages are written on the row, which is
+     * persisted.
+     */
+    @Test
+    void storeFidelityMessagesFreezesTheMessagesAndPersists() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeFidelityMessages(5L, "S\tBONJOUR");
+            assertEquals("S\tBONJOUR", ticket.fidelityMessages);
+            verify(ticket, times(1)).persist();
         }
     }
 
@@ -1562,6 +1797,9 @@ class TicketPersistenceServiceTest {
             verify(ticket, times(1)).persist();
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.PAYMENTS_CLEARED, "C04-00000001 (2)");
+            // BO-04-01-19: each settlement cancelled is journalled with its method and amount.
+            verify(service.technicalEventService, times(2)).record(TechnicalEvent.EventType.PAYMENT_CANCELLED,
+                    "C04-00000001 null", null, "C04-00000001", null, null);
         }
     }
 
@@ -1625,8 +1863,11 @@ class TicketPersistenceServiceTest {
             assertEquals(0, counter.grandTotal.compareTo(ticket.grandTotal));
             assertEquals(ticket.signature, counter.lastSignature);
             verify(ticket, times(1)).persist();
-            verify(service.technicalEventService).log(
-                    TechnicalEvent.EventType.TICKET_CLOSED, "C04-00000001");
+            verify(service.technicalEventService).record(
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.TICKET_CLOSED),
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.isNull());
             verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.TICKET, 5L);
         }
     }
@@ -1643,11 +1884,17 @@ class TicketPersistenceServiceTest {
         ticket.totalVat = new BigDecimal("2.00");
         TicketCounter counter = new TicketCounter();
         counter.lastSignature = null;
+        Employee cashier = new Employee();
+        cashier.badgeId = "12341234";
+        ticket.cashier = cashier;
         when(service.ticketNumberService.lockCounter(TERMINAL)).thenReturn(counter);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.validateTicket(5L);
             assertEquals("GENESIS", ticket.previousSignature);
+            // BO-04-03-07: the sale reaches the watch with its cashier and amount.
+            verify(service.technicalEventService).record(eq(TechnicalEvent.EventType.TICKET_CLOSED), eq("C04-00000001"),
+                    eq("12341234"), eq("C04-00000001"), any(), isNull());
             assertEquals(0, new BigDecimal("12.00").compareTo(counter.grandTotal));
         }
     }
@@ -1800,8 +2047,10 @@ class TicketPersistenceServiceTest {
     }
 
     /**
-     * A NON-REGISTRY voucher (an old encoded coupon) is left alone: its value
-     * lives on the paper, not in the registry, and there is nothing to debit.
+     * A voucher the registry never issued (an old encoded coupon) is looked up
+     * — a composed number has no fixed shape, so only the registry can tell
+     * (BO-03-06-30 to -38) — and left alone: its value lives on the paper, and
+     * there is nothing to debit nor to push.
      */
     @Test
     void validateTicketIgnoresANonRegistryVoucher() {
@@ -1811,6 +2060,29 @@ class TicketPersistenceServiceTest {
         ticket.totalVat = new BigDecimal("2.00");
         ticket.payments.add(new VoucherPayment(
                 new BigDecimal("4.00"), "Chèque cadeau", "500123"));
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<StoredValue> none = mock(PanacheQuery.class);
+            mocked.when(() -> StoredValue.find("number", "500123")).thenReturn(none);
+            service.validateTicket(5L);
+            mocked.verify(() -> StoredValue.find("number", "500123"));
+            verify(service.syncOutboxService, never()).enqueue(eq(SyncOutbox.EntityType.STORED_VALUE), any());
+        }
+    }
+
+    /**
+     * A voucher paid WITHOUT a number (a manual voucher keyed by amount) never
+     * reaches the registry: there is no instrument to look up.
+     */
+    @Test
+    void validateTicketIgnoresAVoucherWithoutNumber() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new VoucherPayment(new BigDecimal("4.00"), "Bon", null));
         stubCounter(service);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
@@ -1899,7 +2171,11 @@ class TicketPersistenceServiceTest {
             assertEquals(5L, card.issuingTicketId);
             assertNotNull(card.issuedAt);
             assertEquals("296000000000007", card.number);
+            assertEquals(ticket.terminalId, card.issuingTerminalId);
+            assertEquals(ticket.ticketNumber, card.issuingDocumentNumber);
             verify(card).persistAndFlush();
+            verify(service.storedValueNumberService).numberOf(card, ticket.ticketNumber);
+            verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.STORED_VALUE, 7L);
         }
     }
 
@@ -2090,13 +2366,19 @@ class TicketPersistenceServiceTest {
     void cancelDraftFlipsOpenDraft() {
         TicketPersistenceService service = newService();
         Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        Employee cashier = new Employee();
+        cashier.badgeId = "12341234";
+        ticket.cashier = cashier;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.cancelDraft(5L);
             assertEquals(Ticket.TicketStatus.CANCELLED, ticket.status);
             verify(ticket, times(1)).persist();
-            verify(service.technicalEventService).log(
-                    TechnicalEvent.EventType.TICKET_CANCELLED, "C04-00000001");
+            verify(service.technicalEventService).record(
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.TICKET_CANCELLED),
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.isNull());
             verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.TICKET, 5L);
             verify(service.consumptionService).enqueueCancellation(
                     org.mockito.ArgumentMatchers.eq("C04-00000001"),
@@ -2169,8 +2451,13 @@ class TicketPersistenceServiceTest {
     @Test
     void issueChangeCreditNoteNumbersTheNoteFromItsRow() {
         TicketPersistenceService service = newService();
-        try (MockedConstruction<StoredValue> created =
+        Ticket issuing = new Ticket();
+        issuing.terminalId = "C07";
+        issuing.ticketNumber = "C07-00000012";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> created =
                 mockConstruction(StoredValue.class, (mock, ctx) -> mock.id = 42L)) {
+            mocked.when(() -> Ticket.findById(9L)).thenReturn(issuing);
             String number = service.issueChangeCreditNote(9L, new java.math.BigDecimal("30.00"));
             assertEquals("297000000000042", number);
             StoredValue note = created.constructed().get(0);
@@ -2178,8 +2465,30 @@ class TicketPersistenceServiceTest {
             assertEquals(new java.math.BigDecimal("30.00"), note.initialAmount);
             assertEquals(new java.math.BigDecimal("30.00"), note.balance);
             assertEquals(Long.valueOf(9L), note.issuingTicketId);
+            assertEquals("C07", note.issuingTerminalId);
+            assertEquals("C07-00000012", note.issuingDocumentNumber);
             assertNotNull(note.issuedAt);
             verify(note, times(1)).persistAndFlush();
+            verify(service.storedValueNumberService).numberOf(note, "C07-00000012");
+            verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.STORED_VALUE, 42L);
+        }
+    }
+
+    /**
+     * A note whose sale row cannot be read is stamped with this register and no
+     * document number (BO-03-06-62): the issuer is still known.
+     */
+    @Test
+    void issueChangeCreditNoteWithoutItsSaleRowNamesThisRegister() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> created =
+                mockConstruction(StoredValue.class, (mock, ctx) -> mock.id = 43L)) {
+            assertEquals("297000000000043", service.issueChangeCreditNote(9L, new java.math.BigDecimal("5.00")));
+            StoredValue note = created.constructed().get(0);
+            assertEquals(TERMINAL, note.issuingTerminalId);
+            assertNull(note.issuingDocumentNumber);
+            verify(service.storedValueNumberService).numberOf(note, null);
         }
     }
 
@@ -2196,5 +2505,198 @@ class TicketPersistenceServiceTest {
             assertNull(service.issueChangeCreditNote(9L, java.math.BigDecimal.ZERO));
             assertTrue(created.constructed().isEmpty());
         }
+    }
+    /**
+     * BO-02-02-01: answers "no row" to every finder a test does not stub, so the
+     * regime number a written line looks up resolves to none.
+     *
+     * @param mocked the active static mock
+     */
+    @SuppressWarnings("unchecked")
+    private void stubNoRegime(MockedStatic<PanacheEntityBase> mocked) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> none =
+                org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        mocked.when(() -> PanacheEntityBase.find(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.<Object>any())).thenReturn(none);
+        mocked.when(() -> PanacheEntityBase.find(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.<Object>any(), org.mockito.ArgumentMatchers.<Object>any()))
+                .thenReturn(none);
+    }
+    /**
+     * BO-02-02-01: a line whose rate moved reads its regime number again, one
+     * whose rate stands keeps it, and the totals are ventilated by regime.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theRegimeNumberFollowsTheRateOfTheLine() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        TicketState.TicketItem moved = addItem(state, "U1", "3000", null, "2.00", "1", null);
+        moved.vatRate = new BigDecimal("0.0550");
+        addItem(state, "U2", "4000", null, "1.00", "1", null);
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine first = line("U1");
+        first.vatNumber = 1;
+        TicketLine second = line("U2");
+        second.vatNumber = 7;
+        ticket.lines = new ArrayList<>(Arrays.asList(first, second));
+        com.intermarche.pos.domain.catalog.VatRate reduced =
+                new com.intermarche.pos.domain.catalog.VatRate(2, new BigDecimal("0.0550"), "Réduit");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubNoRegime(mocked);
+            io.quarkus.hibernate.orm.panache.PanacheQuery<Object> rate =
+                    org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            when(rate.firstResult()).thenReturn(reduced);
+            mocked.when(() -> PanacheEntityBase.find("rate", new BigDecimal("0.0550"))).thenReturn(rate);
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            state.payment.ticketDbId = 5L;
+            service.syncDraft(state);
+        }
+        assertEquals(2, first.vatNumber);
+        assertEquals(7, second.vatNumber);
+    }
+
+    /**
+     * {@code sameRate} needs both rates, equal whatever their scale.
+     */
+    @Test
+    void sameRateNeedsBothRates() {
+        assertFalse(TicketPersistenceService.sameRate(null, BigDecimal.ONE));
+        assertFalse(TicketPersistenceService.sameRate(BigDecimal.ONE, null));
+        assertTrue(TicketPersistenceService.sameRate(new BigDecimal("0.20"), new BigDecimal("0.2000")));
+        assertFalse(TicketPersistenceService.sameRate(new BigDecimal("0.20"), new BigDecimal("0.055")));
+    }
+
+    /**
+     * BO-04-01-14/34/41/42/43: a new draft carries the self-scanning channel,
+     * the offline sale and the scanned, keyed and carried-out lines, and names
+     * the unknown codes scanned before it existed.
+     */
+    @Test
+    void syncDraftCreatesADraftWithTheLot21Facts() {
+        TicketPersistenceService service = newService();
+        service.refPullService = mock(com.intermarche.pos.service.sync.RefPullService.class);
+        when(service.refPullService.isNodeUnreachable()).thenReturn(true);
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        addItem(state, "U1", null, null, "3.00", "1", null);
+        state.ticket.items.get(0).scanned = true;
+        state.ticket.items.get(0).priceEntered = true;
+        state.ticket.items.get(0).bulky = true;
+        state.ticket.items.get(0).service = true;
+        state.ticket.selfScanning = true;
+        state.ticket.selfScanControlled = true;
+        state.ticket.selfScanVerified = true;
+        state.ticket.eventsAwaitingTicket.add(7L);
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        PanacheQuery<Store> storeQuery = queryReturning(mock(Store.class));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            stubNoRegime(mocked);
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(mock(Employee.class));
+            service.syncDraft(state);
+            Ticket ticket = created.constructed().get(0);
+            assertTrue(ticket.selfScanning);
+            assertTrue(ticket.selfScanControlled);
+            assertTrue(ticket.selfScanVerified);
+            assertTrue(ticket.offline);
+            org.mockito.ArgumentCaptor<TicketLine> line = org.mockito.ArgumentCaptor.forClass(TicketLine.class);
+            verify(ticket).addLine(line.capture());
+            assertTrue(line.getValue().scanned);
+            assertTrue(line.getValue().priceEntered);
+            assertTrue(line.getValue().carriedOut);
+            assertTrue(line.getValue().service);
+            verify(service.technicalEventService).attachTicket(7L, "C04-00000001");
+            assertTrue(state.ticket.eventsAwaitingTicket.isEmpty());
+        }
+    }
+
+    /**
+     * A reconciled draft refreshes the line flags, keeps a sale once offline
+     * « déconnecté », and stays connected without a pull service or with a
+     * reachable node.
+     */
+    @Test
+    void syncDraftReconcilesTheLot21Facts() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        addItem(state, "U1", "3000", null, "2.00", "1", null);
+        state.ticket.items.get(0).scanned = true;
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine kept = line("U1");
+        ticket.lines = new ArrayList<>(List.of(kept));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubNoRegime(mocked);
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            state.payment.ticketDbId = 5L;
+            // BO-04-01-34: an event recorded while the draft already existed is named at the next synchronisation.
+            state.ticket.eventsAwaitingTicket.add(12L);
+            service.syncDraft(state);
+            verify(service.technicalEventService).attachTicket(12L, ticket.ticketNumber);
+            assertTrue(state.ticket.eventsAwaitingTicket.isEmpty());
+            assertTrue(kept.scanned);
+            assertFalse(ticket.offline);
+            service.refPullService = mock(com.intermarche.pos.service.sync.RefPullService.class);
+            service.syncDraft(state);
+            assertFalse(ticket.offline);
+            ticket.offline = true;
+            service.syncDraft(state);
+            assertTrue(ticket.offline);
+        }
+    }
+
+    /**
+     * BO-04-01-19: clearing the settlements only to replay the survivors
+     * journals no cancellation; one settlement undone is journalled alone, and
+     * a draft gone journals nothing.
+     */
+    @Test
+    void aSingleCancelledSettlementIsJournalledAlone() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.payments = new ArrayList<>(Arrays.asList(mock(TicketPayment.class)));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.removePaymentsFromTicket(5L, false);
+            verify(service.technicalEventService, never()).record(any(), any(), any(), any(), any(), any());
+            ticket.cashier = new com.intermarche.pos.domain.people.Employee();
+            ticket.cashier.badgeId = "12341234";
+            service.journalCancelledPayment(5L, "CHEQUE", new BigDecimal("15.00"));
+            service.journalCancelledPayment(6L, "CASH", BigDecimal.ONE);
+        }
+        verify(service.technicalEventService).record(TechnicalEvent.EventType.PAYMENT_CANCELLED,
+                "C04-00000001 CHEQUE", "12341234", "C04-00000001", new BigDecimal("15.00"), "CHEQUE");
+        verify(service.technicalEventService, times(1)).record(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-06-06-02: the moment the cashier went to payment is stamped once on
+     * the draft; a draft already stamped keeps its moment, and no draft — a
+     * training sale, or a row gone — stamps nothing.
+     */
+    @Test
+    void thePaymentStartIsStampedOnce() {
+        TicketPersistenceService service = newService();
+        Ticket draft = mock(Ticket.class);
+        Ticket stamped = mock(Ticket.class);
+        java.time.LocalDateTime first = java.time.LocalDateTime.of(2026, 10, 20, 10, 0);
+        stamped.paymentStartedAt = first;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PanacheEntityBase.findById(1L)).thenReturn(draft);
+            panache.when(() -> PanacheEntityBase.findById(2L)).thenReturn(stamped);
+            service.markPaymentStarted(null);
+            service.markPaymentStarted(3L);
+            service.markPaymentStarted(1L);
+            service.markPaymentStarted(2L);
+        }
+        assertNotNull(draft.paymentStartedAt);
+        verify(draft).persist();
+        assertEquals(first, stamped.paymentStartedAt);
+        verify(stamped, never()).persist();
     }
 }

@@ -59,7 +59,9 @@ public class PinChangeResource {
         LOGGER.info("Exiting method pinChangePage");
         return pinChange.data("state", state)
                 .data("error", error)
-                .data("success", success);
+                .data("success", success)
+                // BO-10-02-23: the three pads stop at the shop's number of digits.
+                .data("pinLength", authService.pinLength());
     }
 
     /**

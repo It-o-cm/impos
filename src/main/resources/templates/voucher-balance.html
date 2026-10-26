@@ -11,6 +11,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('voucherbalance.soldeBonCarteCadeau')}</title>
     <style>
         {#include theme /}
@@ -66,6 +67,12 @@
                     <div class="answer unknown">
                         <div class="answer-unknown">{inject:i18n.get('voucherbalance.aucunNumeroSaisi')}</div>
                         <div class="answer-status">{inject:i18n.get('voucherbalance.tapezNumeroBonPave')}</div>
+                    </div>
+                    {#else if result.refusal}
+                    {! BO-03-02-37 : le type de carte prepayee interdit la consultation,
+                     ! ou le service tiers l'a refusee. !}
+                    <div class="answer unknown">
+                        <div class="answer-unknown">{result.refusal}</div>
                     </div>
                     {#else if result.found}
                     <div class="answer found">

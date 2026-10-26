@@ -205,4 +205,14 @@ class EntryFieldTest {
         assertEquals(before.maxLength(), after.maxLength());
         assertEquals("92420", after.value());
     }
+
+    /**
+     * The screen names a field by a bundle key built on its name, so the label
+     * is translated into the register's language.
+     */
+    @Test
+    void theLabelKeyIsBuiltOnTheFieldsName() {
+        assertEquals("entryfield.companyName", EntryField.customerFields("companyName*").get(0).getLabelKey());
+        assertEquals("entryfield.ticketTerminal", EntryField.ticketFields("1", "", "").get(2).getLabelKey());
+    }
 }

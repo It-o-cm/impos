@@ -118,4 +118,11 @@ class PosMenuTest {
     void ofBlankFallsBackToArticles() {
         assertSame(PosMenu.ARTICLES, PosMenu.of("   "));
     }
+    /** LC-07: the payment tab links directly to payment while ticket actions remain a menu. */
+    @org.junit.jupiter.api.Test
+    void menuDestinationsExposeTheDirectPaymentRoute() {
+        org.junit.jupiter.api.Assertions.assertEquals("/pay", PosMenu.REGLEMENT.getDestination());
+        org.junit.jupiter.api.Assertions.assertNull(PosMenu.TICKET.getDestination());
+    }
+
 }

@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
@@ -33,6 +34,7 @@ import java.net.URI;
  */
 @Path("/")
 @DrawerMustBeClosed
+@PaymentGesture
 public class PaymentResource {
 
     /** Technical log of this class. */
@@ -61,6 +63,9 @@ public class PaymentResource {
 
     /** Ticket lifecycle service — used by the payment-phase ticket abandon. */
     @Inject com.intermarche.pos.ui.ticket.TicketService ticketService;
+
+    /** Activates the dematerialised articles on entering payment (BO-11-03-04). */
+    @Inject com.intermarche.pos.ui.ticket.DematerialisedService dematerialisedService;
     /** Loyalty lease renewal on payment-screen refresh (imfid lot 2). */
     @Inject com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
     /** The conditional-printing rule — drives the end-of-transaction choice (LC-08-03). */
@@ -78,13 +83,37 @@ public class PaymentResource {
     /**
      * Shows the payment page, creating the draft ticket on first entry.
      *
-     * @return the payment page
+     * <p>LC-08-06-01: where the store requires a customer NIF, a payment that
+     * has not started yet and carries no NIF goes first through the NIF CLIENT
+     * screen, which comes back here once a NIF is recorded.
+     *
+     * @return the payment page, or a redirect to the NIF entry screen
      */
     @GET
     @Path("/pay")
     @DrawerMayBeOpen
-    public TemplateInstance showPaymentPage() {
+    public Object showPaymentPage() {
         LOGGER.info("Entering method showPaymentPage");
+        if (!state.payment.paymentInProgress && !state.payment.transactionComplete
+                && posSettingsService.taxIdRequired()
+                && (state.ticket.customerTaxId == null || state.ticket.customerTaxId.isBlank())) {
+            LOGGER.info("Exiting method showPaymentPage");
+            return Response.seeOther(URI.create("/sale-tax-id?next=pay")).build();
+        }
+        // BO-11-03-04: the dematerialised articles are activated on entering
+        // payment where the store administers the NEXO exchange so; a refused
+        // one leaves the ticket and the cashier is sent back to the sale.
+        if (!state.payment.paymentInProgress && dematerialisedService.activationAtPayment()) {
+            java.util.List<String> refused = dematerialisedService.activatePending(state);
+            for (String uid : refused) {
+                ticketService.cancelItemById(state, uid);
+            }
+            if (!refused.isEmpty()) {
+                state.touch();
+                LOGGER.info("Exiting method showPaymentPage: activation refused");
+                return Response.seeOther(URI.create("/")).build();
+            }
+        }
         paymentService.initPayment(state);
         // Opportunistic half-life renewal of the fidelity lease (spec §5.1).
         fidelityService.maybeRenewLease(state);
@@ -97,6 +126,22 @@ public class PaymentResource {
                 .data("couponTypes", CouponType.listActivePaymentTypes())
                 .data("currencies", foreignCurrencyService.listCurrencies())
                 .data("backupEndorsement", posSettingsService.backupManualEndorsement())
+                // LC-07-04-07/08: the CASHBACK key exists only where the store offers it.
+                .data("cashbackEnabled", posSettingsService.cashbackEnabled())
+                // LC-07-15-01: the MONNAYEUR key exists only where the till runs one.
+                .data("cashChangerEnabled", posSettingsService.hardwareEnabled("cashchanger"))
+                // BO-03-02-36: the CASH key itself goes through the coin machine
+                // where the cash tender is administered so and the till runs one.
+                .data("cashViaCoinMachine", tenderRulesService.cashViaCoinMachine(
+                        posSettingsService.hardwareEnabled("cashchanger")))
+                // BO-03-02-01: one key per tender the store added.
+                .data("additionalTenders", tenderRulesService.additional())
+                // BO-03-02-24: the cheque form asks for the account number when
+                // the cheque tender says so.
+                .data("chequeAccountEntry", chequeAccountEntry())
+                // LC-08-01-06 / LC-08-04-19: the social card and FATURA keys exist
+                // only where the register issues the Portuguese documents.
+                .data("ptDocuments", posSettingsService.ptDocuments())
                 // BO-10-04-02 et -08 : le panneau crédit montre les coordonnées
                 // du client et lui annonce sa remise, ou non, selon le magasin.
                 .data("showCustomerDetails", posSettingsService.showCustomerDetails())
@@ -106,6 +151,17 @@ public class PaymentResource {
                 .data("printConditional", printPolicy.isConditionalEnabled())
                 .data("printChoices",
                         java.util.List.of(com.intermarche.pos.ui.hardware.PrintChoice.values()));
+    }
+
+    /**
+     * Tells whether the cheque form asks for the account number
+     * (BO-03-02-24).
+     *
+     * @return true when the cheque tender administers the entry
+     */
+    private boolean chequeAccountEntry() {
+        TenderDefinition cheque = tenderRulesService.tender("CHEQUE");
+        return cheque != null && cheque.accountNumberEntry;
     }
 
     /**
@@ -131,6 +187,51 @@ public class PaymentResource {
         LOGGER.info("Entering method cancelPendingCard");
         paymentService.cancelPendingCard(state);
         LOGGER.info("Exiting method cancelPendingCard");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Starts a cash payment on the cash changer for the remaining due
+     * (LC-07-15-01).
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-cashchanger")
+    public Response payWithCashChanger() {
+        LOGGER.info("Entering method payWithCashChanger");
+        paymentService.processCashChanger(state);
+        LOGGER.info("Exiting method payWithCashChanger");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Closes the running cash changer deposit on what was inserted, the rest
+     * being paid with another tender (LC-07-15-01).
+     *
+     * @return a redirect back to the payment page
+     */
+    @GET
+    @Path("/action/cashchanger-finish")
+    public Response finishCashChanger() {
+        LOGGER.info("Entering method finishCashChanger");
+        paymentService.finishCashChanger(state);
+        LOGGER.info("Exiting method finishCashChanger");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Cancels the running cash changer deposit: everything inserted is given
+     * back.
+     *
+     * @return a redirect back to the payment page
+     */
+    @GET
+    @Path("/action/cashchanger-cancel")
+    public Response cancelCashChanger() {
+        LOGGER.info("Entering method cancelCashChanger");
+        paymentService.cancelCashChanger(state);
+        LOGGER.info("Exiting method cancelCashChanger");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -218,6 +319,33 @@ public class PaymentResource {
         return level.allows();
     }
 
+    /** Prints LC-07-05-06 front without accepting a cheque settlement.
+     * @param amountStr touchscreen amount
+     * @return payment screen
+     */
+    @POST
+    @Path("/action/cheque-print-front")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response printChequeFront(@FormParam("amount") String amountStr) {
+        BigDecimal amount = parseAmount(amountStr);
+        if (paymentAmountAllowed(amount)) {
+            paymentService.printChequeFront(state, amount);
+        }
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /** Starts the single LC-07-06-02 CB/TRD key, using the actual remaining amount.
+     * @return payment screen
+     */
+    @POST
+    @Path("/action/pay-card-trd")
+    public Response doCombinedCardPayment() {
+        if (paymentAmountAllowed(BigDecimal.ZERO)) {
+            paymentService.processCard(state, BigDecimal.ZERO, true);
+        }
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
     /**
      * Registers a card payment.
      *
@@ -236,6 +364,24 @@ public class PaymentResource {
         }
         paymentService.processCard(state, amount);
         LOGGER.info("Exiting method doCardPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Debits the card for the remaining due plus the cash the customer wants
+     * back, keyed by the cashier (LC-07-04-08).
+     *
+     * @param cashbackStr the cash the customer wants back
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-card-cashback")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doCardCashback(@FormParam("cashback") String cashbackStr) {
+        LOGGER.info("Entering method doCardCashback with cashbackStr: " + cashbackStr);
+        BigDecimal cashback = parseAmount(cashbackStr);
+        paymentService.processCardCashback(state, cashback);
+        LOGGER.info("Exiting method doCardCashback");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -301,6 +447,19 @@ public class PaymentResource {
     }
 
     /**
+     * Acknowledges the customer's handwritten authorization (LC-07-10-05).
+     * @param signed the operator's explicit signature confirmation
+     * @return the payment page
+     */
+    @POST
+    @Path("/action/fidelity-signature")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response confirmFidelitySignature(@FormParam("signed") boolean signed) {
+        paymentService.confirmFidelitySignature(state, signed);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
      * Registers a fidelity payment.
      *
      * @param amountStr the amount typed by the cashier
@@ -322,23 +481,64 @@ public class PaymentResource {
     }
 
     /**
+     * Accepts a deferred manual cheque without a monetics call (LC-07-05-05).
+     * @param amountStr the amount entered by the operator
+     * @return the payment page
+     */
+    @POST
+    @Path("/action/pay-deferred-cheque")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doDeferredChequePayment(@FormParam("amount") String amountStr) {
+        BigDecimal amount = parseAmount(amountStr);
+        if (paymentAmountAllowed(amount)) {
+            paymentService.processDeferredCheque(state, amount);
+        }
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
      * Registers a cheque payment.
      *
      * @param amountStr the amount typed by the cashier
+     * @param accountNumber the account number keyed by the cashier, or null
      * @return a redirect back to the payment page
      */
     @POST
     @Path("/action/pay-cheque")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response doChequePayment(@FormParam("amount") String amountStr) {
+    public Response doChequePayment(@FormParam("amount") String amountStr,
+                                    @FormParam("accountNumber") String accountNumber) {
         LOGGER.info("Entering method doChequePayment with amountStr: " + amountStr);
         BigDecimal amount = parseAmount(amountStr);
         if (!paymentAmountAllowed(amount)) {
             LOGGER.info("Exiting method doChequePayment");
         return Response.seeOther(URI.create("/pay")).build();
         }
-        paymentService.processCheque(state, amount);
+        // BO-03-02-24: the account number the tender asks the cashier for.
+        paymentService.processCheque(state, amount, accountNumber);
         LOGGER.info("Exiting method doChequePayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Settles with a tender the STORE ADDED (BO-03-02-01): its key carries its
+     * code, and the settlement runs the conversation of its nature.
+     *
+     * @param code the code of the administered tender
+     * @param amountStr the amount typed by the cashier, empty for the remaining due
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-tender")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doAdditionalTenderPayment(@FormParam("code") String code,
+                                              @FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doAdditionalTenderPayment with code: " + code + ", amountStr: " + amountStr);
+        BigDecimal amount = parseAmount(amountStr);
+        if (paymentAmountAllowed(amount)) {
+            paymentService.processAdditionalTender(state, code, amount);
+        }
+        LOGGER.info("Exiting method doAdditionalTenderPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -362,6 +562,45 @@ public class PaymentResource {
         paymentService.processTrdCard(state, amount);
         LOGGER.info("Exiting method doTrdPayment");
         return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Registers a social purchase card payment (LC-08-01-06), bound to the lines
+     * eligible to the card.
+     *
+     * @param amountStr the amount typed by the cashier, empty for what the card may pay
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-cas")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doSocialCardPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doSocialCardPayment with amountStr: " + amountStr);
+        BigDecimal amount = parseAmount(amountStr);
+        if (paymentAmountAllowed(amount)) {
+            paymentService.processSocialCard(state, amount);
+        }
+        LOGGER.info("Exiting method doSocialCardPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Arms or disarms the scanner for the Resto Flash zone of the payment screen
+     * (EXP-67): while the zone is open, the code the scanner reads is the
+     * customer's token and goes to the Resto Flash confirmation, not to the
+     * sale (see {@code PosHardwareResource.handleScan}).
+     *
+     * @param armed {@code true} when the zone opened, anything else when it closed
+     * @return 204, the screen expects no page
+     */
+    @POST
+    @Path("/action/pay-restoflash/scan")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response armRestoFlashScan(@FormParam("armed") String armed) {
+        LOGGER.info("Entering method armRestoFlashScan with armed: " + armed);
+        state.payment.restoFlashScanArmed = "true".equals(armed);
+        LOGGER.info("Exiting method armRestoFlashScan");
+        return Response.noContent().build();
     }
 
     /**
@@ -409,6 +648,42 @@ public class PaymentResource {
         }
         paymentService.processSupplierGiftCard(state, cardNumber, amount);
         LOGGER.info("Exiting method doGiftCardPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Pays with the gift card the payment hub just read, for the amount the
+     * operator chose on its balance panel (LC-07-11-01).
+     *
+     * @param amountStr the amount typed, or blank for the proposed one
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-giftcard-hub")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doGiftCardHubPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doGiftCardHubPayment with amountStr: " + amountStr);
+        BigDecimal amount = parseAmount(amountStr);
+        if (!paymentAmountAllowed(amount)) {
+            LOGGER.info("Exiting method doGiftCardHubPayment");
+            return Response.seeOther(URI.create("/pay")).build();
+        }
+        paymentService.payGiftCardOnHub(state, amount);
+        LOGGER.info("Exiting method doGiftCardHubPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Puts aside the gift card the payment hub just read, without paying.
+     *
+     * @return a redirect back to the payment page
+     */
+    @GET
+    @Path("/action/pay-giftcard-hub/cancel")
+    public Response cancelGiftCardHub() {
+        LOGGER.info("Entering method cancelGiftCardHub");
+        paymentService.cancelPendingGiftCard(state);
+        LOGGER.info("Exiting method cancelGiftCardHub");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -948,7 +1223,10 @@ public class PaymentResource {
      *         screen reloads itself on a payability flip, and a reload of a
      *         rendered {@code /action/finish} would replay the fiscal close
      *         onto the NEXT freshly started draft (same replay class as the
-     *         PRG-converted POSTs)
+     *         PRG-converted POSTs). A sale that is not settled is NOT closed:
+     *         the service refuses it and the cashier is sent back to the
+     *         payment screen (or to the sale screen when no payment is under
+     *         way) where the amount still due is stated
      */
     @GET
     @Path("/action/finish")
@@ -960,9 +1238,34 @@ public class PaymentResource {
     @DrawerMayBeOpen
     public Response validatePayment() {
         LOGGER.info("Entering method validatePayment");
-        paymentService.finalizeTransaction(state);
+        Long completedId = state.payment.ticketDbId;
+        boolean offerEmail = !state.trainingMode && state.payment.transactionComplete
+                && completedId != null && posSettingsService.ticketEmailOffer();
+        if (!paymentService.finalizeTransaction(state)) {
+            LOGGER.info("Exiting method validatePayment");
+            return Response.seeOther(URI.create(state.payment.paymentInProgress ? "/pay" : "/")).build();
+        }
         LOGGER.info("Exiting method validatePayment");
-        return Response.seeOther(URI.create("/")).build();
+        boolean closed = offerEmail && completedId.equals(state.lastClosedTicketId);
+        return Response.seeOther(URI.create(closed ? "/ticket-email" : "/")).build();
+    }
+
+    /**
+     * Blocks return to scanning until existing settlements are explicitly cancelled
+     * (LC-07-01-02/-05), whether or not their tender called an external service.
+     *
+     * @return the payment page for confirmation, or the existing cancellation path
+     */
+    @GET
+    @Path("/action/payment-return")
+    public Response returnToItems() {
+        if (!state.payment.payments.isEmpty()) {
+            state.payment.returnCancellationOffered = true;
+            state.ticket.setError(i18n.get("pay.cancelBeforeReturning"));
+            state.touch();
+            return Response.seeOther(URI.create("/pay")).build();
+        }
+        return cancelPayment();
     }
 
     /**
@@ -1037,7 +1340,21 @@ public class PaymentResource {
             ticketPrinterService.printTrainingReceipt(state);
         } else if (ticketId != null) {
             try {
-                ticketPrinterService.printTicket(ticketId);
+                // BO-03-03-26/-27/-35: printed on demand before the closing, the
+                // receipt of a settled sale states its loyalty zone, frozen here.
+                if (state.payment.transactionComplete) {
+                    paymentService.freezeFidelityForPrint(state, ticketId);
+                }
+                if (paymentService.hasMoneticFrames(state)) {
+                    paymentService.printTicketWithMoneticFrames(state, ticketId);
+                } else {
+                    // LC-13-06-13: the receipt of the sale under way, in the customer's language.
+                    i18n.runForCustomer(() -> ticketPrinterService.printTicket(ticketId));
+                }
+                // LC-05-07-02: the detail of the returns goes with the receipt it
+                // completes, also when the receipt is printed on demand.
+                ticketPrinterService.printReturnDetail(ticketId);
+                paymentService.openSettlementDrawer(state, true);
             } catch (Exception e) {
                 System.err.println("Erreur impression: " + e.getMessage());
             }

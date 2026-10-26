@@ -43,6 +43,15 @@ public class PriceModState implements Serializable {
     public String targetModifierLabel = null;
 
     /**
+     * The label of the administered key whose figure is being typed
+     * (BO-03-07-04), or null when the figure is a free one.
+     */
+    public String presetLabel = null;
+
+    /** The ceiling of that key's typed figure (BO-03-07-04), or null when unbounded. */
+    public java.math.BigDecimal presetMaximum = null;
+
+    /**
      * Opens the modal on a target that is not a ticket line — the ticket-level
      * remise and discount, which have no line to recall.
      *
@@ -73,6 +82,8 @@ public class PriceModState implements Serializable {
         this.targetHtml = html;
         this.targetPriceFormatted = priceFormatted;
         this.targetModifierLabel = modifierLabel;
+        this.presetLabel = null;
+        this.presetMaximum = null;
     }
 
     /**
@@ -86,6 +97,8 @@ public class PriceModState implements Serializable {
         this.targetHtml = null;
         this.targetPriceFormatted = null;
         this.targetModifierLabel = null;
+        this.presetLabel = null;
+        this.presetMaximum = null;
     }
 
     /**

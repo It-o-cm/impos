@@ -24,8 +24,7 @@ class ScannerDiscoveryTest {
 
     /** A discovery over the standard directories, for the pure-method tests. */
     private final ScannerDiscovery discovery =
-            new ScannerDiscovery(new File("/sys/class/input"), new File("/sys/class/hidraw"),
-                    new File("/dev"), PATTERNS);
+            new ScannerDiscovery(PATTERNS);
 
     /**
      * A Symbol/Zebra scanner name matches (case-insensitive substring).
@@ -772,4 +771,14 @@ class ScannerDiscoveryTest {
                 new File(root, "input"), hidraw, new File(root, "dev"), PATTERNS);
         assertEquals(0, discovery.inputReportBytes(new File(hidraw, "hidraw2/device")));
     }
+    /** LC-13-02-12: numerically equal node suffixes use lexical order, keeping discovery deterministic on aliased interfaces. */
+    @Test
+    void equalNodeNumbersHaveAStableLexicalOrder(@TempDir java.nio.file.Path directory) throws Exception {
+        Files.createFile(directory.resolve("event1"));
+        Files.createFile(directory.resolve("event01"));
+        var nodes = ScannerDiscovery.class.getDeclaredMethod("nodes", File.class, String.class);
+        nodes.setAccessible(true);
+        assertEquals(List.of("event01", "event1"), nodes.invoke(discovery, directory.toFile(), "event"));
+    }
+
 }

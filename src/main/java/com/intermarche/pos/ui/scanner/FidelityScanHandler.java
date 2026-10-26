@@ -49,6 +49,13 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
 
         // On n'applique la fidélité que si la caisse est déverrouillée
         if (!ctx.state.isLocked() && ctx.code.matches(cardPattern())) {
+            // BO-03-06-54: a card of the range whose Luhn key is wrong is refused
+            // before it fills a mask or replaces a card.
+            if (!fidelityService.cardKeyValid(ctx.code)) {
+                ctx.state.ticket.setError(i18n.get("op.carteFideliteCleInvalide"));
+                ctx.handled = true;
+                return;
+            }
             // LC-03-06-03: while the REASSIGNMENT mask of the reprint screen is
             // open, a scanned card is the card that ticket is being reassigned
             // to — it fills the mask instead of attaching to the live sale,

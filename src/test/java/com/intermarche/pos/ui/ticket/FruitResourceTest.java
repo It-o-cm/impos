@@ -37,6 +37,7 @@ class FruitResourceTest {
         resource.fruits = mock(Template.class);
         resource.tareService = mock(com.intermarche.pos.ui.balance.TareService.class);
         when(resource.tareService.containers()).thenReturn(List.of());
+        when(resource.tareService.containerImages()).thenReturn(java.util.Map.of("BAC", "data:x"));
         return resource;
     }
 
@@ -55,7 +56,9 @@ class FruitResourceTest {
         TemplateInstance withContainers = mock(TemplateInstance.class);
         when(resource.fruits.data("state", resource.state)).thenReturn(withState);
         when(withState.data("products", products)).thenReturn(withProducts);
+        TemplateInstance withImages = mock(TemplateInstance.class);
         when(withProducts.data("tareContainers", List.of())).thenReturn(withContainers);
-        assertSame(withContainers, resource.fruitsPage());
+        when(withContainers.data("tareImages", java.util.Map.of("BAC", "data:x"))).thenReturn(withImages);
+        assertSame(withImages, resource.fruitsPage());
     }
 }

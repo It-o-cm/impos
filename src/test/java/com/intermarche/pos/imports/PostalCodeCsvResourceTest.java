@@ -5,9 +5,12 @@ import io.quarkus.hibernate.orm.panache.Panache;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.persistence.EntityManager;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -246,7 +249,77 @@ class PostalCodeCsvResourceTest {
             java.io.InputStream stream = new java.io.ByteArrayInputStream(new byte[0]);
             jakarta.ws.rs.core.Response response = resource.importPostalCodes(stream);
             assertEquals(200, response.getStatus());
-            assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+            assertEquals("{\"createdCount\":0,\"updatedCount\":0}", response.getEntity());
+        }
+    }
+
+    /**
+     * An unknown pair takes the CREATE arm: a fresh row is built from the line,
+     * persisted through the entity manager, and the created counter is bumped
+     * while the updated counter is left alone.
+     */
+    @Test
+    void anUnknownPairIsCreated() {
+        List<String> columns = List.of(PostalCodeCsvResource.COL_CODE,
+                PostalCodeCsvResource.COL_PLACE, PostalCodeCsvResource.COL_COUNTRY);
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager entityManager = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(entityManager);
+            int[] counters = new int[]{0, 0};
+            resource.processLineLogic(row(columns, "75008", "Paris", "FR"),
+                    new HashMap<>(), counters);
+            assertEquals(1, counters[0]);
+            assertEquals(0, counters[1]);
+            verify(entityManager).persist(org.mockito.ArgumentMatchers.any(PostalCode.class));
+        }
+    }
+
+    /**
+     * A known pair whose country differs takes the UPDATE arm: the detached row
+     * is re-read fresh through {@code findById}, its country is overwritten and
+     * the updated counter is bumped while the created counter is left alone.
+     */
+    @Test
+    void aKnownPairWithADifferentCountryIsUpdated() {
+        List<String> columns = List.of(PostalCodeCsvResource.COL_CODE,
+                PostalCodeCsvResource.COL_PLACE, PostalCodeCsvResource.COL_COUNTRY);
+        PostalCode stored = entity("1234-567", "LISBOA");
+        stored.id = 7L;
+        stored.country = "FR";
+        Map<String, Object> entityMap = new HashMap<>();
+        entityMap.put(PostalCodeCsvResource.pair("1234-567", "LISBOA"), stored);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PostalCode.findById(7L)).thenReturn(stored);
+            int[] counters = new int[]{0, 0};
+            resource.processLineLogic(row(columns, "1234-567", "LISBOA", "PT"),
+                    entityMap, counters);
+            assertEquals(0, counters[0]);
+            assertEquals(1, counters[1]);
+            assertEquals("PT", stored.country);
+        }
+    }
+
+    /**
+     * A known pair whose country is unchanged takes the UPDATE arm but skips the
+     * country-changed branch: nothing is counted and the value is left as it was.
+     */
+    @Test
+    void aKnownPairWithTheSameCountryCountsNothing() {
+        List<String> columns = List.of(PostalCodeCsvResource.COL_CODE,
+                PostalCodeCsvResource.COL_PLACE, PostalCodeCsvResource.COL_COUNTRY);
+        PostalCode stored = entity("75008", "Paris");
+        stored.id = 9L;
+        stored.country = "FR";
+        Map<String, Object> entityMap = new HashMap<>();
+        entityMap.put(PostalCodeCsvResource.pair("75008", "Paris"), stored);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PostalCode.findById(9L)).thenReturn(stored);
+            int[] counters = new int[]{0, 0};
+            resource.processLineLogic(row(columns, "75008", "Paris", "FR"),
+                    entityMap, counters);
+            assertEquals(0, counters[0]);
+            assertEquals(0, counters[1]);
+            assertEquals("FR", stored.country);
         }
     }
 }

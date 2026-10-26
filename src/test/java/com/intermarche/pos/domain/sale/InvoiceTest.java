@@ -246,4 +246,20 @@ class InvoiceTest {
         invoice.documentNumber = "C04-F000124";
         Assertions.assertNotEquals(before, invoice.getChecksum());
     }
+
+    /**
+     * BO-03-03-02 / BO-03-04-09: the printed title is the administered
+     * document's name when the paper was drawn as one, the kind's title when
+     * none — or a blank one — was frozen.
+     */
+    @Test
+    void thePrintedTitleIsTheAdministeredName() {
+        Invoice document = new Invoice();
+        document.documentType = DocumentType.BON_LIVRAISON;
+        Assertions.assertEquals("BON DE LIVRAISON", document.printedTitle());
+        document.documentTitle = "  ";
+        Assertions.assertEquals("BON DE LIVRAISON", document.printedTitle());
+        document.documentTitle = "FACTURE PRO";
+        Assertions.assertEquals("FACTURE PRO", document.printedTitle());
+    }
 }

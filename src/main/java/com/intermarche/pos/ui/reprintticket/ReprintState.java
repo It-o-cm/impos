@@ -30,6 +30,8 @@ public class ReprintState implements Serializable {
     // Données liste
     public List<Ticket> tickets = Collections.emptyList();
     public int listPage = 0;
+    /** LC-04-05-01: independently entered criteria retained through selection and pagination. */
+    public com.intermarche.pos.ui.ticket.TicketSearchCriteria searchCriteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
 
     // Données détail
     public Ticket viewedTicket = null;

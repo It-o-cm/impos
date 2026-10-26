@@ -54,8 +54,9 @@
 
         .product-grid {
             flex: 1; display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            grid-template-rows: repeat(4, 1fr);
+            grid-template-columns: repeat({gridColumns}, minmax(0, 1fr));
+            grid-template-rows: repeat({gridRows}, minmax(0, 1fr));
+            grid-auto-rows: minmax(0, 1fr);
             gap: 8px;
             min-height: 0;
             height: 100%;
@@ -68,6 +69,11 @@
             align-items: center; justify-content: center; padding: 6px 5px;
             overflow: hidden; line-height: 1.15; text-decoration: none;
         }
+        /* LC-02-07-14/15: use the distributed thumbnail without a second network request. */
+        .article-tile { flex-direction: column; gap: 4px; container-type: inline-size; }
+        .article-price { font-size: var(--fs-row-sub); white-space: nowrap; }
+        .article-image { height: 40%; max-height: 3rem; max-width: 100%; object-fit: contain; min-height: 0; }
+        .article-label { max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
         .grid-btn:active { background: #444; transform: scale(0.98); }
         .grid-btn.back-btn { border-color: var(--warning); color: var(--warning); background: rgba(255,152,0,0.1); }
         .grid-btn.skip-btn { border-color: var(--danger); color: var(--danger); background: rgba(211,47,47,0.1); }
@@ -76,6 +82,18 @@
         .grid-btn.size-small { font-size: 0.7rem; }
         .grid-btn.pinned { border-color: var(--warning); box-shadow: inset 0 0 0 1px var(--warning); }
 
+
+        /* LC-02-07-18: compact touch controls keep the product grid and existing keyboard visible. */
+        .manual-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; flex-shrink: 0; }
+        .manual-toolbar .breadcrumb { flex: 1; margin: 0; }
+        .article-sort { display: flex; gap: 6px; align-items: center; }
+        .article-sort select { background: var(--bg-page); color: var(--text-main); font: inherit;
+            border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-width: 15rem; }
+        /* LC-02-07-14: the 13 digits of an EAN stay readable on the narrowest tile —
+           the code shrinks with the tile width (container units) and, below that, wraps
+           rather than being clipped by the tile's overflow. */
+        .article-code { font-size: min(var(--fs-btn-sm), 11cqi); font-weight: normal; letter-spacing: 0;
+            font-variant-numeric: tabular-nums; max-width: 100%; overflow-wrap: anywhere; line-height: 1.1; }
 
         .price-section {
             width: 16.25rem; display: flex; flex-direction: column; gap: 8px;
@@ -96,6 +114,10 @@
         .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
 
         .numpad-dynamic-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .price-section .pos-keyboard { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .price-section .pos-key { min-width: 0; padding: 6px 2px; }
+        #formFamily { flex-wrap: wrap; }
+        #formFamily .pad-display { flex: 1; min-width: 3rem; }
 
     </style>
 </head>
@@ -104,44 +126,77 @@
 <div class="pos-terminal">
     <div class="overlay active">
         <div class="overlay-header">
-            <div class="overlay-title">{inject:i18n.get('manual.saisieDirecte2')}</div>
+            <div class="overlay-title">{#if cancelMode}{inject:i18n.get('manual.cancelTitle')}{#else}{inject:i18n.get('manual.saisieDirecte2')}{/if}</div>
         </div>
 
         <div class="manual-form">
             <div class="product-selection" id="productSelection">
                 <div class="flash-label" id="flashLabel">{inject:i18n.get('manual.selectionnezProduit')}</div>
-                <div class="breadcrumb" id="breadcrumb">{breadcrumb}</div>
+                {#if unknownCode??}
+                <!-- BO-10-02-14 : le code scanne que rien ne reconnait ; la caissiere
+                     vend l'article par sa famille (case FAMILLE + prix) ou son code. -->
+                <div id="unknownNotice" style="color:var(--warning); font-weight:bold; font-size:var(--fs-body); padding:4px 0; overflow-wrap:anywhere;">{inject:i18n.get('manual.articleInconnu')} {unknownCode}</div>
+                {/if}
+                <div class="manual-toolbar">
+                    <div class="breadcrumb" id="breadcrumb">{breadcrumb}</div>
+                    {#if !isRoot}
+                    <form method="get" class="article-sort">
+                        {#if cancelMode}<input type="hidden" name="cancel" value="true">{/if}
+                        <label for="articleSort">{inject:i18n.get('manual.sort')}</label>
+                        <select id="articleSort" name="sort">
+                            <option value="DEFAULT"{#if articleSort == 'DEFAULT'} selected{/if}>{inject:i18n.get('manual.sortDefault')}</option>
+                            <option value="NAME_ASC"{#if articleSort == 'NAME_ASC'} selected{/if}>{inject:i18n.get('manual.sortNameAsc')}</option>
+                            <option value="NAME_DESC"{#if articleSort == 'NAME_DESC'} selected{/if}>{inject:i18n.get('manual.sortNameDesc')}</option>
+                            <option value="CODE_ASC"{#if articleSort == 'CODE_ASC'} selected{/if}>{inject:i18n.get('manual.sortCodeAsc')}</option>
+                            <option value="CODE_DESC"{#if articleSort == 'CODE_DESC'} selected{/if}>{inject:i18n.get('manual.sortCodeDesc')}</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary">{inject:i18n.get('manual.sortApply')}</button>
+                    </form>
+                    {/if}
+                </div>
 
                 <div class="product-grid" id="productGrid">
                     {#if isRoot}
-                        <button type="button" class="grid-btn skip-btn" onclick="selectProduct(this, 'PRODUIT NON RECONNU', '')">{inject:i18n.get('manual.nonReconnu')}</button>
+                        {#if cancelMode}<a href="/" class="grid-btn back-btn">{inject:i18n.get('common.back')}</a>{#else}
+                        <button type="button" class="grid-btn skip-btn" onclick="selectProduct(this, '{inject:i18n.get('manual.produitNonReconnu')}', '')">{inject:i18n.get('manual.nonReconnu')}</button>{/if}
                     {#else}
-                        <a href="{parentUrl}" class="grid-btn back-btn">< RETOUR</a>
+                        <a href="{parentUrl}{#if cancelMode}?cancel=true{/if}" class="grid-btn back-btn">&lt; {inject:i18n.get('common.back')}</a>
                     {/if}
 
                     {#for item in items}
                         {#if item.isCategory}
-                            <a href="{item.url}" class="grid-btn {item.sizeClass}{#if item.pinned} pinned{/if}">{item.label}</a>
+                            <a href="{item.url}{#if cancelMode}?cancel=true{/if}" class="grid-btn {item.sizeClass}{#if item.pinned} pinned{/if}">{item.label}</a>
                         {#else}
-                            <button type="button" class="grid-btn" onclick="selectProduct(this, '{item.label}', '{item.ean ?: ''}')">{item.label}</button>
+                            <button type="button" class="grid-btn article-tile" onclick="selectProduct(this, '{item.label}', '{item.ean ?: ''}')">
+                                {#if item.imageData}<img class="article-image" src="{item.imageData}" alt="">{/if}
+                                <span class="article-label">{item.label}</span>
+                                {#if showArticleEan && item.ean}<span class="article-code">{item.ean}</span>{/if}
+                                <span class="article-price">{item.priceFormatted}</span>
+                            </button>
                         {/if}
                     {/for}
                 </div>
 
                 {#if totalPages > 1}
                 <div class="pos-pager">
-                    {#if prevUrl}<a href="{prevUrl}" class="btn btn-sm btn-primary">{inject:i18n.get('manual.precedent')}</a>{#else}<span class="btn btn-sm btn-primary off">PRÉCÉDENT</span>{/if}
-                    <span class="pos-pager-info">PAGE {page} / {totalPages}</span>
-                    {#if nextUrl}<a href="{nextUrl}" class="btn btn-sm btn-primary">{inject:i18n.get('lock.next')}</a>{#else}<span class="btn btn-sm btn-primary off">SUIVANT</span>{/if}
+                    {#if prevUrl}<a href="{prevUrl}{#if cancelMode}&amp;cancel=true{/if}" class="btn btn-sm btn-primary">{inject:i18n.get('manual.precedent')}</a>{#else}<span class="btn btn-sm btn-primary off">{inject:i18n.get('manual.precedent')}</span>{/if}
+                    <span class="pos-pager-info">{inject:i18n.format('manual.pageSur', page, totalPages)}</span>
+                    {#if nextUrl}<a href="{nextUrl}{#if cancelMode}&amp;cancel=true{/if}" class="btn btn-sm btn-primary">{inject:i18n.get('lock.next')}</a>{#else}<span class="btn btn-sm btn-primary off">{inject:i18n.get('lock.next')}</span>{/if}
                 </div>
                 {/if}
             </div>
 
+            {#if cancelMode}
             <div class="price-section">
+                <p>{inject:i18n.get('manual.cancelHelp')}</p>
+                <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+            </div>
+            {/if}
+            <div class="price-section"{#if cancelMode} style="display:none;"{/if}>
                 <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:var(--fs-section);">{inject:i18n.get('manual.saisieQuantite')}</div>
                 <div id="displayValue" class="price-display pad-display" data-placeholder="1"></div>
 
-                <form action="/action/manual-add-known" method="POST" id="formKnown" style="display:none;">
+                <form action="{#if cancelMode}/action/cancel-group-article{#else}/action/manual-add-known{/if}" method="POST" id="formKnown" style="display:none;">
                     <input type="hidden" name="ean" id="inputEan" value="">
                     <input type="hidden" name="quantity" id="inputQuantity" value="1">
                 </form>
@@ -181,6 +236,7 @@
     {#include keyboard-lib /}
 <script>
     let isUnknownMode = false;
+    const cancelMode = {cancelMode};
 
     /* EXP-24: le code famille puis le prix, chacun avec le pave qui lui va.
        PosInput ne cable qu'un champ a la fois, donc un clic rebranche. */
@@ -223,6 +279,12 @@
     });
 
     function selectProduct(btn, label, ean) {
+        // LC-02-12-05: the cancellation view never borrows sale admission or a prefilled quantity.
+        if (cancelMode) {
+            document.getElementById('inputEan').value = ean;
+            document.getElementById('formKnown').submit();
+            return;
+        }
         // Une valeur tapée d'avance enregistre directement : prix pour un produit
         // non reconnu, quantité pour un produit connu. Rien de tapé, l'écran garde
         // son geste en trois temps.
@@ -254,7 +316,7 @@
 
         if (ean === null || ean === '') {
             isUnknownMode = true;
-            title.innerText = "SAISIE PRIX";
+            title.innerText = "{inject:i18n.get('manual.saisiePrix')}";
             title.style.color = "var(--warning)";
             display.style.borderColor = "var(--warning)";
             display.style.color = "var(--warning)";
@@ -275,7 +337,7 @@
 
         } else {
             isUnknownMode = false;
-            title.innerText = "SAISIE QUANTITÉ";
+            title.innerText = "{inject:i18n.get('manual.saisieQuantite')}";
             title.style.color = "var(--primary)";
             display.style.borderColor = "var(--success)";
             display.style.color = "var(--success)";

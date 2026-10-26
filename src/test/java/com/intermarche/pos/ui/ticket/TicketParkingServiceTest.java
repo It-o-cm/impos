@@ -65,6 +65,8 @@ class TicketParkingServiceTest {
         // EXP-46: the inter-till seam defaults to the OFFLINE stub (no node) — it
         // reaches nothing, so a number not parked locally stays "introuvable".
         service.interTillResumeClient = mock(InterTillResumeClient.class);
+        // LC-04-01-03: the signed trace of every putting on hold and resumption.
+        service.parkedTicketArchiveService = mock(com.intermarche.pos.service.ParkedTicketArchiveService.class);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
         return service;
     }
@@ -229,6 +231,9 @@ class TicketParkingServiceTest {
             verify(draft, times(1)).persist();
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_PARKED, "C04-000001");
+            verify(service.parkedTicketArchiveService).record(draft,
+                    com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.PARKED,
+                    service.state.auth.operatorBadgeId);
             // LC-04-01-02: the parked receipt goes out with the resume number.
             verify(service.ticketPrinterService).printParkedTicket(draft);
             assertTrue(service.state.ticket.items.isEmpty());
@@ -370,6 +375,9 @@ class TicketParkingServiceTest {
             verify(service.ticketRecoveryService).restoreDraft(draft);
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_RESUMED, "C04-000001");
+            verify(service.parkedTicketArchiveService).record(draft,
+                    com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.RESUMED,
+                    service.state.auth.operatorBadgeId);
         }
     }
 
@@ -499,6 +507,9 @@ class TicketParkingServiceTest {
             verify(service.ticketRecoveryService).restoreDraft(draft);
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_RESUMED, "C04-000001");
+            verify(service.parkedTicketArchiveService).record(draft,
+                    com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.RESUMED,
+                    service.state.auth.operatorBadgeId);
         }
     }
 
@@ -524,6 +535,9 @@ class TicketParkingServiceTest {
             verify(service.ticketRecoveryService).restoreDraft(foreign);
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_RESUMED, "C09-000009");
+            verify(service.parkedTicketArchiveService).record(foreign,
+                    com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.RESUMED,
+                    service.state.auth.operatorBadgeId);
         }
     }
 
@@ -558,5 +572,167 @@ class TicketParkingServiceTest {
         assertEquals("TICKET EN COURS - METTEZ-LE EN ATTENTE D'ABORD",
                 service.resumeForeign(foreign));
         verifyNoInteractions(service.ticketRecoveryService);
+    }
+
+    /** LC-04-01-02: REQUEST parks silently, then a local explicit print leaves the draft PARKED. */
+    @Test
+    void parkOnRequestWaitsForTheOperatorWithoutResuming() {
+        var service = newService();
+        addOneItem(service);
+        when(service.posSettingsService.parkingPrintOnRequest()).thenReturn(true);
+        when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
+        Ticket draft = draft(Ticket.TicketStatus.OPEN, "C04-00000001", TERMINAL);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(List.of());
+            panache.when(() -> Ticket.findById(7L)).thenReturn(draft);
+            assertNull(service.parkCurrent());
+            verifyNoInteractions(service.ticketPrinterService);
+            assertTrue(service.canPrintReceipt());
+            assertNull(service.printParked(7L));
+            verify(service.ticketPrinterService).printParkedTicket(draft);
+            assertEquals(Ticket.TicketStatus.PARKED, draft.status);
+            assertTrue(service.state.ticket.items.isEmpty());
+            verifyNoInteractions(service.ticketRecoveryService);
+        }
+    }
+
+    /** LC-04-01-02: disabled, absent, non-parked and foreign tickets cannot be printed on request. */
+    @Test
+    void onRequestPrintHonoursActivationAndOwnership() {
+        var service = newService();
+        when(service.posSettingsService.parkingPrintReceipt()).thenReturn(false);
+        assertNotNull(service.printParked(7L));
+        assertFalse(service.canPrintReceipt());
+        when(service.posSettingsService.parkingPrintReceipt()).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(7L)).thenReturn(null);
+            assertNotNull(service.printParked(7L));
+            var draft = draft(Ticket.TicketStatus.OPEN, "C04-00000001", TERMINAL);
+            panache.when(() -> Ticket.findById(7L)).thenReturn(draft);
+            assertNotNull(service.printParked(7L));
+            draft.status = Ticket.TicketStatus.PARKED;
+            draft.terminalId = "OTHER";
+            assertNotNull(service.printParked(7L));
+            verifyNoInteractions(service.ticketPrinterService);
+        }
+    }
+
+    /**
+     * Builds a service in training mode with a priced line in the cart and the
+     * outbox mocked.
+     *
+     * @return the service
+     */
+    private TicketParkingService trainingService() {
+        TicketParkingService service = newService();
+        service.syncOutboxService = mock(com.intermarche.pos.service.sync.register.SyncOutboxService.class);
+        service.state.trainingMode = true;
+        TicketState.TicketItem item = new TicketState.TicketItem();
+        item.unitPrice = new BigDecimal("2.50");
+        item.quantity = new BigDecimal("2");
+        service.state.ticket.items.add(item);
+        return service;
+    }
+
+    /**
+     * BO-06-06-01: a training cart put on hold waits in memory, its training
+     * row persisted and pushed with the cashier's login and badge; a second
+     * one is refused while the first waits.
+     */
+    @Test
+    void aTrainingCartIsPutOnHold() {
+        TicketParkingService service = trainingService();
+        service.state.auth.operatorId = 5L;
+        service.state.auth.operatorBadgeId = "111";
+        com.intermarche.pos.domain.people.Employee operator = new com.intermarche.pos.domain.people.Employee();
+        operator.loginName = "jdupont";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             org.mockito.MockedConstruction<com.intermarche.pos.domain.sale.TrainingTicket> built =
+                     mockConstruction(com.intermarche.pos.domain.sale.TrainingTicket.class,
+                             (mock, context) -> mock.id = 77L)) {
+            panache.when(() -> PanacheEntityBase.findById(5L)).thenReturn(operator);
+            assertNull(service.parkCurrent());
+            com.intermarche.pos.domain.sale.TrainingTicket parked = built.constructed().get(0);
+            assertEquals(TERMINAL, parked.terminalId);
+            assertEquals("jdupont", parked.cashierLogin);
+            assertEquals("111", parked.parkedBy);
+            assertEquals(1, parked.itemCount);
+            assertNotNull(parked.parkedAt);
+            verify(parked).persist();
+            verify(service.syncOutboxService).enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.TRAINING,
+                    77L);
+        }
+        assertTrue(service.state.ticket.items.isEmpty());
+        assertEquals(77L, service.state.trainingParkedId);
+        assertEquals(1, service.state.trainingParkedItems.size());
+        List<Ticket> listed = service.listParked();
+        assertEquals(1, listed.size());
+        assertEquals("FORMATION", listed.get(0).ticketNumber);
+        assertEquals(77L, listed.get(0).id);
+        assertEquals(1, listed.get(0).itemCount);
+        assertEquals(new BigDecimal("5.00"), listed.get(0).totalIncludingTax);
+        addOneItem(service);
+        assertEquals(service.i18n.get("op.ticketDejaAttenteReprenez"), service.parkCurrent());
+        assertFalse(service.canPrintReceipt());
+        assertEquals(service.i18n.get("parked.printDisabled"), service.printParked(77L));
+        verifyNoInteractions(service.ticketPersistenceService);
+    }
+
+    /**
+     * BO-06-06-01: without a signed-in operator the training row names no
+     * login; with no cart waiting the training list is empty.
+     */
+    @Test
+    void aTrainingCartWithoutOperator() {
+        TicketParkingService service = trainingService();
+        assertTrue(service.listParked().isEmpty());
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             org.mockito.MockedConstruction<com.intermarche.pos.domain.sale.TrainingTicket> built =
+                     mockConstruction(com.intermarche.pos.domain.sale.TrainingTicket.class)) {
+            assertNull(service.parkCurrent());
+            assertNull(built.constructed().get(0).cashierLogin);
+            panache.verifyNoInteractions();
+        }
+    }
+
+    /**
+     * BO-06-06-01: recalling the training cart brings it back and records the
+     * recall on its row, pushed again; a cart in progress, an unknown id or
+     * nothing waiting refuses; a row gone keeps the recall in memory.
+     */
+    @Test
+    void aTrainingCartIsRecalled() {
+        TicketParkingService service = trainingService();
+        TicketState.TicketItem waiting = service.state.ticket.items.get(0);
+        service.state.trainingParkedItems = new java.util.ArrayList<>(List.of(waiting));
+        service.state.trainingParkedId = 77L;
+        service.state.trainingParkedAt = java.time.LocalDateTime.now();
+        service.state.auth.operatorBadgeId = "222";
+        assertEquals(service.i18n.get("op.ticketCoursMettezAttente"), service.resume(77L));
+        service.state.ticket.items.clear();
+        assertEquals(service.i18n.get("op.ticketAttenteIntrouvable"), service.resume(78L));
+        com.intermarche.pos.domain.sale.TrainingTicket row = mock(com.intermarche.pos.domain.sale.TrainingTicket.class);
+        row.id = 77L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PanacheEntityBase.findById(77L)).thenReturn(row);
+            assertNull(service.resume(77L));
+        }
+        assertEquals(TERMINAL, row.resumedTerminalId);
+        assertEquals("222", row.resumedBy);
+        assertNotNull(row.resumedAt);
+        verify(row).persist();
+        verify(service.syncOutboxService).enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.TRAINING, 77L);
+        assertEquals(List.of(waiting), service.state.ticket.items);
+        assertNull(service.state.trainingParkedId);
+        assertNull(service.state.trainingParkedAt);
+        assertTrue(service.state.trainingParkedItems.isEmpty());
+        service.state.ticket.items.clear();
+        assertEquals(service.i18n.get("op.ticketAttenteIntrouvable"), service.resumeTraining(77L));
+        service.state.trainingParkedItems = new java.util.ArrayList<>(List.of(waiting));
+        service.state.trainingParkedId = 79L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            assertNull(service.resume(79L));
+        }
+        assertEquals(1, service.state.ticket.items.size());
     }
 }

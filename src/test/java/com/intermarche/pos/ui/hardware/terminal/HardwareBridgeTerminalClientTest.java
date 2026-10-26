@@ -81,16 +81,42 @@ class HardwareBridgeTerminalClientTest {
         assertEquals("TPE via le pont materiel", newClient(10, 10000).name());
     }
 
-    /**
-     * {@code requestCredit} is unsupported: it fails the callback with the
-     * dedicated message and never touches the bridge.
-     */
+    /** LC-07: c2 refunds follow the documented bridge result instead of failing locally. */
     @Test
-    void requestCreditIsNotSupported() {
+    void requestCreditReportsAcceptedOutcome() {
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=true\nanswer=REFUNDED");
         TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalOutcome> result = ArgumentCaptor.forClass(TerminalOutcome.class);
         newClient(10, 10000).requestCredit(new BigDecimal("5.00"), callback);
-        verify(callback).onError("REMBOURSEMENT NON SUPPORTE PAR LE TERMINAL");
-        verifyNoInteractions(hardware);
+        verify(hardware).startCredit("500");
+        verify(hardware, never()).startPayment(anyString());
+        verify(callback, timeout(2000)).onAccepted(result.capture());
+        assertEquals("REFUNDED", result.getValue().rawResponse);
+        assertEquals(new BigDecimal("5.00"), result.getValue().amount);
+        verify(callback, never()).onError(anyString());
+    }
+
+    /** LC-07-04-10: receipt newlines and equals signs survive the bridge transport. */
+    @Test
+    void preservesEncodedResponse() {
+        String frame = "{RS}01{D3L}CLIENT\nTOTAL=5.00\n--/--MERCHANT\n";
+        String encoded = java.util.Base64.getEncoder().encodeToString(frame.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=true\nanswer64=" + encoded);
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalOutcome> result = ArgumentCaptor.forClass(TerminalOutcome.class);
+        newClient(10, 10000).requestDebit(new BigDecimal("5.00"), callback);
+        verify(callback, timeout(2000)).onAccepted(result.capture());
+        assertEquals(frame, result.getValue().rawResponse);
+    }
+
+    /** LC-07-04-10: malformed encoded responses cannot register an accepted payment. */
+    @Test
+    void rejectsMalformedEncodedResponse() {
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=true\nanswer64=!");
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        newClient(10, 10000).requestDebit(BigDecimal.ONE, callback);
+        verify(callback, timeout(2000)).onError(UNREACHABLE);
+        verify(callback, never()).onAccepted(any());
     }
 
     /**
@@ -111,7 +137,9 @@ class HardwareBridgeTerminalClientTest {
         HardwareBridgeTerminalClient client = newClient(10, 10000);
         client.onRegisterOpened();
         client.onRegisterClosed();
-        verifyNoInteractions(hardware);
+        verify(hardware).maintenance("terminal", "login", "1");
+        verify(hardware).maintenance("terminal", "logoff", "1");
+        verifyNoMoreInteractions(hardware);
     }
 
     /**
@@ -289,4 +317,93 @@ class HardwareBridgeTerminalClientTest {
         verify(callback, never()).onAccepted(any());
         verify(callback, never()).onRefused(any());
     }
+    /** LC-07-08-02: forced degraded debit reaches WCL and still waits for a refusal or acceptance. */
+    @Test
+    void forcedDegradedUsesBridgeDecision() {
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=false\nanswer={RS}10");
+        var callback = mock(TerminalTransactionCallback.class);
+        newClient(10, 10000).requestDegradedDebit(new BigDecimal("5.00"), callback);
+        verify(hardware).startDegradedPayment("500");
+        verify(callback, timeout(2000)).onRefused(any());
+        verify(callback, never()).onAccepted(any());
+    }
+
+    /** LC-07-06-02: combined eligible cents are bounded by the requested total. */
+    @Test
+    void combinedAmountsAreBounded() {
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=true\nanswer={RS}01");
+        var callback = mock(TerminalTransactionCallback.class);
+        newClient(10, 10000).requestCombinedDebit(new BigDecimal("5.00"), new BigDecimal("10.00"), callback);
+        verify(hardware).startCombinedPayment("500;500");
+        verify(callback, timeout(2000)).onAccepted(any());
+    }
+
+    /** LC-07-08-01: both independent display-line presence legs reach the waiting screen callback. */
+    @Test
+    void liveDisplayLinesAreRelayed() {
+        when(hardware.getPaymentStatus()).thenReturn("state=RUNNING\nline1=OFFLINE INFORMATION",
+                "state=DONE\napproved=true\nline2=PRESENT CARD");
+        var callback = mock(TerminalTransactionCallback.class);
+        newClient(1, 10000).requestDebit(BigDecimal.ONE, callback);
+        verify(callback, timeout(2000)).onAccepted(any());
+        verify(callback).onDisplay("OFFLINE INFORMATION", "");
+        verify(callback).onDisplay("", "PRESENT CARD");
+    }
+
+    /** LC-07: invalid settled cents cannot be turned into an accepted payment. */
+    @Test
+    void invalidSettledAmountFails() {
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=true\nanswer={RS}01{D10}oops");
+        var callback = mock(TerminalTransactionCallback.class);
+        newClient(1, 10000).requestDebit(BigDecimal.ONE, callback);
+        verify(callback, timeout(2000)).onError(UNREACHABLE);
+        verify(callback, never()).onAccepted(any());
+    }
+
+    /** LC-07-08-02: offline refunds and combined debits both still reach WCL and await its approval. */
+    @Test
+    void forcedCreditAndCombinedReachBridge() {
+        when(hardware.getPaymentStatus()).thenReturn("state=DONE\napproved=true\nanswer={RS}01");
+        var credit = mock(TerminalTransactionCallback.class);
+        newClient(1, 10000).requestDegradedCredit(BigDecimal.ONE, credit);
+        verify(hardware).startDegradedCredit("100");
+        verify(credit, timeout(2000)).onAccepted(any());
+        var combined = mock(TerminalTransactionCallback.class);
+        newClient(1, 10000).requestDegradedCombinedDebit(BigDecimal.ONE, new BigDecimal("0.50"), combined);
+        verify(hardware).startCombinedPayment("100;50;4");
+        verify(combined, timeout(2000)).onAccepted(any());
+    }
+
+    /**
+     * Lot 21: the follower of an older transaction that fails forgets ITS
+     * transaction only — the newer one, requested while the older status read
+     * was still on the wire, keeps being followed and receives its own decision
+     * (it used to be abandoned, the failure clearing whatever was followed).
+     *
+     * @throws InterruptedException never; only the latch awaits declare it
+     */
+    @Test
+    void aStaleFailureDoesNotDropTheNewerTransaction() throws InterruptedException {
+        CountDownLatch firstRead = new CountDownLatch(1);
+        CountDownLatch newerRequested = new CountDownLatch(1);
+        when(hardware.getPaymentStatus()).thenAnswer(invocation -> {
+            firstRead.countDown();
+            assertTrue(newerRequested.await(2000, TimeUnit.MILLISECONDS));
+            throw new IllegalStateException("bridge down");
+        }).thenReturn("state=DONE\napproved=true\nanswer={RS}00");
+        HardwareBridgeTerminalClient client = newClient(1, 10000);
+        TerminalTransactionCallback older = mock(TerminalTransactionCallback.class);
+        TerminalTransactionCallback newer = mock(TerminalTransactionCallback.class);
+        client.requestDebit(new BigDecimal("3.00"), older);
+        assertTrue(firstRead.await(2000, TimeUnit.MILLISECONDS));
+        client.requestDebit(new BigDecimal("4.00"), newer);
+        newerRequested.countDown();
+        verify(older, timeout(2000)).onError(UNREACHABLE);
+        ArgumentCaptor<TerminalOutcome> captor = ArgumentCaptor.forClass(TerminalOutcome.class);
+        verify(newer, timeout(2000)).onAccepted(captor.capture());
+        assertEquals(new BigDecimal("4.00"), captor.getValue().amount);
+        verify(older, never()).onAccepted(any());
+        verify(newer, never()).onError(anyString());
+    }
+
 }

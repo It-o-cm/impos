@@ -52,6 +52,8 @@ public class LockCheckFilter implements ContainerRequestFilter {
 
     /** Path prefixes that keep answering while the register is locked. */
     private static final List<String> ALLOWED_PREFIXES = List.of(
+            "/maintenance",
+            "/action/maintenance",
             "/lock",
             "/action/unlock",
             "/action/force-unlock",
@@ -125,8 +127,9 @@ public class LockCheckFilter implements ContainerRequestFilter {
             if (idleLockoutSeconds > 0 && last > 0
                     && System.currentTimeMillis() - last > idleLockoutSeconds * 1000L) {
                 String pausedBadge = state.auth.operatorBadgeId;
+                // BO-06-06-02: the AUTOMATIC lock, after the idle delay.
                 technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
-                        null, pausedBadge);
+                        TechnicalEvent.LOCK_AUTOMATIC, pausedBadge);
                 // VERROUILLAGE or FERMETURE, as the shop administers it
                 // (BO-10-02-28). The pause (EXP-12) keeps the operator identity
                 // aside and the in-memory ticket, so the same cashier resumes

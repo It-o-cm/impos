@@ -84,7 +84,8 @@ class PosListTest {
         }
         assertEquals("Demandes de service", PosList.Kind.SERVICE_REQUEST.getLabel());
         assertEquals("Motifs de retour", PosList.Kind.RETURN_REASON.getLabel());
-        assertEquals(5, PosList.Kind.values().length);
+        assertEquals("Remises et rabais", PosList.Kind.DISCOUNT.getLabel());
+        assertEquals(6, PosList.Kind.values().length);
     }
 
     /**
@@ -123,5 +124,68 @@ class PosListTest {
         assertEquals(first.getChecksum(), second.getChecksum());
         second.numericValue = new BigDecimal("0.040");
         assertNotEquals(first.getChecksum(), second.getChecksum());
+    }
+
+    /** BO-03: nullable/blank lookup keys never query; a trimmed key returns the matching referential row. */
+    @org.junit.jupiter.api.Test
+    void coverageNullableBlankAndTrimmedCode() {
+        org.junit.jupiter.api.Assertions.assertNull(PosList.findByCode(null));
+        org.junit.jupiter.api.Assertions.assertNull(PosList.findByCode(" "));
+        PosList row = new PosList();
+        var query = org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        org.mockito.Mockito.when(query.firstResult()).thenReturn(row);
+        try (var panache = org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.find("code", "KEY")).thenReturn(query);
+            org.junit.jupiter.api.Assertions.assertSame(row, PosList.findByCode(" KEY "));
+        }
+    }
+
+    /** BO-04-03: unscoped lists serve all functions; scoped lists require a nonblank matching function. */
+    @org.junit.jupiter.api.Test
+    void coverageFunctionScopeLegs() {
+        PosList list = new PosList();
+        list.functions = null;
+        org.junit.jupiter.api.Assertions.assertTrue(list.servesFunction(null));
+        list.functions = " ";
+        org.junit.jupiter.api.Assertions.assertTrue(list.servesFunction("EXPENSE"));
+        list.functions = "RETURN; EXPENSE";
+        org.junit.jupiter.api.Assertions.assertFalse(list.servesFunction(null));
+        org.junit.jupiter.api.Assertions.assertFalse(list.servesFunction(" "));
+        org.junit.jupiter.api.Assertions.assertTrue(list.servesFunction(" expense "));
+        org.junit.jupiter.api.Assertions.assertFalse(list.servesFunction("OTHER"));
+    }
+
+    /** BO-03/08: the finder selects the required business scope and ordering, preserving the returned rows. */
+    @org.junit.jupiter.api.Test
+    void findActiveByKindUsesItsBusinessScopeAndOrder() {
+        var row = new PosList();
+        java.util.List<PosList> rows = java.util.List.of(row);
+        try (var panache = org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.list("kind = ?1 and active = true order by code", PosList.Kind.values()[0])).thenReturn(rows);
+            org.junit.jupiter.api.Assertions.assertSame(rows, PosList.findActiveByKind(PosList.Kind.values()[0]));
+            panache.verify(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.list("kind = ?1 and active = true order by code", PosList.Kind.values()[0]));
+        }
+    }
+
+    /** BO-08-01-04: each synchronized business-field change invalidates the row checksum. */
+    @org.junit.jupiter.api.Test
+    void everyBusinessFieldChangeInvalidatesTheChecksum() {
+        var row = new PosList();
+        int previous = row.getChecksum();
+        row.code = "CANCEL";
+        org.junit.jupiter.api.Assertions.assertNotEquals(previous, row.getChecksum(), "code must participate in synchronization");
+        previous = row.getChecksum();
+        row.label = "Reasons";
+        org.junit.jupiter.api.Assertions.assertNotEquals(previous, row.getChecksum(), "label must participate in synchronization");
+        previous = row.getChecksum();
+        row.kind = PosList.Kind.values()[0];
+        org.junit.jupiter.api.Assertions.assertNotEquals(previous, row.getChecksum(), "kind must participate in synchronization");
+        previous = row.getChecksum();
+        row.functions = "CANCEL";
+        org.junit.jupiter.api.Assertions.assertNotEquals(previous, row.getChecksum(), "functions must participate in synchronization");
+        previous = row.getChecksum();
+        row.active = false;
+        org.junit.jupiter.api.Assertions.assertNotEquals(previous, row.getChecksum(), "active must participate in synchronization");
+        previous = row.getChecksum();
     }
 }

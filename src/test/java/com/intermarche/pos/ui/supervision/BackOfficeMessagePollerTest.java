@@ -191,4 +191,24 @@ class BackOfficeMessagePollerTest {
         BackOfficeMessagePoller poller = poller(Optional.empty());
         poller.onStop();
     }
+    /** LC-03-07-10: administered postal choices discard blanks while preserving the mask and answer requirement. */
+    @Test
+    void postalSurveyChoicesAreTrimmedWithoutBlankEntries() {
+        var poller = poller(Optional.empty());
+        var message = new BackOfficeMessageClient.PendingMessage(null, "POSTCODE", null, "POSTAL", true, "CCCCC", " ;75000;  ");
+        var survey = poller.surveyOf(message);
+        assertEquals(java.util.List.of("75000"), survey.postalCodes);
+        assertEquals("CCCCC", survey.postalFormat);
+        assertEquals(true, survey.required);
+    }
+
+    /** LC-01-08: an unconfigured background poll completes normally without changing the operator message. */
+    @Test
+    void successfulBackgroundPollCompletesWithoutAnEndpoint() {
+        var worker = poller(Optional.empty());
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(worker::pollSafely);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(worker::pollSafely);
+        org.mockito.Mockito.verifyNoInteractions(worker.homeService);
+    }
+
 }

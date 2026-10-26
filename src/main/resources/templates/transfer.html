@@ -51,7 +51,7 @@
           <div class="ok-box">{inject:i18n.get('transfer.transfertEnregistre')}</div>
         {/if}
 
-        <h2>Transfert de règlement</h2>
+        <h2>{inject:i18n.get('transfer.transfertReglement')}</h2>
 
         {! BO-05-02-17 : le transfert n'est offert que si un moyen est autorisé en
          ! source ET un autre en destination — une seule des deux listes vide, il
@@ -87,7 +87,7 @@
             {! L'aval manager ne se saisit plus ici: au-dela du seuil le
              ! transfert est PARQUE et la modale partagee s'ouvre — badge puis
              ! PIN, entierement tactile, la meme que partout ailleurs. !}
-            <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+            <div class="hint" id="managerHint" style="display:none;">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
           </form>
         {/if}
       </div>
@@ -103,8 +103,8 @@
     </div>
   </div>
 
-  {#include endorsement /}
   {#include keyboard-lib /}
+  {#include endorsement /}
 
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);

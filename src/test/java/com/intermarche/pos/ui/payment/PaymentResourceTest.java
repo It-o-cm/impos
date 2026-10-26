@@ -61,6 +61,9 @@ class PaymentResourceTest {
         resource.state = mock(PosState.class);
         resource.state.payment = mock(PaymentState.class);
         resource.paymentService = mock(PaymentService.class);
+        // A settled sale closes: the refusal of an unsettled one is asserted
+        // by the cases that ask for it.
+        when(resource.paymentService.finalizeTransaction(any())).thenReturn(true);
         // The control point watching the abandon of settlements already taken
         // (BO-10-02-02) answers as it does with nothing administered — no
         // control —, which is what every case of this class asserts.
@@ -74,6 +77,8 @@ class PaymentResourceTest {
         // half-life renewal (imfid spec §5.1): the collaborator is asked on
         // EVERY GET /pay, so it belongs to the fixture, not to a single test.
         resource.fidelityService = mock(com.intermarche.pos.ui.fidelity.FidelityService.class);
+        resource.dematerialisedService = mock(com.intermarche.pos.ui.ticket.DematerialisedService.class);
+        resource.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
         // The conditional-printing rule (LC-08-03): every display of the payment
         // screen asks it whether the choice buttons are offered.
         resource.printPolicy = mock(com.intermarche.pos.ui.hardware.PrintPolicy.class);
@@ -103,7 +108,8 @@ class PaymentResourceTest {
      */
     private static final List<String> PAY_DATA_KEYS =
             List.of("offeredTenders", "tenderDefaults", "couponTypes", "currencies",
-                    "backupEndorsement", "showCustomerDetails", "showCustomerDiscount",
+                    "backupEndorsement", "cashbackEnabled", "cashChangerEnabled", "cashViaCoinMachine",
+                    "additionalTenders", "chequeAccountEntry", "ptDocuments", "showCustomerDetails", "showCustomerDiscount",
                     "digitalPath", "printConditional", "printChoices");
 
     /**
@@ -193,6 +199,81 @@ class PaymentResourceTest {
         assertNull(resource.state.payment.inputMode);
         assertEquals("0,00", resource.state.payment.temporaryInput);
         verify(linkSetting(chain, "digitalPath")).data("digitalPath", null);
+    }
+
+    /**
+     * LC-07-04-07/08: the payment page carries whether the store offers a
+     * card cashback, which shows the CASHBACK key.
+     */
+    @Test
+    void showPaymentPageCarriesTheCashbackOffer() {
+        PaymentResource resource = newResource();
+        when(resource.posSettingsService.cashbackEnabled()).thenReturn(true);
+        TemplateInstance[] chain = stubPayChain(resource);
+        try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class)) {
+            coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
+            assertSame(renderedView(chain), resource.showPaymentPage());
+        }
+        verify(linkSetting(chain, "cashbackEnabled")).data("cashbackEnabled", true);
+        verify(linkSetting(chain, "cashChangerEnabled")).data("cashChangerEnabled", false);
+        verify(linkSetting(chain, "ptDocuments")).data("ptDocuments", false);
+    }
+
+    /**
+     * LC-08-01-06 / LC-08-04-19: a register issuing the Portuguese documents shows
+     * the social card and FATURA keys.
+     */
+    @Test
+    void showPaymentPageCarriesThePortugueseKeys() {
+        PaymentResource resource = newResource();
+        when(resource.posSettingsService.ptDocuments()).thenReturn(true);
+        TemplateInstance[] chain = stubPayChain(resource);
+        try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class)) {
+            coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
+            assertSame(renderedView(chain), resource.showPaymentPage());
+        }
+        verify(linkSetting(chain, "ptDocuments")).data("ptDocuments", true);
+    }
+
+    /**
+     * LC-08-06-01: where the NIF is required, a payment that has not started and
+     * carries no NIF — none chosen, or an empty one — goes first to the NIF
+     * screen, and nothing is initialised.
+     */
+    @Test
+    void showPaymentPageSendsToTheNifScreenWhenARequiredNifIsMissing() {
+        for (String missing : new String[]{null, " "}) {
+            PaymentResource resource = newResource();
+            resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+            resource.state.ticket.customerTaxId = missing;
+            when(resource.posSettingsService.taxIdRequired()).thenReturn(true);
+            Response response = (Response) resource.showPaymentPage();
+            assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+            assertEquals("/sale-tax-id?next=pay", response.getLocation().toString());
+            verify(resource.paymentService, never()).initPayment(any());
+        }
+    }
+
+    /**
+     * LC-08-06-01: a recorded NIF, a payment already started or a closed sale
+     * reach the payment page as before, NIF required or not.
+     */
+    @Test
+    void showPaymentPageRendersOnceTheNifIsRecordedOrThePaymentStarted() {
+        for (int leg = 0; leg < 3; leg++) {
+            PaymentResource resource = newResource();
+            resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+            when(resource.posSettingsService.taxIdRequired()).thenReturn(true);
+            resource.state.ticket.customerTaxId = leg == 0 ? "999999990" : null;
+            resource.state.payment.paymentInProgress = leg == 1;
+            resource.state.payment.transactionComplete = leg == 2;
+            TemplateInstance[] chain = stubPayChain(resource);
+            try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class)) {
+                coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
+                assertSame(renderedView(chain), resource.showPaymentPage());
+            }
+            verify(resource.paymentService).initPayment(resource.state);
+        }
     }
 
     /**
@@ -573,6 +654,33 @@ class PaymentResourceTest {
     // --- payment methods / parseAmount ---
 
     /**
+     * LC-07-15-01: the MONNAYEUR key starts a deposit, and the overlay's two
+     * links close it on what was inserted or cancel it; each returns to the
+     * payment page.
+     */
+    @Test
+    void cashChangerActionsReachThePaymentService() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.payWithCashChanger());
+        assertRedirectPay(resource.finishCashChanger());
+        assertRedirectPay(resource.cancelCashChanger());
+        verify(resource.paymentService).processCashChanger(resource.state);
+        verify(resource.paymentService).finishCashChanger(resource.state);
+        verify(resource.paymentService).cancelCashChanger(resource.state);
+    }
+
+    /**
+     * {@code doCardCashback()} parses the cash the customer wants back and
+     * hands it to the card cashback (LC-07-04-08).
+     */
+    @Test
+    void doCardCashbackParsesTheCashWanted() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doCardCashback("20,00"));
+        verify(resource.paymentService).processCardCashback(resource.state, new BigDecimal("20.00"));
+    }
+
+    /**
      * {@code doCardPayment()} parses a valid French-comma amount and registers
      * the card payment (parseAmount: non-null, non-blank, valid number).
      */
@@ -624,8 +732,8 @@ class PaymentResourceTest {
     @Test
     void doChequePaymentParsesAmount() {
         PaymentResource resource = newResource();
-        assertRedirectPay(resource.doChequePayment("5"));
-        verify(resource.paymentService).processCheque(resource.state, new BigDecimal("5"));
+        assertRedirectPay(resource.doChequePayment("5", "12345"));
+        verify(resource.paymentService).processCheque(resource.state, new BigDecimal("5"), "12345");
     }
 
     // --- openVoucherPanel ---
@@ -949,9 +1057,9 @@ class PaymentResourceTest {
     void aKeyedAmountBeyondTheCeilingIsRefusedAtLevelEndorse() {
         PaymentResource resource = newResource();
         armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.ENDORSE);
-        assertRedirectPay(resource.doChequePayment("900,00"));
+        assertRedirectPay(resource.doChequePayment("900,00", null));
         verify(resource.state.ticket).setError("MONTANT D'UN RÈGLEMENT");
-        verify(resource.paymentService, never()).processCheque(any(), any());
+        verify(resource.paymentService, never()).processCheque(any(), any(), any());
     }
 
     /**
@@ -1110,6 +1218,73 @@ class PaymentResourceTest {
         assertEquals("/", response.getLocation().toString());
     }
 
+    /** LC-07-01-02/-03: cash part payment blocks return and offers cancellation. */
+    @Test
+    void returnWithCashPaymentRequiresConfirmation() {
+        PaymentResource resource = newResource();
+        resource.state.payment = new PaymentState();
+        resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        resource.state.payment.payments.add(new PaymentState.PaymentEntry("CASH", BigDecimal.ONE));
+        assertRedirectPay(resource.returnToItems());
+        assertTrue(resource.state.payment.returnCancellationOffered);
+        verify(resource.paymentService, never()).cancelPayments(any());
+    }
+
+    /** LC-07-01-04/-05: an externally acquired card settlement also blocks return. */
+    @Test
+    void returnWithCardPaymentRequiresConfirmation() {
+        PaymentResource resource = newResource();
+        resource.state.payment = new PaymentState();
+        resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        resource.state.payment.payments.add(new PaymentState.PaymentEntry("CARD", BigDecimal.ONE));
+        assertRedirectPay(resource.returnToItems());
+        assertTrue(resource.state.payment.returnCancellationOffered);
+        verify(resource.paymentService, never()).cancelPayments(any());
+    }
+
+    /** LC-07-01-01: no registered payment allows the existing return path. */
+    @Test
+    void returnWithoutPaymentGoesHome() {
+        PaymentResource resource = newResource();
+        resource.state.payment = new PaymentState();
+        Response response = resource.returnToItems();
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.paymentService).cancelPayments(resource.state);
+    }
+
+    /** LC-07-05-05: deferred-cheque entry parses and delegates its own tender. */
+    @Test
+    void deferredChequeDelegates() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doDeferredChequePayment("4,50"));
+        verify(resource.paymentService).processDeferredCheque(resource.state, new BigDecimal("4.50"));
+    }
+
+    /** LC-07-05-05: the common payment ceiling also refuses a deferred cheque. */
+    @Test
+    void deferredChequeHonoursPaymentCeiling() {
+        PaymentResource resource = newResource();
+        armPaymentCeiling(resource, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(resource.doDeferredChequePayment("900,00"));
+        verify(resource.paymentService, never()).processDeferredCheque(any(), any());
+    }
+
+    /** LC-07-10-05: explicit paper-signature confirmation reaches the service. */
+    @Test
+    void confirmsLoyaltySignature() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.confirmFidelitySignature(true));
+        verify(resource.paymentService).confirmFidelitySignature(resource.state, true);
+    }
+
+    /** LC-07-10-05: signature refusal also reaches the service. */
+    @Test
+    void refusesLoyaltySignature() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.confirmFidelitySignature(false));
+        verify(resource.paymentService).confirmFidelitySignature(resource.state, false);
+    }
+
     // --- printTicket ---
 
     /**
@@ -1132,8 +1307,9 @@ class PaymentResourceTest {
     }
 
     /**
-     * {@code printTicket()} prints the draft by id and, when the completion
-     * modal is shown, redirects to the payment page ({@code trainingMode}
+     * {@code printTicket()} prints the draft by id with the detail of its
+     * returns (LC-05-07-02) and, when the completion modal is shown, redirects
+     * to the payment page ({@code trainingMode}
      * false, {@code ticketId != null}, no exception,
      * {@code transactionComplete} true; PRG pattern).
      */
@@ -1146,8 +1322,28 @@ class PaymentResourceTest {
         Response response = resource.printTicket();
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/pay", response.getLocation().toString());
+        verify(resource.paymentService).freezeFidelityForPrint(resource.state, 9L);
         verify(resource.ticketPrinterService).printTicket(9L);
+        verify(resource.ticketPrinterService).printReturnDetail(9L);
         verify(resource.ticketPrinterService, never()).printTrainingReceipt(any());
+    }
+
+    /**
+     * LC-13-06-13: the IMPRIMER key prints the receipt of the sale under way in
+     * the language the customer chose on the customer display.
+     */
+    @Test
+    void printTicketPrintsTheReceiptInTheCustomersLanguage() {
+        PaymentResource resource = newResource();
+        resource.i18n = TestMessages.french(resource.state);
+        resource.state.customerLanguage = "nl";
+        resource.state.payment.ticketDbId = 9L;
+        java.util.List<String> languages = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(call -> languages.add(resource.i18n.getLang()))
+                .when(resource.ticketPrinterService).printTicket(9L);
+        resource.printTicket();
+        assertEquals(java.util.List.of("nl"), languages);
+        assertEquals("fr", resource.i18n.getLang());
     }
 
     /**
@@ -1167,6 +1363,7 @@ class PaymentResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
         verify(resource.ticketPrinterService).printTicket(9L);
+        verify(resource.paymentService, never()).freezeFidelityForPrint(any(), any());
     }
 
     /**
@@ -1335,6 +1532,25 @@ class PaymentResourceTest {
     }
 
     /**
+     * {@code doSocialCardPayment} parses the amount and delegates to the social
+     * card payment, then redirects to the pay screen (LC-08-01-06); a keyed amount
+     * the payment control refuses settles nothing.
+     */
+    @Test
+    void doSocialCardPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doSocialCardPayment("10,00"));
+        verify(resource.paymentService).processSocialCard(resource.state, new BigDecimal("10.00"));
+        PaymentResource refused = newResource();
+        refused.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        when(refused.posSettingsService.controlPaymentAmountMax()).thenReturn(BigDecimal.ONE);
+        when(refused.endorsementService.check(any(), any()))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(refused.doSocialCardPayment("2"));
+        verify(refused.paymentService, never()).processSocialCard(any(), any());
+    }
+
+    /**
      * {@code doRestoFlashPayment} delegates with the token and parsed amount,
      * then redirects to the pay screen (EXP-67).
      */
@@ -1357,6 +1573,19 @@ class PaymentResourceTest {
     }
 
     /**
+     * LC-07-11-01: the balance panel pays the card the hub read for the amount
+     * typed, or puts it aside, and both redirect to the pay screen.
+     */
+    @Test
+    void theHubGiftCardPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doGiftCardHubPayment("12,40"));
+        verify(resource.paymentService).payGiftCardOnHub(resource.state, new BigDecimal("12.40"));
+        assertRedirectPay(resource.cancelGiftCardHub());
+        verify(resource.paymentService).cancelPendingGiftCard(resource.state);
+    }
+
+    /**
      * {@code doSogecPayment} delegates with the coupon code and parsed amount,
      * then redirects to the pay screen (EXP-58).
      */
@@ -1365,5 +1594,230 @@ class PaymentResourceTest {
         PaymentResource resource = newResource();
         assertRedirectPay(resource.doSogecPayment("SG1", "5,00"));
         verify(resource.paymentService).processSogec(resource.state, "SG1", new BigDecimal("5.00"));
+    }
+    /** LC-07: every tender route refuses an excessive amount before touching its monetary collaborator. */
+    @Test
+    void coverageTenderAmountCeilingsBeforeDispatch() {
+        var resource = newResource();
+        resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        when(resource.posSettingsService.controlPaymentAmountMax()).thenReturn(BigDecimal.ONE);
+        when(resource.endorsementService.check(any(), any())).thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(resource.doTrPayment("2"));
+        assertRedirectPay(resource.doFidelityPayment("2"));
+        assertRedirectPay(resource.doTrdPayment("2"));
+        assertRedirectPay(resource.doRestoFlashPayment("TOKEN", "2"));
+        assertRedirectPay(resource.doGiftCardPayment("CARD", "2"));
+        assertRedirectPay(resource.doGiftCardHubPayment("2"));
+        assertRedirectPay(resource.doSogecPayment("COUPON", "2"));
+        assertRedirectPay(resource.doBackupPayment("2", "OP", "SECRET"));
+        assertRedirectPay(resource.doCurrencyPayment("2"));
+        assertRedirectPay(resource.doCreditPayment("2"));
+        assertRedirectPay(resource.printChequeFront("2"));
+        verifyNoInteractions(resource.paymentService, resource.backupPaymentService, resource.foreignCurrencyService, resource.creditClientService);
+    }
+
+    /** LC-07: zero combined-key requests and cheque front printing retain both amount-control outcomes. */
+    @Test
+    void coverageCombinedKeyAndFrontPrintingGuards() throws Exception {
+        var resource = newResource();
+        resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        assertRedirectPay(resource.printChequeFront("1"));
+        verify(resource.paymentService).printChequeFront(eq(resource.state), eq(new BigDecimal("1")));
+        assertRedirectPay(resource.doCombinedCardPayment());
+        verify(resource.paymentService).processCard(resource.state, BigDecimal.ZERO, true);
+        when(resource.posSettingsService.controlPaymentAmountMax()).thenReturn(BigDecimal.ONE.negate());
+        when(resource.endorsementService.check(any(), any())).thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(resource.doCombinedCardPayment());
+        verify(resource.paymentService, times(1)).processCard(resource.state, BigDecimal.ZERO, true);
+        var guard = PaymentResource.class.getDeclaredMethod("paymentAmountAllowed", BigDecimal.class);
+        guard.setAccessible(true);
+        assertEquals(true, guard.invoke(resource, (Object) null));
+        resource.doNetRefund(" ");
+        verify(resource.paymentService).processNetRefund(resource.state, "CASH");
+    }
+
+    /** BO-10-02-02: cancellation blocks, requests endorsement, warns or silently proceeds according to each administered leg. */
+    @Test
+    void coverageCancellationControlLegs() {
+        for (var level : com.intermarche.pos.ui.endorsement.ControlLevel.values()) {
+            for (boolean silent : new boolean[]{false, true}) {
+                var resource = newResource();
+                resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+                when(resource.posSettingsService.islandBlockPaymentPopups()).thenReturn(silent);
+                when(resource.endorsementService.check(any(), any())).thenReturn(level);
+                var result = resource.cancelPayment();
+                boolean stopped = level == com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK
+                        || level == com.intermarche.pos.ui.endorsement.ControlLevel.ENDORSE;
+                assertEquals(stopped ? "/pay" : "/", result.getLocation().toString());
+                if (level == com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK
+                        || level == com.intermarche.pos.ui.endorsement.ControlLevel.ENDORSE)
+                    verify(resource.paymentService, never()).cancelPayments(any());
+                else verify(resource.paymentService).cancelPayments(resource.state);
+                if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN && !silent)
+                    assertTrue(resource.state.ticket.transientWarn);
+            }
+        }
+    }
+
+    /** LC-07-04-10: the legacy print button delegates exact vendor frames to the payment service. */
+    @Test
+    void coverageLegacyPrintWithMoneticFrames() {
+        var resource = newResource();
+        resource.state.payment.ticketDbId = 9L;
+        when(resource.paymentService.hasMoneticFrames(resource.state)).thenReturn(true);
+        assertEquals("/", resource.printTicket().getLocation().toString());
+        verify(resource.paymentService).printTicketWithMoneticFrames(resource.state, 9L);
+        verify(resource.ticketPrinterService, never()).printTicket(any());
+    }
+
+    /**
+     * A sale the service refuses to close as unsettled stays open: the cashier
+     * is sent back to the payment screen while a payment is under way, and
+     * never to the e-mail offer.
+     */
+    @Test
+    void validatePaymentRefusedAsUnsettledReturnsToThePaymentScreen() {
+        var resource = newResource();
+        resource.state.payment.ticketDbId = 42L;
+        resource.state.payment.transactionComplete = true;
+        resource.state.payment.paymentInProgress = true;
+        when(resource.posSettingsService.ticketEmailOffer()).thenReturn(true);
+        when(resource.paymentService.finalizeTransaction(resource.state)).thenReturn(false);
+        Response response = resource.validatePayment();
+        assertEquals(303, response.getStatus());
+        assertEquals("/pay", response.getLocation().toString());
+    }
+
+    /**
+     * A direct close of an unsettled sale from the sale screen (no payment
+     * under way) is refused and lands back on the sale screen.
+     */
+    @Test
+    void validatePaymentRefusedOutsideAPaymentReturnsToTheSaleScreen() {
+        var resource = newResource();
+        resource.state.payment.paymentInProgress = false;
+        when(resource.paymentService.finalizeTransaction(resource.state)).thenReturn(false);
+        assertEquals("/", resource.validatePayment().getLocation().toString());
+    }
+
+    /** LC-08-02-05: a completed persisted sale offers e-mail only after successful finalization; reload cannot offer it again. */
+    @Test
+    void completedSaleOffersEmailAfterFinalizationOnly() {
+        var resource = newResource();
+        resource.state.payment.ticketDbId = 42L;
+        resource.state.payment.transactionComplete = true;
+        when(resource.posSettingsService.ticketEmailOffer()).thenReturn(true);
+        org.mockito.Mockito.doAnswer(call -> {
+            resource.state.lastClosedTicketId = 42L;
+            resource.state.payment.ticketDbId = null;
+            resource.state.payment.transactionComplete = false;
+            return true;
+        }).when(resource.paymentService).finalizeTransaction(resource.state);
+        assertEquals("/ticket-email", resource.validatePayment().getLocation().toString());
+        assertEquals("/", resource.validatePayment().getLocation().toString());
+    }
+
+    /** LC-08-02-05: training, incomplete payment, absent draft, disabled offer and failed close each stay on the sale screen. */
+    @Test
+    void emailOfferRequiresEveryCompletionCondition() {
+        for (int leg = 0; leg < 5; leg++) {
+            var resource = newResource();
+            resource.state.trainingMode = leg == 0;
+            resource.state.payment.transactionComplete = leg != 1;
+            resource.state.payment.ticketDbId = leg == 2 ? null : 42L;
+            when(resource.posSettingsService.ticketEmailOffer()).thenReturn(leg != 3);
+            resource.state.lastClosedTicketId = 99L;
+            assertEquals("/", resource.validatePayment().getLocation().toString(), "leg " + leg);
+            verify(resource.paymentService).finalizeTransaction(resource.state);
+        }
+    }
+
+    /**
+     * BO-03-02-01: a tender the store added settles through its own action,
+     * unless the keyed amount is refused at the ceiling of a settlement.
+     */
+    @Test
+    void anAddedTenderSettlesThroughItsAction() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doAdditionalTenderPayment("AMEX", "12,50"));
+        verify(resource.paymentService).processAdditionalTender(resource.state, "AMEX", new BigDecimal("12.50"));
+        PaymentResource refused = newResource();
+        armPaymentCeiling(refused, "500.00", com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        assertRedirectPay(refused.doAdditionalTenderPayment("AMEX", "900,00"));
+        verify(refused.paymentService, never()).processAdditionalTender(any(), any(), any());
+    }
+
+    /**
+     * BO-03-01/-24/-36: the payment page carries the keys of the tenders the
+     * store added, whether the cash key goes through the coin machine, and
+     * whether the cheque form asks for the account number — no cheque row, a
+     * row that does not ask, and one that asks.
+     */
+    @Test
+    void showPaymentPageCarriesTheAddedTendersAndTheChequeEntry() {
+        com.intermarche.pos.domain.payment.TenderDefinition amex =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        amex.code = "AMEX";
+        com.intermarche.pos.domain.payment.TenderDefinition cheque =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        cheque.code = "CHEQUE";
+        for (int round = 0; round < 3; round++) {
+            PaymentResource resource = newResource();
+            when(resource.tenderRulesService.additional()).thenReturn(List.of(amex));
+            when(resource.tenderRulesService.cashViaCoinMachine(false)).thenReturn(true);
+            cheque.accountNumberEntry = round == 2;
+            when(resource.tenderRulesService.tender("CHEQUE")).thenReturn(round == 0 ? null : cheque);
+            TemplateInstance[] chain = stubPayChain(resource);
+            try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class)) {
+                coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
+                resource.showPaymentPage();
+            }
+            verify(linkSetting(chain, "additionalTenders")).data("additionalTenders", List.of(amex));
+            verify(linkSetting(chain, "cashViaCoinMachine")).data("cashViaCoinMachine", true);
+            verify(linkSetting(chain, "chequeAccountEntry")).data("chequeAccountEntry", round == 2);
+        }
+    }
+
+    /**
+     * BO-11-03-04: where the NEXO exchange happens at payment, entering it
+     * activates the pending dematerialised articles; a refused one is struck
+     * and the cashier is sent back to the sale before any settlement. Once the
+     * payment has started, nothing is activated again.
+     */
+    @Test
+    void enteringPaymentActivatesThePendingDematerialisedArticles() {
+        PaymentResource resource = newResource();
+        when(resource.dematerialisedService.activationAtPayment()).thenReturn(true);
+        when(resource.dematerialisedService.activatePending(resource.state)).thenReturn(List.of("u1"));
+        jakarta.ws.rs.core.Response back = (jakarta.ws.rs.core.Response) resource.showPaymentPage();
+        assertEquals("/", back.getLocation().toString());
+        verify(resource.ticketService).cancelItemById(resource.state, "u1");
+        verify(resource.paymentService, never()).initPayment(resource.state);
+        when(resource.dematerialisedService.activatePending(resource.state)).thenReturn(List.of());
+        TemplateInstance[] chain = stubPayChain(resource);
+        try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class)) {
+            coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
+            assertSame(renderedView(chain), resource.showPaymentPage());
+            resource.state.payment.paymentInProgress = true;
+            assertSame(renderedView(chain), resource.showPaymentPage());
+        }
+        verify(resource.dematerialisedService, org.mockito.Mockito.times(2)).activatePending(resource.state);
+    }
+
+    /**
+     * EXP-67: the payment screen arms the scanner when its Resto Flash zone opens
+     * and disarms it when another zone takes the pad; the answer is a 204, the
+     * script asks for no page.
+     */
+    @Test
+    void armRestoFlashScanFollowsTheZone() {
+        PaymentResource resource = newResource();
+        assertEquals(204, resource.armRestoFlashScan("true").getStatus());
+        assertTrue(resource.state.payment.restoFlashScanArmed);
+        assertEquals(204, resource.armRestoFlashScan("false").getStatus());
+        assertFalse(resource.state.payment.restoFlashScanArmed);
+        resource.armRestoFlashScan("true");
+        resource.armRestoFlashScan(null);
+        assertFalse(resource.state.payment.restoFlashScanArmed);
     }
 }

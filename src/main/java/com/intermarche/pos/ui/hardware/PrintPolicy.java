@@ -49,11 +49,29 @@ public class PrintPolicy {
     /** Forced-document key of the credit note (avoir) in the administered list. */
     public static final String DOCUMENT_CREDIT_NOTE = "AVOIR";
 
+    /** Forced-document key of the return receipt (LC-08-03-07). */
+    public static final String DOCUMENT_RETURN = "RETOUR";
+
+    /** Forced-document key of both customer deposit receipt paths (LC-08-03-07). */
+    public static final String DOCUMENT_DEPOSIT = "ACOMPTE";
+
     /** Forced-document key of the loyalty settlement slip (BO-03-03-10). */
     public static final String DOCUMENT_LOYALTY = "FID";
 
     /** Forced-document key of the handover slip of the articles to collect. */
     public static final String DOCUMENT_COLLECTION = "ENLEVEMENT";
+
+    /**
+     * Forced-document key of the slip of a settlement paid by gift or prepaid
+     * card (BO-03-03-01).
+     */
+    public static final String DOCUMENT_GIFT_CARD_PAYMENT = "CARTE_PREPAYEE";
+
+    /**
+     * Forced-document key of the activation ticket of a dematerialised article
+     * (BO-03-03-01).
+     */
+    public static final String DOCUMENT_DEMATERIALISED = "DEMAT";
 
     /** The back-office parameters carrying the whole rule. */
     @Inject

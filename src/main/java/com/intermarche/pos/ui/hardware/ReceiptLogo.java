@@ -2,13 +2,16 @@ package com.intermarche.pos.ui.hardware;
 
 import org.jboss.logging.Logger;
 
-import javax.imageio.ImageIO;
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Base64;
 import java.util.Optional;
+import javax.imageio.ImageIO;
 
 /**
  * The store logo, turned into what a receipt printer can print.
@@ -265,28 +268,40 @@ public final class ReceiptLogo {
      * @return the cropped image's bytes, or empty when there is nothing printable
      */
     private static Optional<byte[]> croppedPng() {
-        try (InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE)) {
-            if (stream == null) {
-                LOGGER.infof("Aucun logo (%s absent) : document sans logo", RESOURCE);
-                return Optional.empty();
-            }
-            BufferedImage source = ImageIO.read(stream);
-            if (source == null) {
-                LOGGER.warnf("Logo illisible (%s) : document sans logo", RESOURCE);
-                return Optional.empty();
-            }
-            BufferedImage fitted = fit(source, PRINT_WIDTH);
-            if (fitted == null) {
-                LOGGER.warnf("Logo entierement blanc (%s) : document sans logo", RESOURCE);
-                return Optional.empty();
-            }
-            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
-            ImageIO.write(fitted, "png", png);
-            return Optional.of(png.toByteArray());
+        InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE);
+        if (stream == null) {
+            LOGGER.infof("Aucun logo (%s absent) : document sans logo", RESOURCE);
+            return Optional.empty();
+        }
+        try (stream) {
+            return croppedPng(stream);
         } catch (IOException e) {
             LOGGER.warnf(e, "Logo illisible (%s) : document sans logo", RESOURCE);
             return Optional.empty();
         }
+    }
+
+    /**
+     * LC-08-01: Encodes the opened logo without duplicating resource cleanup on its early returns.
+     *
+     * @param stream the non-null resource owned by the caller
+     * @return the encoded logo, or empty when the image has no printable content
+     * @throws IOException when the image cannot be decoded or encoded
+     */
+    private static Optional<byte[]> croppedPng(InputStream stream) throws IOException {
+        BufferedImage source = ImageIO.read(stream);
+        if (source == null) {
+            LOGGER.warnf("Logo illisible (%s) : document sans logo", RESOURCE);
+            return Optional.empty();
+        }
+        BufferedImage fitted = fit(source, PRINT_WIDTH);
+        if (fitted == null) {
+            LOGGER.warnf("Logo entierement blanc (%s) : document sans logo", RESOURCE);
+            return Optional.empty();
+        }
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        ImageIO.write(fitted, "png", png);
+        return Optional.of(png.toByteArray());
     }
 
     /**
@@ -296,26 +311,39 @@ public final class ReceiptLogo {
      * @return the directive, or empty when there is nothing printable
      */
     private static Optional<String> read(int width) {
-        try (InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE)) {
-            if (stream == null) {
-                LOGGER.infof("Aucun logo de ticket (%s absent) : en-tete texte seul", RESOURCE);
-                return Optional.empty();
-            }
-            BufferedImage source = ImageIO.read(stream);
-            if (source == null) {
-                LOGGER.warnf("Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
-                return Optional.empty();
-            }
-            BufferedImage fitted = fit(source, width);
-            if (fitted == null) {
-                LOGGER.warnf("Logo de ticket entierement blanc (%s) : en-tete texte seul", RESOURCE);
-                return Optional.empty();
-            }
-            return Optional.of(encode(fitted));
+        InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE);
+        if (stream == null) {
+            LOGGER.infof("Aucun logo de ticket (%s absent) : en-tete texte seul", RESOURCE);
+            return Optional.empty();
+        }
+        try (stream) {
+            return read(stream, width);
         } catch (IOException e) {
             LOGGER.warnf(e, "Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
             return Optional.empty();
         }
+    }
+
+    /**
+     * LC-08-01: Rasterises the opened logo without duplicating resource cleanup on its early returns.
+     *
+     * @param stream the non-null resource owned by the caller
+     * @param width the target printer width in dots
+     * @return the encoded logo, or empty when the image has no printable content
+     * @throws IOException when the image cannot be decoded or encoded
+     */
+    private static Optional<String> read(InputStream stream, int width) throws IOException {
+        BufferedImage source = ImageIO.read(stream);
+        if (source == null) {
+            LOGGER.warnf("Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
+            return Optional.empty();
+        }
+        BufferedImage fitted = fit(source, width);
+        if (fitted == null) {
+            LOGGER.warnf("Logo de ticket entierement blanc (%s) : en-tete texte seul", RESOURCE);
+            return Optional.empty();
+        }
+        return Optional.of(encode(fitted));
     }
 
     /**

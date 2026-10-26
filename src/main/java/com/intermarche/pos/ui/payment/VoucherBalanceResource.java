@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -38,6 +39,14 @@ public class VoucherBalanceResource {
     /** The register's composition root. */
     @Inject
     PosState state;
+
+    /** The payment hub a NEXO prepaid card's balance is asked of (BO-03-02-37). */
+    @Inject
+    NexoHubClient nexoHubClient;
+
+    /** The localised operator messages. */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /**
      * Shows the consultation page; when a number travels in the query string
@@ -102,6 +111,29 @@ public class VoucherBalanceResource {
      */
     private BalanceView lookup(String number) {
         BalanceView view = new BalanceView();
+        // BO-03-02-37: the administered type of prepaid card says whether the
+        // balance may be consulted, and whom to ask — the hub for a NEXO card.
+        com.intermarche.pos.domain.payment.PrepaidCardType type = prepaidType(number);
+        if (type != null && !type.balanceAllowed) {
+            view.refusal = i18n.format("op.soldeNonConsultable", type.label);
+            return view;
+        }
+        if (type != null && type.isNexo() && nexoHubClient.isConfigured() && !state.trainingMode) {
+            NexoHubClient.HubResult result = nexoHubClient.balance(number.trim());
+            if (!result.success()) {
+                view.refusal = i18n.format("op.soldeRefuseHub", type.label,
+                        result.message() == null ? "" : result.message());
+                return view;
+            }
+            view.found = true;
+            view.number = number.trim();
+            view.kindLabel = type.label;
+            view.statusLabel = "ACTIVE";
+            BigDecimal balance = result.balance() == null ? BigDecimal.ZERO : result.balance();
+            view.balanceFormatted = String.format("%.2f",
+                    balance.setScale(2, RoundingMode.HALF_UP)).replace('.', ',');
+            return view;
+        }
         StoredValue instrument =
                 StoredValue.<StoredValue>find("number", number.trim()).firstResult();
         if (instrument != null) {
@@ -115,6 +147,21 @@ public class VoucherBalanceResource {
                     instrument.balance.setScale(2, RoundingMode.HALF_UP)).replace('.', ',');
         }
         return view;
+    }
+
+    /**
+     * Reads the administered type of prepaid card a number belongs to
+     * (BO-03-02-37), a referential that cannot be read naming none.
+     *
+     * @param number the instrument number
+     * @return the type, or null
+     */
+    private com.intermarche.pos.domain.payment.PrepaidCardType prepaidType(String number) {
+        try {
+            return com.intermarche.pos.domain.payment.PrepaidCardType.findFor(number);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -133,5 +180,7 @@ public class VoucherBalanceResource {
         public String statusLabel;
         /** The balance, French format. */
         public String balanceFormatted;
+        /** Why the consultation was refused (BO-03-02-37), or null. */
+        public String refusal;
     }
 }

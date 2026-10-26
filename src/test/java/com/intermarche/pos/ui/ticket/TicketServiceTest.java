@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -119,6 +120,12 @@ class TicketServiceTest {
         // Original price shown at its catalog default (BO-10-07-12), so the
         // historical "Prix initial" assertions on forcePrice hold.
         when(service.posSettingsService.priceShowOriginalOnForce()).thenReturn(true);
+        // BO-10-01: the channel gate admits every document as it is and refuses
+        // no addition, the behaviour of a store administering no channel rule;
+        // the price source of the channels defers to the global rule.
+        service.channelGate = mock(com.intermarche.pos.ui.recall.ChannelGate.class);
+        when(service.channelGate.admit(any(), any())).thenAnswer(call -> call.getArgument(1));
+        service.channelRules = new com.intermarche.pos.ui.recall.ChannelRules(service.posSettingsService);
         state = new PosState();
         hardwareService = mock(HardwareService.class);
         ticketPersistenceService = mock(TicketPersistenceService.class);
@@ -136,6 +143,12 @@ class TicketServiceTest {
         service.valuationService = valuationService;
         service.cashSessionService = cashSessionService;
         service.ticketPrinterService = ticketPrinterService;
+        // LC-02-09-02: no activated article stands in the way of a cancellation —
+        // every pre-existing case; the hub cases state their refusal.
+        service.dematerialisedService = mock(DematerialisedService.class);
+        when(service.dematerialisedService.reverse(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        when(service.dematerialisedService.reverseAll(org.mockito.ArgumentMatchers.any())).thenReturn(true);
         // LC-04-04-12: cancelling a draft asks the abandon rules whether a ticket is
         // printed. The stand-in answers no, which is the shop that prints none — the
         // default of every case below.
@@ -283,6 +296,28 @@ class TicketServiceTest {
         assertEquals(-1, state.selectedTicketIndex);
         verify(ticketPersistenceService, never()).syncDraft(state);
         verify(valuationService, never()).revalue(state);
+    }
+
+    /**
+     * BO-06-04-05: a KEYED code walks the scan chain and the articles it rang
+     * stay unscanned — keyed ones — the lines already in the cart left as they
+     * were; the keyed marker does not outlive the code.
+     */
+    @Test
+    void processKeyedMarksTheArticlesItRang() {
+        state.auth.isLocked = true;
+        TicketState.TicketItem before = new TicketState.TicketItem();
+        before.uid = "old";
+        before.scanned = true;
+        state.ticket.items.add(before);
+        TicketState.TicketItem rung = new TicketState.TicketItem();
+        rung.uid = "new";
+        ScanContext.ScanHandler adding = context -> state.ticket.items.add(rung);
+        when(scanHandlers.spliterator()).thenReturn(List.of(adding).spliterator());
+        service.processKeyed("123");
+        assertFalse(rung.scanned);
+        assertTrue(before.scanned);
+        assertFalse(state.keyedEntry);
     }
 
     /**
@@ -1023,7 +1058,7 @@ class TicketServiceTest {
         assertEquals(0, new BigDecimal("9").compareTo(item.unitPrice));
         assertEquals(PriceModType.DISCOUNT, item.modifierType);
         assertEquals(0, new BigDecimal("10").compareTo(item.modifierValue));
-        assertEquals("Discount -10,00%", item.modifierLabel);
+        assertEquals("Remise -10,00%", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
     }
 
@@ -1210,6 +1245,8 @@ class TicketServiceTest {
             // BO-02-03-04: the EAN miss falls back to the internal-code lookup,
             // which also misses here — both empty yields PRODUIT INTROUVABLE.
             panache.when(() -> Product.find("internalCode = ?1 and active = true", "123")).thenReturn(query);
+            panache.when(() -> Product.find("select p from Product p join p.saleCodes c where c = ?1 and p.active = true",
+                    "123")).thenReturn(query);
             service.addItemByEan(state, "123", BigDecimal.ONE);
         }
         assertEquals("PRODUIT INTROUVABLE", state.ticket.transientError);
@@ -1430,6 +1467,74 @@ class TicketServiceTest {
         assertFalse(state.ticket.items.get(0).mealVoucherEligible);
     }
 
+    /** LC-05-02-02: retain a single net weighing and tare while lowering/raising a return price. */
+    @Test
+    void weighedReturnConfirmsPriceWithoutASecondWeighing() {
+        openSession();
+        state.returnMode = true;
+        state.returnTypeLabel = "Without receipt";
+        when(service.posListService.returnType("Without receipt")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Without receipt", false, false, true, true));
+        Product p = product("APPLES", null, "1234");
+        when(hardwareService.awaitWeighing(any())).thenReturn(1.5, 2.5);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            products.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("3.00", "0.055"));
+            for (String amount : List.of("2.00", "4.00")) {
+                int before = state.ticket.items.size();
+                service.addItemByPlu(state, "1234");
+                assertEquals(before, state.ticket.items.size());
+                assertEquals("3,00", state.entryPrompt.unitPriceFormatted);
+                BigDecimal weight = state.entryPrompt.quantity;
+                BigDecimal tare = state.entryPrompt.appliedTareKg;
+                service.confirmEntry(state, new BigDecimal(amount));
+                assertFalse(state.entryPrompt.active);
+                assertNull(state.entryPrompt.plu);
+                assertNull(state.entryPrompt.appliedTareKg);
+                var line = state.ticket.items.get(before);
+                assertEquals("1234", line.plu);
+                assertEquals(tare, line.appliedTareKg);
+                assertEquals(0, weight.negate().compareTo(line.quantity));
+                assertEquals(0, new BigDecimal(amount).compareTo(line.unitPrice));
+            }
+            verify(hardwareService, times(2)).awaitWeighing(any());
+        }
+    }
+
+    /** LC-05-02-02: cancelling price confirmation registers nothing and allows the same weight again. */
+    @Test
+    void cancellingWeighedReturnDoesNotConsumeTheWeighingGuard() {
+        openSession();
+        state.returnMode = true;
+        state.returnTypeLabel = "Without receipt";
+        when(service.posListService.returnType("Without receipt")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Without receipt", false, false, true, true));
+        Product p = product("APPLES", null, "1234");
+        when(hardwareService.awaitWeighing(any())).thenReturn(1.5);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            products.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("3.00", "0.055"));
+            service.addItemByPlu(state, "1234");
+            service.confirmEntry(state, BigDecimal.ZERO);
+            assertTrue(state.entryPrompt.active);
+            assertTrue(state.ticket.items.isEmpty());
+            service.cancelEntry(state);
+            assertNull(state.entryPrompt.plu);
+            assertNull(state.entryPrompt.appliedTareKg);
+            assertTrue(Double.isNaN(state.ticket.lastRecordedWeight));
+            service.addItemByPlu(state, "1234");
+            assertTrue(state.entryPrompt.active);
+            service.confirmEntry(state, new BigDecimal("2.00"));
+            assertEquals(1, state.ticket.items.size());
+            assertEquals(1.5, state.ticket.lastRecordedWeight);
+            verify(hardwareService, times(2)).awaitWeighing(any());
+        }
+    }
+
     // --- addItemByPlu ---
 
     /**
@@ -1484,6 +1589,29 @@ class TicketServiceTest {
         when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(0.0);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            service.addItemByPlu(state, "1234");
+        }
+        assertEquals("POIDS INVALIDE", state.ticket.transientError);
+    }
+
+    /**
+     * BO-04-03-08: an alert on a weighed article stops it before the weighing,
+     * its replay keying the same PLU; an article it lets through is weighed.
+     */
+    @Test
+    void addItemByPluGoesThroughTheControlGate() {
+        openSession();
+        Product p = product("APPLE", "111", "1234");
+        service.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(service.controlGateService.onArticle(p, null,
+                com.intermarche.pos.ui.control.ControlGateService.Kind.PLU, "1234"))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP,
+                        com.intermarche.pos.ui.control.ControlGateService.Outcome.PASS);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(0.0);
+        try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
+            productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            service.addItemByPlu(state, "1234");
+            verify(hardwareService, never()).awaitWeighing(org.mockito.ArgumentMatchers.any());
             service.addItemByPlu(state, "1234");
         }
         assertEquals("POIDS INVALIDE", state.ticket.transientError);
@@ -1845,6 +1973,101 @@ class TicketServiceTest {
         service.addUnknownItem(state, "candy", "abc");
         assertEquals("ERREUR PRIX SAISI", state.ticket.transientError);
         assertTrue(state.ticket.items.isEmpty());
+    }
+
+    // --- applyAccountCustomerDiscount (LC-03-02-09) ---
+
+    /**
+     * Builds an account customer carrying a discount rate.
+     *
+     * @param rate the rate on the record
+     * @return the account
+     */
+    private com.intermarche.pos.domain.payment.AccountCustomer account(String rate) {
+        com.intermarche.pos.domain.payment.AccountCustomer customer =
+                new com.intermarche.pos.domain.payment.AccountCustomer();
+        customer.accountNumber = "CC00000001";
+        customer.companyName = "DUPONT BTP";
+        customer.discountPercent = new BigDecimal(rate);
+        return customer;
+    }
+
+    /**
+     * The record's rate becomes the ticket-level discount in percent, the
+     * total moves at once and the band names the account and the rate.
+     */
+    @Test
+    void applyAccountCustomerDiscountGrantsTheRecordsRate() {
+        when(service.posSettingsService.discountGlobalOnDiscounted()).thenReturn(true);
+        state.ticket.items.add(line("MILK", new BigDecimal("10.00"), BigDecimal.ONE));
+        service.applyAccountCustomerDiscount(state, account("5.00"));
+        assertEquals("PERCENT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("5").compareTo(state.ticket.globalDiscountValue));
+        assertEquals(0, new BigDecimal("9.50").compareTo(state.ticket.totalAmount));
+        assertEquals("CLIENT EN COMPTE DUPONT BTP : REMISE 5 %", state.ticket.transientError);
+        assertTrue(state.ticket.transientOk);
+        assertFalse(state.ticket.globalDiscountSparesReducedLines);
+    }
+
+    /**
+     * Named before the first article, the account's discount is held on the
+     * empty ticket — even where the store spares reduced lines — and covers the
+     * basket as it fills.
+     */
+    @Test
+    void applyAccountCustomerDiscountOnAnEmptyTicketCoversTheBasketToCome() {
+        when(service.posSettingsService.discountGlobalOnDiscounted()).thenReturn(false);
+        service.applyAccountCustomerDiscount(state, account("10"));
+        assertEquals("PERCENT", state.ticket.globalDiscountType);
+        assertTrue(state.ticket.globalDiscountSparesReducedLines);
+        state.ticket.items.add(line("MILK", new BigDecimal("20.00"), BigDecimal.ONE));
+        service.recalculateTotal(state);
+        assertEquals(0, new BigDecimal("18.00").compareTo(state.ticket.totalAmount));
+    }
+
+    /**
+     * Where the store spares reduced lines, one clean line is a base: the
+     * account's discount lands on it and spares the reduced one.
+     */
+    @Test
+    void applyAccountCustomerDiscountLandsOnTheCleanLineWhenTheStoreSparesReducedOnes() {
+        when(service.posSettingsService.discountGlobalOnDiscounted()).thenReturn(false);
+        TicketState.TicketItem reduced = line("PROMO", new BigDecimal("10.00"), BigDecimal.ONE);
+        reduced.modifierType = PriceModType.REMISE;
+        state.ticket.items.add(reduced);
+        state.ticket.items.add(line("MILK", new BigDecimal("10.00"), BigDecimal.ONE));
+        service.applyAccountCustomerDiscount(state, account("10"));
+        assertEquals("PERCENT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("1.00").compareTo(state.ticket.globalDiscountApplied));
+    }
+
+    /** A rate above 100 % on the record is refused rather than giving more than the ticket. */
+    @Test
+    void applyAccountCustomerDiscountRefusesARateAboveOneHundred() {
+        service.applyAccountCustomerDiscount(state, account("100.01"));
+        assertEquals("VALEUR INVALIDE", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
+    }
+
+    /** A ticket discount already granted is kept, and the register says the account's was not applied. */
+    @Test
+    void applyAccountCustomerDiscountNeverReplacesATicketDiscount() {
+        state.ticket.setGlobalDiscount("AMOUNT", new BigDecimal("2"));
+        service.applyAccountCustomerDiscount(state, account("5"));
+        assertEquals("REMISE TICKET DÉJÀ APPLIQUÉE : REMISE CLIENT NON APPLIQUÉE", state.ticket.transientError);
+        assertEquals("AMOUNT", state.ticket.globalDiscountType);
+    }
+
+    /** Where the store spares reduced lines and every line is reduced, the refusal is named. */
+    @Test
+    void applyAccountCustomerDiscountNamesTheRefusalWhenEveryLineIsAlreadyReduced() {
+        when(service.posSettingsService.discountGlobalOnDiscounted()).thenReturn(false);
+        TicketState.TicketItem reduced = line("PROMO", new BigDecimal("10.00"), BigDecimal.ONE);
+        reduced.modifierType = PriceModType.REMISE;
+        state.ticket.items.add(reduced);
+        service.applyAccountCustomerDiscount(state, account("5"));
+        assertEquals("TOUTES LES LIGNES SONT DÉJÀ REMISÉES", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
     }
 
     // --- applyGlobalDiscount ---
@@ -2453,7 +2676,9 @@ class TicketServiceTest {
         state.ticket.items.add(only);
         state.payment.ticketDbId = 5L;
         state.auth.operatorBadgeId = "12341234";
-        service.cancelItemById(state, only.uid);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            service.cancelItemById(state, only.uid);
+        }
         verify(ticketPersistenceService).markLineCancelled(5L, only.uid, "12341234", null, null);
         assertTrue(state.ticket.items.isEmpty());
     }
@@ -2471,7 +2696,9 @@ class TicketServiceTest {
         state.auth.operatorBadgeId = "12341234";
         state.ticket.pendingCancelReasonCode = "ERREUR";
         state.ticket.pendingCancelReasonLabel = "Erreur de saisie";
-        service.cancelItemById(state, only.uid);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            service.cancelItemById(state, only.uid);
+        }
         verify(ticketPersistenceService).markLineCancelled(
                 5L, only.uid, "12341234", "ERREUR", "Erreur de saisie");
         assertNull(state.ticket.pendingCancelReasonCode);
@@ -2990,6 +3217,77 @@ class TicketServiceTest {
         assertEquals("m", line.unitName);
         verify(ticketPersistenceService).syncDraft(state);
         verify(valuationService).revalue(state);
+    }
+
+    /**
+     * LC-05-02-02: a quantity-entered return still asks for its configured price,
+     * accepts a lower or higher amount and creates exactly one negative line.
+     */
+    @Test
+    void quantityEnteredReturnConfirmsItsPriceBelowOrAboveCatalog() {
+        openSession();
+        state.returnMode = true;
+        state.returnTypeLabel = "Without receipt";
+        when(service.posListService.returnType("Without receipt")).thenReturn(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType(
+                        "Without receipt", false, false, true, true));
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .DECIMAL_QUANTITY_TO_ENTER, "true");
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("10.00", "0.20"));
+            for (String entered : List.of("8.00", "12.00")) {
+                int before = state.ticket.items.size();
+                assertTrue(service.suspendForEntry(state, p, null));
+                assertEquals("10,00", state.entryPrompt.unitPriceFormatted);
+                service.confirmEntry(state, new BigDecimal("2.5"));
+                assertEquals(before, state.ticket.items.size());
+                assertEquals(PosState.EntryPromptState.PRICE, state.entryPrompt.kind);
+                assertEquals("10,00", state.entryPrompt.unitPriceFormatted);
+                service.confirmEntry(state, new BigDecimal(entered));
+                assertFalse(state.entryPrompt.active);
+                assertEquals(before + 1, state.ticket.items.size());
+                TicketState.TicketItem line = state.ticket.items.get(before);
+                assertEquals(0, new BigDecimal("-2.5").compareTo(line.quantity));
+                assertEquals(0, new BigDecimal(entered).compareTo(line.unitPrice));
+                assertEquals(0, new BigDecimal(entered).multiply(new BigDecimal("-2.5"))
+                        .compareTo(line.getTotalPrice()));
+            }
+        }
+    }
+
+    /**
+     * LC-05-02-02: the false and missing return-type legs keep quantity-only
+     * admission at catalog price; neither invents a price confirmation.
+     */
+    @Test
+    void quantityEnteredReturnWithoutPricePolicyUsesCatalog() {
+        openSession();
+        state.returnMode = true;
+        state.returnTypeLabel = "Without confirmation";
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .DECIMAL_QUANTITY_TO_ENTER, "true");
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("10.00", "0.20"));
+            when(service.posListService.returnType("Without confirmation")).thenReturn(
+                    new com.intermarche.pos.service.PosSettingsService.ReturnType("Without confirmation", false));
+            assertTrue(service.suspendForEntry(state, p, null));
+            service.confirmEntry(state, new BigDecimal("2.5"));
+            assertFalse(state.entryPrompt.active);
+            assertEquals(0, new BigDecimal("-25.00").compareTo(state.ticket.items.get(0).getTotalPrice()));
+            state.returnTypeLabel = "Unknown";
+            assertTrue(service.suspendForEntry(state, p, null));
+            service.confirmEntry(state, new BigDecimal("1.5"));
+            assertFalse(state.entryPrompt.active);
+            assertEquals(0, new BigDecimal("-15.00").compareTo(state.ticket.items.get(1).getTotalPrice()));
+        }
     }
 
     /**
@@ -4019,5 +4317,1306 @@ class TicketServiceTest {
         when(service.posSettingsService.saleAllowedDuringPayment()).thenReturn(true);
         assertFalse(service.saleRefusedDuringPayment(state));
         verify(state.ticket, times(1)).setError("VENTE INTERDITE PENDANT LE REGLEMENT");
+    }
+    /** BO-03-07: global discount bases exclude null, money, forbidden and nonpositive lines independently. */
+    @Test
+    void coverageGlobalDiscountBaseLegs() throws Exception {
+        state.ticket.items.add(null);
+        var money = line("MONEY", BigDecimal.TEN, BigDecimal.ONE);
+        money.moneyProduct = true;
+        state.ticket.items.add(money);
+        var forbidden = line("FORBIDDEN", BigDecimal.TEN, BigDecimal.ONE);
+        forbidden.discountForbidden = true;
+        state.ticket.items.add(forbidden);
+        state.ticket.items.add(line("RETURN", BigDecimal.TEN.negate(), BigDecimal.ONE));
+        var method = TicketService.class.getDeclaredMethod("globalDiscountBase", PosState.class);
+        method.setAccessible(true);
+        assertNull(method.invoke(service, state));
+        state.ticket.items.add(line("SALE", BigDecimal.TEN, BigDecimal.ONE));
+        assertEquals(BigDecimal.TEN, method.invoke(service, state));
+    }
+
+    /** BO-03-07: engine-reduced recognition requires both a current price and a quantity. */
+    @Test
+    void coverageReducedLineNullPriceAndQuantity() {
+        var item = line("SALE", BigDecimal.TEN, BigDecimal.ONE);
+        item.valuedTotal = BigDecimal.ONE;
+        item.unitPrice = null;
+        assertFalse(service.isAlreadyReduced(item));
+        item.unitPrice = BigDecimal.TEN;
+        item.quantity = null;
+        assertFalse(service.isAlreadyReduced(item));
+    }
+
+    /** BO-10-02: total ceilings cover null totals, amounts below the ceiling and each control result above it. */
+    @Test
+    void coverageTicketTotalControlLegs() throws Exception {
+        service.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        var method = TicketService.class.getDeclaredMethod("applyTicketTotalControl", PosState.class);
+        method.setAccessible(true);
+        when(service.posSettingsService.controlTicketTotalMax()).thenReturn(BigDecimal.ONE);
+        state.ticket.totalAmount = null;
+        method.invoke(service, state);
+        state.ticket.totalAmount = BigDecimal.ONE;
+        method.invoke(service, state);
+        for (var level : com.intermarche.pos.ui.endorsement.ControlLevel.values()) {
+            state.ticket.totalAmount = BigDecimal.TEN;
+            when(service.endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.TICKET_TOTAL)).thenReturn(level);
+            when(service.endorsementService.controlMessage(com.intermarche.pos.ui.endorsement.ControlPoint.TICKET_TOTAL, level)).thenReturn("TOTAL CONTROL");
+            method.invoke(service, state);
+            if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN) assertTrue(state.ticket.transientWarn);
+            else if (!level.allows()) assertEquals("TOTAL CONTROL", state.ticket.transientError);
+        }
+    }
+
+    /** BO-04-02-06: each absent alert collaborator or disabled flag prevents the node call; enabled alerts carry operator nullability. */
+    @Test
+    void coverageUnknownArticleAlertGuards() throws Exception {
+        var method = TicketService.class.getDeclaredMethod("alertUnknownItem", PosState.class, String.class);
+        method.setAccessible(true);
+        var settings = service.posSettingsService;
+        service.posSettingsService = null;
+        method.invoke(service, state, "EAN");
+        service.posSettingsService = settings;
+        service.supervisorSettleService = null;
+        method.invoke(service, state, "EAN");
+        var supervisor = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        service.supervisorSettleService = supervisor;
+        method.invoke(service, state, "EAN");
+        verifyNoInteractions(supervisor);
+        when(settings.unknownItemAlertEnabled()).thenReturn(true);
+        method.invoke(service, null, "EAN");
+        verify(supervisor).unknownItem("EAN", null);
+        method.invoke(service, state, "EAN");
+        verify(supervisor).unknownItem("EAN", state.getOperatorName());
+    }
+
+    /** BO-10-02-15: both keyed EAN and PLU routes refuse a sale while settlement is in progress. */
+    @Test
+    void keyedRoutesRefuseSaleDuringPayment() {
+        openSession();
+        state.payment.paymentInProgress = true;
+        service.addItemByEan(state, "EAN", BigDecimal.ONE);
+        assertEquals("VENTE INTERDITE PENDANT LE REGLEMENT", state.ticket.transientError);
+        service.addItemByPlu(state, "PLU");
+        assertEquals("VENTE INTERDITE PENDANT LE REGLEMENT", state.ticket.transientError);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /** BO-03-01-18: both keyed routes honour explicit article scope before their recall control. */
+    @Test
+    void keyedRoutesApplyBothArticleScopeDecisions() {
+        openSession();
+        Product product = product("ARTICLE", "EAN", "PLU");
+        product.attributes.put("RECALL", "true");
+        service.articleScopeService = mock(ArticleScopeService.class);
+        PanacheQuery<Product> found = mock(PanacheQuery.class);
+        when(found.firstResult()).thenReturn(product);
+        try (var base = mockStatic(PanacheEntityBase.class);
+             var products = mockStatic(Product.class)) {
+            base.when(() -> PanacheEntityBase.find("ean = ?1 and active = true", "EAN")).thenReturn(found);
+            products.when(() -> Product.findActiveByPlu("PLU")).thenReturn(product);
+            for (boolean allowed : new boolean[]{false, true}) {
+                when(service.articleScopeService.soldHere(product)).thenReturn(allowed);
+                String expected = service.i18n.get(allowed ? "op.articleRetraitRappel" : "op.articleNonVenduSurCetteCaisse");
+                service.addItemByEan(state, "EAN", BigDecimal.ONE);
+                assertEquals(expected, state.ticket.transientError);
+                service.addItemByPlu(state, "PLU");
+                assertEquals(expected, state.ticket.transientError);
+            }
+        }
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /** BO-03-07: an allowed second remise cumulates and a zero-quantity line never divides by zero. */
+    @Test
+    void remiseHandlesReducedAndZeroQuantityLines() {
+        var reduced = line("ARTICLE", BigDecimal.TEN, BigDecimal.ONE);
+        reduced.originalUnitPrice = new BigDecimal("20");
+        reduced.modifierType = PriceModType.REMISE;
+        service.applyRemise(reduced, BigDecimal.ONE, true);
+        assertEquals(new BigDecimal("9.0000"), reduced.unitPrice);
+        var empty = line("ARTICLE", BigDecimal.TEN, BigDecimal.ZERO);
+        service.applyRemise(empty, BigDecimal.ONE, true);
+        assertEquals(0, empty.unitPrice.signum());
+        var returned = line("RETURN", BigDecimal.TEN, BigDecimal.ONE.negate());
+        service.applyRemise(returned, BigDecimal.ONE, true);
+        assertEquals(0, returned.unitPrice.signum());
+    }
+
+    /** BO-03-08-09/BO-03-01-20: blank EANs, absent article messages and absent sale labels keep silent fallbacks. */
+    @Test
+    void articleNoticesIgnoreMissingIdentityAndWording() throws Exception {
+        var item = line("ARTICLE", BigDecimal.TEN, BigDecimal.ONE);
+        item.ean = " ";
+        state.ticket.items.add(item);
+        state.lastEnteredItemId = item.uid;
+        state.lineJustEntered = true;
+        var method = TicketService.class.getDeclaredMethod("noticeOnArticleMessage", PosState.class);
+        method.setAccessible(true);
+        method.invoke(service, state);
+        assertNull(state.ticket.transientError);
+        item.ean = "EAN";
+        Product product = product("ARTICLE", "EAN", null);
+        PanacheQuery<Product> found = mock(PanacheQuery.class);
+        when(found.firstResult()).thenReturn(product);
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(() -> PanacheEntityBase.find("ean", "EAN")).thenReturn(found);
+            for (String message : new String[]{null, " "}) {
+                product.infoMessage = message;
+                method.invoke(service, state);
+                assertNull(state.ticket.transientError);
+                assertTrue(state.lineJustEntered);
+            }
+        }
+        method = TicketService.class.getDeclaredMethod("translatedLabel", Product.class);
+        method.setAccessible(true);
+        service.i18n = null;
+        product.name = null;
+        assertEquals("", method.invoke(service, product));
+    }
+
+    /** LC-02-14-12: consultation scans precede every sale guard and leave draft errors, selection, totals and pending entry untouched. */
+    @Test
+    void priceConsultationConsumesScansBeforeAnyDraftMutation() {
+        service.articleInfoScanState = new ArticleInfoScanState();
+        String token = service.articleInfoScanState.open();
+        state.selectedTicketIndex = 3;
+        state.ticket.transientError = "KEEP THIS ERROR";
+        for (boolean locked : new boolean[]{true, false}) {
+            state.auth.isLocked = locked;
+            service.processScan("12345670");
+            assertEquals("12345670", service.articleInfoScanState.poll(token));
+            assertEquals(3, state.selectedTicketIndex);
+            assertEquals("KEEP THIS ERROR", state.ticket.transientError);
+            assertTrue(state.ticket.items.isEmpty());
+        }
+        org.mockito.Mockito.verifyNoInteractions(scanHandlers, ticketPersistenceService, valuationService, cashSessionService);
+        service.articleInfoScanState.leave(token);
+        service.articleInfoScanState = org.mockito.Mockito.mock(ArticleInfoScanState.class);
+        state.auth.isLocked = true;
+        when(scanHandlers.spliterator()).thenReturn(java.util.List.<com.intermarche.pos.ui.scanner.ScanContext.ScanHandler>of().spliterator());
+        service.processScan("12345670");
+        org.mockito.Mockito.verify(scanHandlers).spliterator();
+    }
+
+    /** LC-02-03-11: a manually keyed article and a PLU both refuse before recording. */
+    @Test
+    void blockingArticleMessageRefusesManualEanAndPlu() {
+        openSession();
+        Product product = product("APPLE", "111", "1234");
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Product> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(product);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Product.find("ean = ?1 and active = true", "111")).thenReturn(query);
+            service.addItemByEan(state, "111", BigDecimal.ONE);
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+        ArticleMessageService.acknowledge(state, state.blockingArticleMessageId);
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByPlu("1234")).thenReturn(product);
+            service.addItemByPlu(state, "1234");
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
+    /** LC-02-03-11: a pending price entry rechecks the current article message before recording. */
+    @Test
+    void blockingArticleMessageRefusesConfirmedEntry() throws Exception {
+        Product product = product("APPLE", "111", "1234");
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        var method = TicketService.class.getDeclaredMethod("addEnteredLine", PosState.class, Product.class,
+                BigDecimal.class, BigDecimal.class, String.class, BigDecimal.class);
+        method.setAccessible(true);
+        method.invoke(service, state, product, BigDecimal.ONE, BigDecimal.ONE, null, null);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
+    /** LC-02-03-11: an order with a blocked article is refused before any line or deposit is loaded. */
+    @Test
+    void blockingArticleMessageRefusesWholeRecalledDocument() {
+        openSession();
+        Product product = product("APPLE", "111", "1234");
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        var doc = new com.intermarche.pos.ui.recall.RecalledDocument(
+                com.intermarche.pos.ui.recall.RecalledDocument.Kind.COMMANDE, "CMD-BLOCK",
+                java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                        "111", "APPLE", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO)), BigDecimal.ONE);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Product> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(product);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Product.find("ean", "111")).thenReturn(query);
+            service.loadRecalledDocument(state, doc);
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
+    /** LC-02-03-11: a document line without an article identity has no catalog message to consult. */
+    @Test
+    void recalledDocumentLineWithoutEanRemainsLoadable() {
+        openSession();
+        var doc = new com.intermarche.pos.ui.recall.RecalledDocument(
+                com.intermarche.pos.ui.recall.RecalledDocument.Kind.DEVIS, "QUOTE",
+                java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                        null, "SERVICE", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO)), BigDecimal.ZERO);
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, doc);
+        }
+        assertEquals(1, state.ticket.items.size());
+    }
+
+
+    /** LC-02-03-04: normal admission adds a deposit before the single draft/valuation pass. */
+    @Test
+    void linkedDepositUsesNormalAdmissionAndOneValuation() {
+        openSession();
+        Product bottle = product("BOTTLE", "A", null);
+        Product deposit = product("DEPOSIT", "B", null);
+        deposit.id = 2L;
+        bottle.attributes.put("LINKED_ARTICLE_EAN", "B");
+        PanacheQuery<Product> qa = mock(PanacheQuery.class);
+        PanacheQuery<Product> qb = mock(PanacheQuery.class);
+        when(qa.firstResult()).thenReturn(bottle);
+        when(qb.firstResult()).thenReturn(deposit);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            silenceArticleMessage(panache);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "A")).thenReturn(qa);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "B")).thenReturn(qb);
+            prices.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(priceNoVat("1.00"));
+            service.addItemByEan(state, "A", new BigDecimal("3"));
+        }
+        assertEquals(2, state.ticket.items.size());
+        var bottleLine = state.ticket.items.get(0);
+        var depositLine = state.ticket.items.get(1);
+        assertEquals(bottleLine.uid, depositLine.linkedParentUid);
+        assertEquals(new BigDecimal("3"), depositLine.quantity);
+        assertEquals(bottleLine.uid, state.lastEnteredItemId);
+        verify(ticketPersistenceService, times(1)).syncDraft(state);
+        verify(valuationService, times(1)).revalue(state);
+        bottleLine.quantity = BigDecimal.ONE;
+        service.recalculateTotal(state);
+        assertEquals(BigDecimal.ONE, depositLine.quantity);
+    }
+
+    /** LC-02-03-04: only cancelling the bottle removes its deposit, with the same audit reason. */
+    @Test
+    void cancellationRemovesTheWholeBottleFamilyWithItsReason() {
+        var bottle = line("A", BigDecimal.TEN, BigDecimal.ONE);
+        var deposit = line("B", BigDecimal.ONE, BigDecimal.ONE);
+        deposit.linkedParentUid = bottle.uid;
+        state.ticket.items.add(bottle);
+        state.ticket.items.add(deposit);
+        service.cancelItemById(state, deposit.uid);
+        assertEquals(2, state.ticket.items.size());
+        assertEquals(service.i18n.get("op.articleLieGereParPrincipal"), state.ticket.transientError);
+        state.payment.ticketDbId = 5L;
+        state.auth.operatorBadgeId = "12341234";
+        state.ticket.pendingCancelReasonCode = "ERREUR";
+        state.ticket.pendingCancelReasonLabel = "Erreur de saisie";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            service.cancelItemById(state, bottle.uid);
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        for (String uid : List.of(bottle.uid, deposit.uid)) {
+            verify(ticketPersistenceService).markLineCancelled(5L, uid, "12341234", "ERREUR", "Erreur de saisie");
+        }
+        assertNull(state.ticket.pendingCancelReasonCode);
+    }
+
+    /**
+     * LC-06-02-12: a document already loaded in the sale is refused the second
+     * time, named, and loads nothing (duplicate arm).
+     */
+    @Test
+    void loadRecalledDocumentRefusesADocumentAlreadyLoaded() {
+        openSession();
+        state.recalledDocumentCodes.add("BV-9");
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.BON_VENTE, "BV-9",
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055"))),
+                        BigDecimal.ZERO);
+        service.loadRecalledDocument(state, doc);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("DOCUMENT BV-9 DÉJÀ CHARGÉ DANS LA VENTE", state.ticket.transientError);
+        assertEquals(java.util.List.of("BV-9"), state.recalledDocumentCodes);
+    }
+
+    /**
+     * LC-06-02-12: two different documents load into the same sale, each code
+     * remembered for the settlement.
+     */
+    @Test
+    void loadRecalledDocumentRemembersEveryDocumentOfTheSale() {
+        openSession();
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, new com.intermarche.pos.ui.recall.RecalledDocument(
+                    com.intermarche.pos.ui.recall.RecalledDocument.Kind.BON_VENTE, "BV-1",
+                    java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                            "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055"))),
+                    BigDecimal.ZERO));
+            service.loadRecalledDocument(state, new com.intermarche.pos.ui.recall.RecalledDocument(
+                    com.intermarche.pos.ui.recall.RecalledDocument.Kind.BON_VENTE, "BV-2",
+                    java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                            "301", "LAIT", BigDecimal.ONE, new BigDecimal("1.00"), new BigDecimal("0.055"))),
+                    BigDecimal.ZERO));
+        }
+        assertEquals(java.util.List.of("BV-1", "BV-2"), state.recalledDocumentCodes);
+        assertEquals("BV-2", state.recalledOrderCode);
+        assertEquals(2, state.ticket.items.size());
+    }
+
+    /**
+     * LC-06-02-02 / -12: lines stating a delivered quantity sell it and keep the
+     * ordered one — merged lines add their ordered quantities, a line stating
+     * no ordered quantity adds none, and a line stating a single quantity keeps
+     * no ordered quantity at all.
+     */
+    @Test
+    void loadRecalledDocumentSellsTheDeliveredAndKeepsTheOrderedQuantity() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.COMMANDE, "DV-7",
+                        java.util.List.of(
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "301", "LAIT", BigDecimal.ONE, new BigDecimal("1.00"), new BigDecimal("0.055")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "300", "PAIN", new BigDecimal("5"), new BigDecimal("2.00"),
+                                        new BigDecimal("0.055"), new BigDecimal("4")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "300", "PAIN", new BigDecimal("3"), new BigDecimal("2.00"),
+                                        new BigDecimal("0.055"), new BigDecimal("2")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "302", "BEURRE", null, new BigDecimal("3.00"),
+                                        new BigDecimal("0.055"), BigDecimal.ONE)),
+                        BigDecimal.ZERO);
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, doc);
+        }
+        assertEquals(3, state.ticket.items.size());
+        assertNull(state.ticket.items.get(0).orderedQuantity);
+        assertEquals(0, new BigDecimal("6").compareTo(state.ticket.items.get(1).quantity));
+        assertEquals(0, new BigDecimal("8").compareTo(state.ticket.items.get(1).orderedQuantity));
+        assertEquals(0, BigDecimal.ONE.compareTo(state.ticket.items.get(2).quantity));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.ticket.items.get(2).orderedQuantity));
+    }
+
+    /**
+     * LC-06-02-08 / -12: by default the document keeps its own prices, and the
+     * register's catalog is not even read (document arm of the price source).
+     */
+    @Test
+    void pricedLinesKeepTheDocumentPricesByDefault() {
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.DEVIS, "DV-1",
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "123", "LAIT", new BigDecimal("5"), new BigDecimal("2.00"),
+                                new BigDecimal("0.055"), new BigDecimal("4"))),
+                        BigDecimal.ZERO);
+        java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Line> lines;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            lines = service.pricedLines(doc);
+            panache.verifyNoInteractions();
+        }
+        assertEquals(1, lines.size());
+        assertEquals(new BigDecimal("2.00"), lines.get(0).unitPrice());
+        assertEquals(new BigDecimal("0.055"), lines.get(0).vatRate());
+        assertEquals(new BigDecimal("5"), lines.get(0).quantity());
+        assertEquals(new BigDecimal("4"), lines.get(0).deliveredQuantity());
+    }
+
+    /**
+     * LC-06-02-08 / -12: where the store asks for the register's price, a known
+     * article takes its current price and rate, a price without a rate keeps
+     * the document's rate, and an unknown article, an article without a price
+     * or a line without EAN keep the document's price.
+     */
+    @Test
+    void pricedLinesTakeTheRegisterPriceWhereAdministered() {
+        when(service.posSettingsService.orderRecallPriceFromRegister()).thenReturn(true);
+        Product known = product("LAIT", "123", null);
+        known.id = 1L;
+        Product rateless = product("PAIN", "124", null);
+        rateless.id = 2L;
+        Product priceless = product("BEURRE", "126", null);
+        priceless.id = 3L;
+        Price withoutRate = new Price();
+        withoutRate.priceIncludingTax = new BigDecimal("0.90");
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.DEVIS, "DV-1",
+                        java.util.List.of(
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "123", "LAIT", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "124", "PAIN", BigDecimal.ONE, new BigDecimal("1.00"), new BigDecimal("0.055")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "125", "INCONNU", BigDecimal.ONE, new BigDecimal("3.00"), new BigDecimal("0.2")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "126", "BEURRE", BigDecimal.ONE, new BigDecimal("4.00"), new BigDecimal("0.055")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        null, "FORFAIT", BigDecimal.ONE, new BigDecimal("5.00"), new BigDecimal("0.2"))),
+                        BigDecimal.ZERO);
+        java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Line> lines;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            for (Product p : java.util.List.of(known, rateless, priceless)) {
+                @SuppressWarnings("unchecked")
+                PanacheQuery<Product> query = mock(PanacheQuery.class);
+                when(query.firstResult()).thenReturn(p);
+                panache.when(() -> Product.find("ean", p.ean)).thenReturn(query);
+            }
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> unknown = mock(PanacheQuery.class);
+            panache.when(() -> Product.find("ean", "125")).thenReturn(unknown);
+            priceStatic.when(() -> Price.findCurrentPrice(1L)).thenReturn(price("1.80", "0.2"));
+            priceStatic.when(() -> Price.findCurrentPrice(2L)).thenReturn(withoutRate);
+            priceStatic.when(() -> Price.findCurrentPrice(3L)).thenReturn(null);
+            lines = service.pricedLines(doc);
+        }
+        assertEquals(new BigDecimal("1.80"), lines.get(0).unitPrice());
+        assertEquals(new BigDecimal("0.2"), lines.get(0).vatRate());
+        assertEquals(new BigDecimal("0.90"), lines.get(1).unitPrice());
+        assertEquals(new BigDecimal("0.055"), lines.get(1).vatRate());
+        assertEquals(new BigDecimal("3.00"), lines.get(2).unitPrice());
+        assertEquals(new BigDecimal("4.00"), lines.get(3).unitPrice());
+        assertEquals(new BigDecimal("5.00"), lines.get(4).unitPrice());
+        assertEquals("FORFAIT", lines.get(4).label());
+    }
+    /**
+     * A recalled selfscanning basket of 5.00 with the given vouchers.
+     *
+     * @param vouchers the vouchers, possibly null
+     * @return the basket
+     */
+    private com.intermarche.pos.ui.recall.RecalledDocument basketWith(
+            java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Voucher> vouchers) {
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.SELF_SCAN, "SS1",
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "300", "PAIN", BigDecimal.ONE, new BigDecimal("5.00"), new BigDecimal("0.055"))),
+                        BigDecimal.ZERO);
+        doc.vouchers = vouchers;
+        return doc;
+    }
+
+    /**
+     * LC-06-05-02: the vouchers a selfscanning device recorded are applied at
+     * once, each bounded by what remains due and persisted on the draft: a named
+     * one, a nameless or blank-named one under the default name, and once nothing
+     * remains due the rest is left; null, amountless and non-positive vouchers are
+     * skipped.
+     */
+    @Test
+    void loadRecalledDocumentAppliesTheBasketVouchers() {
+        openSession();
+        state.payment.ticketDbId = 77L;
+        java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Voucher> vouchers = new java.util.ArrayList<>();
+        vouchers.add(null);
+        vouchers.add(new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("N", "NUL", null));
+        vouchers.add(new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("Z", "ZERO", BigDecimal.ZERO));
+        vouchers.add(new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("B1", "BON MAGASIN", new BigDecimal("1.00")));
+        vouchers.add(new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("B2", null, new BigDecimal("1.50")));
+        vouchers.add(new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("B3", " ", new BigDecimal("9.00")));
+        vouchers.add(new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("B4", "TROP", new BigDecimal("1.00")));
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, basketWith(vouchers));
+        }
+        assertEquals(3, state.payment.payments.size());
+        assertEquals("BON MAGASIN", state.payment.payments.get(0).method);
+        assertEquals("B1", state.payment.payments.get(0).voucherNumber);
+        assertEquals("BON DE RÉDUCTION", state.payment.payments.get(1).method);
+        assertEquals("BON DE RÉDUCTION", state.payment.payments.get(2).method);
+        assertEquals(0, new BigDecimal("2.50").compareTo(state.payment.payments.get(2).amount));
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.paidAmount));
+        verify(ticketPersistenceService, org.mockito.Mockito.times(3)).addPaymentToTicket(eq(77L), any());
+    }
+
+    /**
+     * LC-06-05-02: a basket without vouchers applies none, and in training mode or
+     * before any draft the vouchers are applied without being persisted.
+     */
+    @Test
+    void loadRecalledDocumentVouchersWithoutPersistence() {
+        openSession();
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, basketWith(null));
+        }
+        assertTrue(state.payment.payments.isEmpty());
+        state.clearTicket();
+        state.recalledDocumentCodes.clear();
+        state.payment.ticketDbId = null;
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, basketWith(java.util.List.of(
+                    new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("B1", "BON", BigDecimal.ONE))));
+        }
+        assertEquals(1, state.payment.payments.size());
+        state.clearTicket();
+        state.trainingMode = true;
+        state.payment.ticketDbId = 77L;
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, basketWith(java.util.List.of(
+                    new com.intermarche.pos.ui.recall.RecalledDocument.Voucher("B1", "BON", BigDecimal.ONE))));
+        }
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
+    }
+
+
+    // --------------------------------------------------
+    // LC-02-09-01 / -02: dematerialised articles and the payment hub
+    // --------------------------------------------------
+
+    /**
+     * LC-02-09-02: an activated line the hub refuses to reverse stays in the
+     * cart, and the justification asked for its cancellation is dropped.
+     */
+    @Test
+    void cancelItemByIdKeepsALineWhoseActivationIsNotReversed() {
+        TicketState.TicketItem only = line("CARTE", new BigDecimal("25.00"), BigDecimal.ONE);
+        state.ticket.items.add(only);
+        state.ticket.pendingCancelUid = only.uid;
+        state.ticket.pendingCancelReasonCode = "ERREUR";
+        state.ticket.pendingCancelReasonLabel = "Erreur";
+        when(service.dematerialisedService.reverse(state, only)).thenReturn(false);
+        service.cancelItemById(state, only.uid);
+        assertEquals(1, state.ticket.items.size());
+        assertNull(state.ticket.pendingCancelUid);
+        assertNull(state.ticket.pendingCancelReasonCode);
+        assertNull(state.ticket.pendingCancelReasonLabel);
+        verify(ticketPersistenceService, never()).syncDraft(state);
+    }
+
+    /**
+     * LC-07-11-01 / LC-02-09-02: a ticket still holding a gift-card settlement
+     * the hub did not give back, or an activation it did not reverse, is not
+     * abandoned.
+     */
+    @Test
+    void cancelTicketIsRefusedOverTheHub() {
+        state.payment.ticketDbId = 9L;
+        state.ticket.items.add(line("A", new BigDecimal("1.00"), BigDecimal.ONE));
+        state.payment.addPayment("CASH", new BigDecimal("1.00"));
+        state.payment.addPayment("GIFTCARD", new BigDecimal("1.00"));
+        state.payment.payments.get(1).hubReference = "HUB7";
+        service.cancelTicket(state);
+        assertEquals("UNE CARTE CADEAU N'A PAS ÉTÉ RECRÉDITÉE : ABANDON IMPOSSIBLE", state.ticket.transientError);
+        assertEquals(1, state.ticket.items.size());
+        state.payment.clearPayments();
+        when(service.dematerialisedService.reverseAll(state)).thenReturn(false);
+        service.cancelTicket(state);
+        assertEquals(1, state.ticket.items.size());
+        verify(ticketPersistenceService, never()).cancelDraft(anyLong());
+    }
+
+    /**
+     * LC-02-09-01: a dematerialised article rung by its keyed EAN asks for its
+     * code and names its provider; an ordinary one asks nothing.
+     */
+    @Test
+    void aKeyedDematerialisedArticleAsksForItsCode() {
+        openSession();
+        Product card = product("CARTE CADEAU", "128", null);
+        card.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .ACTIVATION_REQUIRED, "true");
+        card.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .ACTIVATION_PROVIDER, "TRANSACTIS");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            silenceArticleMessage(panache);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(card);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "128")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("25.00", "0"));
+            service.addItemByEan(state, "128", BigDecimal.ONE);
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals("TRANSACTIS", added.activationProvider);
+        assertEquals(added.uid, state.ticket.pendingActivationUid);
+        assertEquals("SCANNEZ LE CODE D'ACTIVATION", state.ticket.transientError);
+    }
+
+    /**
+     * LC-02-09-01: a dematerialised article sold at the amount the operator keyed
+     * asks for its code once the amount is entered.
+     */
+    @Test
+    void aDematerialisedArticleAtAKeyedAmountAsksForItsCode() {
+        openSession();
+        Product card = product("CARTE CADEAU LIBRE", "129", null);
+        card.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .ACTIVATION_REQUIRED, "true");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.PRICE;
+        state.entryPrompt.ean = "129";
+        state.entryPrompt.quantity = BigDecimal.ONE;
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class);
+             MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            products.when(() -> Product.findActiveByEan("129")).thenReturn(card);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.confirmEntry(state, new BigDecimal("40.00"));
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("40.00").compareTo(added.unitPrice));
+        assertNull(added.activationProvider);
+        assertEquals(added.uid, state.ticket.pendingActivationUid);
+    }
+
+    // --- processScan: symbologies and offline reading (BO-03-06-01, -45) ---
+
+    /**
+     * A symbology the shop does not accept is refused by name before anything
+     * else, and an identifier the register does not know by its three
+     * characters; the chain never runs.
+     */
+    @Test
+    void processScanRefusesASymbologyTheShopDoesNotAccept() {
+        state.auth.isLocked = false;
+        when(service.posSettingsService.scanSymbologies()).thenReturn("EAN13;EAN8");
+        service.processScan("]Q1HELLO");
+        assertEquals("SYMBOLOGIE NON ACCEPTÉE : QR", state.ticket.transientError);
+        service.processScan("]X0ABC");
+        assertEquals("SYMBOLOGIE NON ACCEPTÉE : ]X0", state.ticket.transientError);
+        verify(scanHandlers, never()).spliterator();
+        verify(cashSessionService, never()).getOpenSession();
+    }
+
+    /**
+     * An accepted symbology is taken off the code the chain reads.
+     */
+    @Test
+    void processScanTakesTheAcceptedIdentifierOff() {
+        state.auth.isLocked = false;
+        openSession();
+        when(service.posSettingsService.scanSymbologies()).thenReturn("EAN13");
+        java.util.List<String> seen = new java.util.ArrayList<>();
+        ScanContext.ScanHandler recorder = new ScanContext.ScanHandler() {
+            /**
+             * Records the code the chain reads.
+             *
+             * @param ctx the scan context
+             */
+            @Override
+            public void handle(ScanContext ctx) {
+                seen.add(ctx.code);
+            }
+        };
+        when(scanHandlers.spliterator()).thenReturn(List.of(recorder).spliterator());
+        service.processScan("]E03560070123456");
+        assertEquals(List.of("3560070123456"), seen);
+    }
+
+    /**
+     * A code read while the store node is out of reach is refused at the
+     * blocking level, the chain never running.
+     */
+    @Test
+    void processScanOfflineAtTheBlockingLevelRefusesTheCode() {
+        state.auth.isLocked = false;
+        openSession();
+        service.refPullService = mock(com.intermarche.pos.service.sync.RefPullService.class);
+        when(service.refPullService.isNodeUnreachable()).thenReturn(true);
+        when(service.posSettingsService.scanOfflineAlert()).thenReturn("BLOCK");
+        service.processScan("3560070123456");
+        assertEquals("CAISSE HORS LIGNE : CODE REFUSÉ", state.ticket.transientError);
+        verify(scanHandlers, never()).spliterator();
+    }
+
+    /**
+     * At the INFO level the code is announced and still read; at NONE nothing
+     * is said; a reachable node, a locked register and an unwired pull say
+     * nothing either.
+     */
+    @Test
+    void processScanOfflineAtTheInfoLevelAnnouncesAndReads() {
+        state.auth.isLocked = false;
+        openSession();
+        service.refPullService = mock(com.intermarche.pos.service.sync.RefPullService.class);
+        when(service.refPullService.isNodeUnreachable()).thenReturn(true);
+        when(service.posSettingsService.scanOfflineAlert()).thenReturn("INFO");
+        when(scanHandlers.spliterator()).thenAnswer(invocation -> List.<ScanContext.ScanHandler>of().spliterator());
+        service.processScan("3560070123456");
+        assertEquals("CAISSE HORS LIGNE : CODE TRAITÉ SANS LE NOEUD MAGASIN", state.ticket.transientError);
+        assertTrue(state.ticket.transientWarn);
+        when(service.posSettingsService.scanOfflineAlert()).thenReturn("NONE");
+        service.processScan("3560070123456");
+        assertNull(state.ticket.transientError);
+        when(service.refPullService.isNodeUnreachable()).thenReturn(false);
+        when(service.posSettingsService.scanOfflineAlert()).thenReturn("BLOCK");
+        service.processScan("3560070123456");
+        assertNull(state.ticket.transientError);
+        state.auth.isLocked = true;
+        when(service.refPullService.isNodeUnreachable()).thenReturn(true);
+        service.processScan("3560070123456");
+        assertNull(state.ticket.transientError);
+        state.auth.isLocked = false;
+        service.refPullService = null;
+        service.processScan("3560070123456");
+        assertNull(state.ticket.transientError);
+        verify(scanHandlers, org.mockito.Mockito.times(5)).spliterator();
+    }
+
+    // --- BO-10-01: the rules of the external channels ---
+
+    /**
+     * A one-line recalled document of a kind.
+     *
+     * @param kind the kind
+     * @return the document
+     */
+    private com.intermarche.pos.ui.recall.RecalledDocument channelDoc(
+            com.intermarche.pos.ui.recall.RecalledDocument.Kind kind) {
+        return new com.intermarche.pos.ui.recall.RecalledDocument(kind, "X1",
+                java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                        "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055"))),
+                BigDecimal.ZERO);
+    }
+
+    /**
+     * BO-10-01: a document its channel refuses loads nothing and is not
+     * completed; an admitted one is loaded as the gate prepared it, then
+     * completed by the gate.
+     */
+    @Test
+    void loadRecalledDocumentFollowsTheChannelGate() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument refused =
+                channelDoc(com.intermarche.pos.ui.recall.RecalledDocument.Kind.SELF_SCAN);
+        when(service.channelGate.admit(state, refused)).thenReturn(null);
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, refused);
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        verify(service.channelGate, never()).afterLoad(any(), any());
+        com.intermarche.pos.ui.recall.RecalledDocument sent =
+                channelDoc(com.intermarche.pos.ui.recall.RecalledDocument.Kind.QBUSTING);
+        com.intermarche.pos.ui.recall.RecalledDocument prepared =
+                channelDoc(com.intermarche.pos.ui.recall.RecalledDocument.Kind.QBUSTING);
+        prepared.lines = java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                "2999", "PREPARE", BigDecimal.ONE, new BigDecimal("3.00"), new BigDecimal("0.2")));
+        when(service.channelGate.admit(state, sent)).thenReturn(prepared);
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.loadRecalledDocument(state, sent);
+        }
+        assertEquals("PREPARE", state.ticket.items.get(0).label);
+        verify(service.channelGate).afterLoad(state, prepared);
+    }
+
+    /**
+     * BO-10-01-19: the price source of the basket's own channel decides — POS
+     * reads the register's price even when the global rule keeps the
+     * document's.
+     */
+    @Test
+    void pricedLinesFollowTheChannelsPriceSource() {
+        when(service.posSettingsService.selfScanPriceSource()).thenReturn("POS");
+        Product known = product("PAIN", "300", null);
+        known.id = 1L;
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("1.50");
+        java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Line> lines;
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findByEan("300")).thenReturn(known);
+            prices.when(() -> Price.findCurrentPrice(1L)).thenReturn(price);
+            lines = service.pricedLines(channelDoc(com.intermarche.pos.ui.recall.RecalledDocument.Kind.SELF_SCAN));
+        }
+        assertEquals(new BigDecimal("1.50"), lines.get(0).unitPrice());
+    }
+
+    /**
+     * BO-10-01-21: where the register's price applies, a line carried on the
+     * channel's generic EAN for unknown articles keeps the basket's price, while
+     * a known article of the same basket takes the register's.
+     */
+    @Test
+    void pricedLinesKeepTheBasketPriceOfALineCarriedOnTheGenericEan() {
+        when(service.posSettingsService.selfScanPriceSource()).thenReturn("POS");
+        when(service.posSettingsService.selfScanUnknownItemEan()).thenReturn("999");
+        Product known = product("PAIN", "300", null);
+        known.id = 1L;
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("1.50");
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.SELF_SCAN, "X2",
+                        java.util.List.of(
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055")),
+                                new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                        "999", "X [ART. INCONNU 1]", BigDecimal.ONE, new BigDecimal("3.00"), new BigDecimal("0.2"))),
+                        BigDecimal.ZERO);
+        java.util.List<com.intermarche.pos.ui.recall.RecalledDocument.Line> lines;
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findByEan("300")).thenReturn(known);
+            prices.when(() -> Price.findCurrentPrice(1L)).thenReturn(price);
+            lines = service.pricedLines(doc);
+            products.verify(() -> Product.findByEan("999"), org.mockito.Mockito.never());
+        }
+        assertEquals(new BigDecimal("1.50"), lines.get(0).unitPrice());
+        assertEquals(new BigDecimal("3.00"), lines.get(1).unitPrice());
+        assertEquals(new BigDecimal("0.2"), lines.get(1).vatRate());
+    }
+
+    /**
+     * BO-10-01-17: after a self-scanning basket whose rule forbids additions,
+     * every road an article takes into the sale is refused before anything is
+     * rung: the keyed EAN, the PLU, the unknown article, the family price.
+     */
+    @Test
+    void theAdditionsLockRefusesEveryRoadIntoTheSale() {
+        openSession();
+        when(service.channelGate.refusesAddition(state)).thenReturn(true);
+        service.addItemByEan(state, "300", BigDecimal.ONE);
+        service.addItemByPlu(state, "1234");
+        service.addUnknownItem(state, "DIVERS", "2,00");
+        service.addFamilyPricedItem(state, "80", "2,35");
+        assertTrue(state.ticket.items.isEmpty());
+        verify(service.channelGate, times(4)).refusesAddition(state);
+        verify(ticketPersistenceService, never()).syncDraft(state);
+    }
+
+    /**
+     * BO-10-01-17: a scanned article the lock refuses never reaches the chain.
+     */
+    @Test
+    void processScanStopsAnArticleTheAdditionsLockRefuses() {
+        state.auth.isLocked = false;
+        openSession();
+        when(service.channelGate.refusesScannedArticle(state, "300")).thenReturn(true);
+        service.processScan("300");
+        verify(scanHandlers, never()).spliterator();
+    }
+
+    // --- lot 20: P ---
+
+    /**
+     * BO-02-03-16: after an article is rung, its active complementary articles
+     * are proposed, an inactive one skipped and the list capped at the
+     * administered maximum; the pending article is consumed.
+     */
+    @Test
+    void complementarySuggestionNamesTheActiveArticlesUpToTheMax() {
+        when(service.posSettingsService.articleComplementarySuggestions()).thenReturn(true);
+        when(service.posSettingsService.articleComplementaryMax()).thenReturn(1);
+        Product drill = product("PERCEUSE", "123", null);
+        drill.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .COMPLEMENTARY_EANS, "111;222;333");
+        state.complementaryPendingEan = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(drill);
+            products.when(() -> Product.findActiveByEan("222")).thenReturn(product("vis", "222", null));
+            products.when(() -> Product.findActiveByEan("333")).thenReturn(product("ecrou", "333", null));
+            service.recalculateTotal(state);
+        }
+        assertEquals("À PROPOSER : VIS", state.ticket.transientError);
+        assertTrue(state.ticket.transientOk);
+        assertNull(state.complementaryPendingEan);
+    }
+
+    /**
+     * BO-02-03-16: the suggestion yields to an error already shown, to a shop
+     * that disables it, and says nothing for an article without complementary
+     * articles.
+     */
+    @Test
+    void complementarySuggestionYieldsAndStaysSilentWithoutComplementaries() {
+        state.complementaryPendingEan = "123";
+        state.ticket.transientError = "ERREUR";
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(product("PERCEUSE", "123", null));
+            service.recalculateTotal(state);
+            assertEquals("ERREUR", state.ticket.transientError);
+            state.ticket.transientError = null;
+            state.complementaryPendingEan = "123";
+            service.recalculateTotal(state);
+            assertNull(state.ticket.transientError);
+            when(service.posSettingsService.articleComplementarySuggestions()).thenReturn(true);
+            state.complementaryPendingEan = "123";
+            service.recalculateTotal(state);
+            assertNull(state.ticket.transientError);
+            products.verify(() -> Product.findActiveByEan("123"));
+        }
+    }
+
+    /**
+     * BO-02-03-24: an article not to weigh is left alone; a weighed one without
+     * a PLU (absent or blank) is refused; one with a PLU goes to the weighing,
+     * whose own session gate answers here.
+     */
+    @Test
+    void routeWeighedSendsAWeighedArticleToTheScale() {
+        Product plain = product("PAIN", "123", null);
+        assertFalse(service.routeWeighed(state, plain));
+        Product flagged = product("POMMES", "124", null);
+        flagged.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.WEIGHED, "true");
+        assertTrue(service.routeWeighed(state, flagged));
+        assertEquals("ARTICLE À PESER SANS CODE PLU : PESÉE IMPOSSIBLE", state.ticket.transientError);
+        Product moded = product("POIRES", "125", " ");
+        moded.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.CHECKOUT_MODE,
+                "WEIGHED");
+        state.ticket.transientError = null;
+        assertTrue(service.routeWeighed(state, moded));
+        assertEquals("ARTICLE À PESER SANS CODE PLU : PESÉE IMPOSSIBLE", state.ticket.transientError);
+        moded.plu = "4021";
+        state.ticket.transientError = null;
+        assertTrue(service.routeWeighed(state, moded));
+        assertEquals("AUCUNE SESSION OUVERTE - MENU CAISSE", state.ticket.transientError);
+    }
+
+    /**
+     * BO-02-03-05: only an "appel prix" article without a price (no row or a
+     * row without amount) is refused.
+     */
+    @Test
+    void priceCallRefusedOnlyForAPriceCallArticleWithoutPrice() {
+        Product plain = product("PAIN", "123", null);
+        assertFalse(service.priceCallRefused(state, plain, null));
+        Product called = product("TV", "124", null);
+        called.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.CHECKOUT_MODE,
+                "PRICE_CALL");
+        assertFalse(service.priceCallRefused(state, called, price("499.00", "0.20")));
+        assertNull(state.ticket.transientError);
+        Price empty = new Price();
+        assertTrue(service.priceCallRefused(state, called, empty));
+        assertEquals("PRIX DE L'ARTICLE INTROUVABLE : VENTE IMPOSSIBLE", state.ticket.transientError);
+        state.ticket.transientError = null;
+        assertTrue(service.priceCallRefused(state, called, null));
+        assertEquals("PRIX DE L'ARTICLE INTROUVABLE : VENTE IMPOSSIBLE", state.ticket.transientError);
+    }
+
+    /**
+     * BO-02-03-24: a weighed article keyed by its EAN without a PLU is refused
+     * and rings no unit line.
+     */
+    @Test
+    void addItemByEanRoutesAWeighedArticle() {
+        openSession();
+        Product p = product("POMMES", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.WEIGHED, "true");
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertEquals("ARTICLE À PESER SANS CODE PLU : PESÉE IMPOSSIBLE", state.ticket.transientError);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * BO-02-03-05: an "appel prix" article keyed by its EAN without a price is
+     * refused and rings no line.
+     */
+    @Test
+    void addItemByEanRefusesAPriceCallArticleWithoutPrice() {
+        openSession();
+        Product p = product("TV", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.CHECKOUT_MODE,
+                "PRICE_CALL");
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog();
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertEquals("PRIX DE L'ARTICLE INTROUVABLE : VENTE IMPOSSIBLE", state.ticket.transientError);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * BO-02-03-22: a whole-quantity prompt refuses a fractional figure and keeps
+     * the prompt open, then rings the article at the whole figure keyed and
+     * withdraws the refusal.
+     */
+    @Test
+    void confirmEntryWantsAWholeQuantityForAQuantityToEnterArticle() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .QUANTITY_TO_ENTER, "true");
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class);
+             MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("2.00", "0.20"));
+            assertTrue(service.suspendForEntry(state, p, null));
+            assertTrue(state.entryPrompt.wholeQuantity);
+            service.confirmEntry(state, new BigDecimal("2.5"));
+            assertEquals("QUANTITÉ ENTIÈRE REQUISE", state.ticket.transientError);
+            assertTrue(state.entryPrompt.active);
+            service.confirmEntry(state, new BigDecimal("3.00"));
+        }
+        assertFalse(state.entryPrompt.active);
+        assertNull(state.ticket.transientError);
+        assertEquals(0, new BigDecimal("3").compareTo(state.ticket.items.get(0).quantity));
+    }
+
+    // --- lot 21, group S ---
+
+    /**
+     * BO-04-01-14: the lines the scan chain created are marked scanned; a line
+     * already on the ticket is not.
+     */
+    @Test
+    void processScanMarksTheLinesTheChainRang() {
+        state.auth.isLocked = false;
+        openSession();
+        state.ticket.addItem("1", null, "OLD", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+        ScanContext.ScanHandler ringing = ctx -> ctx.state.ticket.addItem("2", null, "NEW", BigDecimal.ONE,
+                BigDecimal.ONE, BigDecimal.ZERO);
+        when(scanHandlers.spliterator()).thenAnswer(invocation -> List.of(ringing).spliterator());
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            service.processScan("2");
+        }
+        assertFalse(state.ticket.items.get(0).scanned);
+        assertTrue(state.ticket.items.get(1).scanned);
+    }
+
+    /**
+     * BO-04-03-08: an alert on the barcode or the offline register may stop the
+     * scan before the chain; a passing alert lets it on; a locked register
+     * asks nothing.
+     */
+    @Test
+    void processScanGoesThroughTheControlGate() {
+        state.auth.isLocked = false;
+        openSession();
+        service.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(service.controlGateService.onScan("200", false))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP);
+        service.processScan("200");
+        verify(scanHandlers, never()).spliterator();
+        when(scanHandlers.spliterator()).thenAnswer(invocation -> List.<ScanContext.ScanHandler>of().spliterator());
+        service.refPullService = mock(com.intermarche.pos.service.sync.RefPullService.class);
+        when(service.refPullService.isNodeUnreachable()).thenReturn(true);
+        when(service.posSettingsService.scanOfflineAlert()).thenReturn("NONE");
+        when(service.controlGateService.onScan("300", true))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.PASS);
+        service.processScan("300");
+        verify(scanHandlers).spliterator();
+        when(service.refPullService.isNodeUnreachable()).thenReturn(false);
+        when(service.controlGateService.onScan("350", false))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.NO_RULE);
+        service.processScan("350");
+        verify(service.controlGateService).onScan("350", false);
+        state.auth.isLocked = true;
+        service.processScan("400");
+        verify(service.controlGateService, never()).onScan(eq("400"), anyBoolean());
+    }
+
+    /**
+     * BO-04-03-08: an alert on the article may stop it before it is rung.
+     */
+    @Test
+    void addItemByEanGoesThroughTheControlGate() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        service.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(service.controlGateService.onArticle(p, BigDecimal.ONE,
+                com.intermarche.pos.ui.control.ControlGateService.Kind.EAN, "123"))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP,
+                        com.intermarche.pos.ui.control.ControlGateService.Outcome.PASS);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            silenceArticleMessage(panache);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("1.50", "0.055"));
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+            assertTrue(state.ticket.items.isEmpty());
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertEquals(1, state.ticket.items.size());
+    }
+
+    /**
+     * BO-04-01-14: an unknown article and a family sale are keyed prices.
+     */
+    @Test
+    void keyedPricesAreMarked() {
+        openSession();
+        service.addUnknownItem(state, "candy", "1,50");
+        assertTrue(state.ticket.items.get(0).priceEntered);
+        com.intermarche.pos.domain.catalog.ProductFamily family = new com.intermarche.pos.domain.catalog.ProductFamily();
+        family.code = "80";
+        family.description = "Epicerie";
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                     mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80")).thenReturn(family);
+            service.addFamilyPricedItem(state, "80", "2,35");
+        }
+        assertTrue(state.ticket.items.get(state.ticket.items.size() - 1).priceEntered);
+    }
+
+    /**
+     * BO-04-03-07: each price modification is journalled as it lands, with the
+     * operator when there is a state; without a journal nothing is written.
+     */
+    @Test
+    void priceModificationsAreJournalled() {
+        state.auth.operatorBadgeId = "12341234";
+        TicketState.TicketItem remised = line("LAIT", new BigDecimal("10.00"), new BigDecimal("2"));
+        service.applyRemise(remised, new BigDecimal("1.00"));
+        verify(technicalEventService).record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_MODIFIED,
+                "LAIT REMISE", "12341234", null, new BigDecimal("2.00"), "REMISE");
+        TicketState.TicketItem discounted = line("PAIN", new BigDecimal("10.00"), BigDecimal.ONE);
+        service.applyDiscount(discounted, new BigDecimal("10"));
+        verify(technicalEventService).record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_MODIFIED,
+                "PAIN DISCOUNT", "12341234", null, new BigDecimal("1.00"), "DISCOUNT");
+        service.state = null;
+        TicketState.TicketItem forced = line("VIN", new BigDecimal("10.00"), BigDecimal.ONE);
+        service.forcePrice(forced, new BigDecimal("7"));
+        verify(technicalEventService).record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_MODIFIED,
+                "VIN FORCE_PRICE", null, null, new BigDecimal("7.00"), "FORCE_PRICE");
+        service.technicalEventService = null;
+        service.forcePrice(line("EAU", new BigDecimal("1.00"), BigDecimal.ONE), new BigDecimal("0.5"));
+        org.mockito.Mockito.verifyNoMoreInteractions(technicalEventService);
+    }
+
+    /**
+     * BO-04-01-34: a price modification names the sale's draft; recorded
+     * before the draft exists, it waits for the draft to name it — unless the
+     * journal kept no row of it.
+     */
+    @Test
+    void priceModificationsNameTheirTicket() {
+        com.intermarche.pos.domain.session.TechnicalEvent named = new com.intermarche.pos.domain.session.TechnicalEvent();
+        named.id = 4L;
+        named.ticketNumber = "C04-00000009";
+        com.intermarche.pos.domain.session.TechnicalEvent waiting = new com.intermarche.pos.domain.session.TechnicalEvent();
+        waiting.id = 5L;
+        com.intermarche.pos.domain.session.TechnicalEvent unsaved = new com.intermarche.pos.domain.session.TechnicalEvent();
+        when(technicalEventService.record(any(), anyString(), any(), any(), any(), any()))
+                .thenReturn(named, waiting, unsaved);
+        Ticket draft = new Ticket();
+        draft.ticketNumber = "C04-00000009";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PanacheEntityBase.findById(9L)).thenReturn(draft);
+            state.payment.ticketDbId = 9L;
+            service.applyRemise(line("LAIT", new BigDecimal("10.00"), BigDecimal.ONE), new BigDecimal("1.00"));
+            state.payment.ticketDbId = 10L;
+            service.applyRemise(line("PAIN", new BigDecimal("10.00"), BigDecimal.ONE), new BigDecimal("1.00"));
+            service.applyRemise(line("VIN", new BigDecimal("10.00"), BigDecimal.ONE), new BigDecimal("1.00"));
+        }
+        verify(technicalEventService).record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_MODIFIED,
+                "LAIT REMISE", null, "C04-00000009", new BigDecimal("1.00"), "REMISE");
+        verify(technicalEventService).record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_MODIFIED,
+                "PAIN REMISE", null, null, new BigDecimal("1.00"), "REMISE");
+        assertEquals(List.of(5L), state.ticket.eventsAwaitingTicket);
+    }
+
+    /**
+     * BO-04-03-07: an article cancellation is journalled with its amount;
+     * without a journal, or for a line it cannot find, nothing is written.
+     */
+    @Test
+    void lineCancellationsAreJournalled() {
+        openSession();
+        state.auth.operatorBadgeId = "1";
+        state.ticket.addItem("301", null, "LAIT", new BigDecimal("1.20"), BigDecimal.ONE, BigDecimal.ZERO);
+        String uid = state.ticket.items.get(0).uid;
+        service.cancelItemById(state, uid);
+        verify(technicalEventService).record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.LINE_CANCELLED,
+                "LAIT", "1", null, new BigDecimal("1.20"), "301");
+        service.cancelItemById(state, "nobody");
+        service.technicalEventService = null;
+        state.ticket.addItem("302", null, "PAIN", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+        service.cancelItemById(state, state.ticket.items.get(state.ticket.items.size() - 1).uid);
+        verify(technicalEventService, times(1)).record(eq(com.intermarche.pos.domain.session.TechnicalEvent.EventType.LINE_CANCELLED),
+                anyString(), any(), any(), any(), any());
+    }
+
+    /**
+     * LC-02-13-03/04: a decimal quantity armed before a UNIT article keyed by its
+     * EAN — the road of a keyed code and of a touch tile too — is refused with
+     * « QUANTITÉ INVALIDE », the article is not rung and the arming is consumed.
+     */
+    @Test
+    void addItemByEanRefusesADecimalArmedForAUnitArticle() {
+        openSession();
+        state.armedQuantity = new BigDecimal("1.5");
+        Product p = product("CHIPS", "123", null);
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog();
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("1.80", "0.055"));
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("QUANTITÉ INVALIDE", state.ticket.transientError);
+        assertNull(state.armedQuantity);
+    }
+
+    /**
+     * LC-02-13-03/04: an unlisted article is sold by the unit, so a decimal armed
+     * before it is refused and nothing is rung.
+     */
+    @Test
+    void addUnknownItemRefusesADecimalArmedQuantity() {
+        openSession();
+        state.armedQuantity = new BigDecimal("2.25");
+        service.addUnknownItem(state, "candy", "1,50");
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("QUANTITÉ INVALIDE", state.ticket.transientError);
+        assertNull(state.armedQuantity);
+    }
+
+    /**
+     * LC-02-13-03/04: a family sale is a unit line, so a decimal armed before it
+     * is refused and nothing is rung.
+     */
+    @Test
+    void addFamilyPricedItemRefusesADecimalArmedQuantity() {
+        openSession();
+        state.armedQuantity = new BigDecimal("0.5");
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80"))
+                    .thenReturn(family("80", "Epicerie"));
+            service.addFamilyPricedItem(state, "80", "2,35");
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("QUANTITÉ INVALIDE", state.ticket.transientError);
+        assertNull(state.armedQuantity);
+    }
+
+    /**
+     * LC-02-13-04: a WHOLE armed quantity still applies to a unit article.
+     */
+    @Test
+    void addUnknownItemKeepsAWholeArmedQuantity() {
+        openSession();
+        state.armedQuantity = new BigDecimal("3.00");
+        service.addUnknownItem(state, "candy", "1,50");
+        assertEquals(1, state.ticket.items.size());
+        assertEquals(0, new BigDecimal("3").compareTo(state.ticket.items.get(0).quantity));
     }
 }

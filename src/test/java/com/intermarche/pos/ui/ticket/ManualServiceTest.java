@@ -105,6 +105,11 @@ class ManualServiceTest {
      */
     private ManualRepository repositoryOf(List<ProductFamily> world) {
         return new ManualRepository() {
+            /** {@inheritDoc} */
+            @Override
+            public java.math.BigDecimal currentPrice(Long productId) {
+                return null;
+            }
 
             /** {@inheritDoc} */
             @Override
@@ -141,8 +146,15 @@ class ManualServiceTest {
 
             /** {@inheritDoc} */
             @Override
-            public List<Product> products(Long familyId, int offset, int limit) {
+            public List<Product> products(Long familyId, int offset, int limit, ManualService.ArticleSort sort) {
                 List<Product> ordered = eanProducts(byId(familyId));
+                java.util.Comparator<Product> comparator = switch (sort) {
+                    case DEFAULT, NAME_ASC -> java.util.Comparator.comparing(p -> p.name);
+                    case NAME_DESC -> java.util.Comparator.<Product, String>comparing(p -> p.name).reversed();
+                    case CODE_ASC -> java.util.Comparator.comparing(p -> p.ean);
+                    case CODE_DESC -> java.util.Comparator.<Product, String>comparing(p -> p.ean).reversed();
+                };
+                ordered.sort(comparator);
                 int from = Math.min(offset, ordered.size());
                 return new ArrayList<>(ordered.subList(from, Math.min(from + limit, ordered.size())));
             }
@@ -369,7 +381,7 @@ class ManualServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
             stubTouches(mocked);
-            ManualViewData data = serviceWith("VOLUME", 2, all).getManualRootData(99);
+            ManualViewData data = serviceWith("VOLUME", 4, all).getManualRootData(99);
             assertEquals(1, data.page);
             assertEquals(1, data.totalPages);
             assertNull(data.prevUrl);
@@ -386,9 +398,8 @@ class ManualServiceTest {
     }
 
     /**
-     * The page budget deducts what is permanent: with three pinned groups, the
-     * eleven free tiles leave eight for the page, so nine remaining groups no
-     * longer fit on one page even though the configured size is twelve.
+     * LC-02-07-02: twelve configured content tiles include the three pinned groups;
+     * all nine remaining groups fit, and navigation occupies an additional cell.
      */
     @Test
     void getManualRootDataBudgetDeductsPinnedAndFixedTile() {
@@ -408,9 +419,9 @@ class ManualServiceTest {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
             stubTouches(mocked);
             ManualViewData data = serviceWith("ALPHA", 12, all).getManualRootData(1);
-            assertEquals(2, data.totalPages);
-            assertEquals(11, data.items.size());
-            assertEquals("/manual?page=2", data.nextUrl);
+            assertEquals(1, data.totalPages);
+            assertEquals(12, data.items.size());
+            assertNull(data.nextUrl);
         }
     }
 
@@ -728,5 +739,294 @@ class ManualServiceTest {
             assertTrue(data.items.get(0).isCategory);
             assertEquals("ChildA", data.items.get(0).label);
         }
+    }
+    /** BO-03-01-21/22/23: the touch scope follows the distributed checkout identity, including missing fields. */
+    @Test
+    void touchScopeReadsAvailableCheckoutIdentity() throws Exception {
+        ManualService service = new ManualService();
+        var method = ManualService.class.getDeclaredMethod("registerScope");
+        method.setAccessible(true);
+        try (var points = mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class)) {
+            assertArrayEquals(new String[]{null, null, null}, (String[]) method.invoke(service));
+            service.ticketNumberService = mock(com.intermarche.pos.service.TicketNumberService.class);
+            when(service.ticketNumberService.getTerminalId()).thenReturn("C04");
+            var point = new com.intermarche.pos.domain.store.CheckoutPoint();
+            point.islandCode = "A";
+            point.tpvType = null;
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal("C04")).thenReturn(point);
+            assertArrayEquals(new String[]{"C04", "A", null}, (String[]) method.invoke(service));
+            point.tpvType = com.intermarche.pos.domain.store.TpvType.CASH_REGISTER;
+            assertArrayEquals(new String[]{"C04", "A", "CASH_REGISTER"}, (String[]) method.invoke(service));
+        }
+    }
+
+    /** BO-03-01-19: translated group wording wins only when both language and translation are available. */
+    @Test
+    void groupLabelsUseTheirAdministeredTranslation() throws Exception {
+        ManualService service = new ManualService();
+        ProductFamily family = fam(1L, "G", "DEFAULT");
+        TouchGroupSetting setting = TouchGroupSetting.defaults("G");
+        setting.labels = "fr=GROUPE";
+        var method = ManualService.class.getDeclaredMethod("groupLabel", ProductFamily.class, TouchGroupSetting.class);
+        method.setAccessible(true);
+        assertEquals("DEFAULT", method.invoke(service, family, null));
+        assertEquals("DEFAULT", method.invoke(service, family, setting));
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        assertEquals("GROUPE", method.invoke(service, family, setting));
+    }
+
+    /** BO-03-01-21: a scoped-out group is removed while unscoped touches preserve their order. */
+    @Test
+    void drawnGroupsExcludeAnotherIsland() throws Exception {
+        ManualService service = new ManualService();
+        ProductFamily allowed = fam(1L, "A", "ALL");
+        ProductFamily hidden = fam(2L, "B", "OTHER ISLAND");
+        TouchGroupSetting restricted = TouchGroupSetting.defaults("B");
+        restricted.islandCodes = "OTHER";
+        var method = ManualService.class.getDeclaredMethod("drawnHere", Collection.class, Map.class);
+        method.setAccessible(true);
+        try (var points = mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class)) {
+            assertEquals(List.of(allowed), method.invoke(service, List.of(allowed, hidden), Map.of("B", restricted)));
+        }
+    }
+
+
+    /** LC-02-07-14/15: opening an article group carries its distributed thumbnail inline and preserves products with no image. */
+    @Test
+    void groupProductsCarryTheirInlineThumbnails() {
+        var illustrated = prod("ILLUSTRATED", "301", null);
+        illustrated.imageData = "data:image/png;base64,THUMBNAIL";
+        var plain = prod("PLAIN", "302", null);
+        var family = fam(1L, "GROUP", "GROUP");
+        family.products = new HashSet<>(List.of(illustrated, plain));
+        var families = List.of(family);
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(ProductFamily::listAll).thenReturn(families);
+            stubTouches(base);
+            stubFindByCode(base, "GROUP", family);
+            var items = serviceOver(families).getManualCategoryData("GROUP", 1).items;
+            assertEquals(2, items.size());
+            assertEquals("301", items.get(0).ean);
+            assertEquals("data:image/png;base64,THUMBNAIL", items.get(0).imageData);
+            assertNull(items.get(1).imageData);
+        }
+    }
+
+    /** LC-02-07-11: product tiles round the current TTC and apply the administered currency suffix without fabricating missing prices. */
+    @Test
+    void articleTouchPricesRespectCurrencyAdministration() {
+        var product = prod("MILK", "12345670", null);
+        product.id = 7L;
+        var family = fam(1L, "GROUP", "GROUP");
+        family.products = new HashSet<>(List.of(product));
+        var families = List.of(family);
+        var service = serviceOver(families);
+        service.repository = org.mockito.Mockito.spy(service.repository);
+        org.mockito.Mockito.doReturn(new java.math.BigDecimal("2.345")).when(service.repository).currentPrice(7L);
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(ProductFamily::listAll).thenReturn(families);
+            stubTouches(base);
+            stubFindByCode(base, "GROUP", family);
+            assertEquals("2,35 EUR", service.getManualCategoryData("GROUP", 1).items.getFirst().priceFormatted);
+            service.posSettings = org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+            org.mockito.Mockito.when(service.posSettings.touchGroupsPerPage()).thenReturn(12);
+            org.mockito.Mockito.when(service.posSettings.touchDisplayOrder()).thenReturn("ALPHA");
+            assertEquals("2,35", service.getManualCategoryData("GROUP", 1).items.getFirst().priceFormatted);
+            org.mockito.Mockito.when(service.posSettings.touchPriceCurrency()).thenReturn(true);
+            assertEquals("2,35 EUR", service.getManualCategoryData("GROUP", 1).items.getFirst().priceFormatted);
+            org.mockito.Mockito.doReturn(null).when(service.repository).currentPrice(7L);
+            assertEquals("—", service.getManualCategoryData("GROUP", 1).items.getFirst().priceFormatted);
+        }
+    }
+
+
+    /** LC-02-07-02: a configured page can contain twenty-four articles without the previous eleven-tile ceiling. */
+    @Test
+    void articlePageSizeAboveElevenIsAppliedBeforeDatabaseRead() {
+        var family = fam(42L, "F", "Family");
+        for (int i = 0; i < 25; i++) {
+            family.products.add(prod(String.format("Article %02d", i), "300" + i, null));
+        }
+        var all = List.of(family);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubFindByCode(mocked, "F", family);
+            stubTouches(mocked);
+            var service = serviceWith("ALPHA", 24, all);
+            var first = service.getManualCategoryData("F", 1);
+            assertEquals(24, first.items.size());
+            assertEquals(2, first.totalPages);
+            var last = service.getManualCategoryData("F", 2);
+            assertEquals(1, last.items.size());
+            assertEquals("Article 24", last.items.get(0).label);
+        }
+    }
+
+    /** LC-02-07-18: sort survives paging only; leaving through group/parent links restores the default. */
+    @Test
+    void temporaryOrderPagesTheWholeGroupAndDefaultReturnsOnReentry() {
+        ProductFamily family = fam(91L, "SORT", "Sort");
+        family.products = new HashSet<>(List.of(prod("Apple", "900", null),
+                prod("Banana", "100", null), prod("Cherry", "500", null)));
+        List<ProductFamily> all = List.of(family);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
+            stubFindByCode(mocked, "SORT", family);
+            ManualService service = serviceWith("ALPHA", 1, all);
+            var first = service.getManualCategoryData("SORT", 1, ManualService.ArticleSort.CODE_DESC);
+            assertEquals("Apple", first.items.getFirst().label);
+            assertEquals("/manual/cat/SORT?sort=CODE_DESC&page=2", first.nextUrl);
+            var second = service.getManualCategoryData("SORT", 2, ManualService.ArticleSort.CODE_DESC);
+            assertEquals("Cherry", second.items.getFirst().label);
+            assertEquals("/manual/cat/SORT?sort=CODE_DESC&page=1", second.prevUrl);
+            assertEquals("/manual", second.parentUrl);
+            var last = service.getManualCategoryData("SORT", 3, ManualService.ArticleSort.CODE_DESC);
+            assertEquals("Banana", last.items.getFirst().label);
+            assertNull(last.nextUrl);
+            var reopened = service.getManualCategoryData("SORT", 2);
+            assertEquals("Banana", reopened.items.getFirst().label);
+            assertEquals("/manual/cat/SORT?page=1", reopened.prevUrl);
+            var root = service.getManualRootData(1);
+            assertEquals("/manual/cat/SORT", root.items.getFirst().url);
+        }
+    }
+
+    /** LC-02-07-18: absent, default and unknown tokens cannot inject query text or retain an old order. */
+    @Test
+    void articleSortAcceptsOnlyKnownTokens() {
+        assertEquals(ManualService.ArticleSort.DEFAULT, ManualService.ArticleSort.parse(null));
+        assertEquals(ManualService.ArticleSort.DEFAULT, ManualService.ArticleSort.parse("DEFAULT"));
+        assertEquals(ManualService.ArticleSort.DEFAULT, ManualService.ArticleSort.parse("p.name; delete"));
+        assertEquals(ManualService.ArticleSort.DEFAULT, ManualService.ArticleSort.parse(""));
+        for (var sort : ManualService.ArticleSort.values()) assertEquals(sort, ManualService.ArticleSort.parse(sort.name()));
+    }
+
+    /**
+     * BO-03-01-04/05: the LEVEL-0 group is not drawn as a group touch at the
+     * root; its articles are drawn as direct article tiles after the pinned
+     * groups and before the paged groups, consuming the page budget.
+     */
+    @Test
+    void theLevelZeroArticlesAreDirectTilesAtTheRoot() {
+        ProductFamily levelZero = fam(10L, ProductFamily.LEVEL_ZERO_CODE, "Niveau 0");
+        Product bag = prod("Sac", "3000000000017", null);
+        bag.imageData = "data:image/png;base64,AA";
+        levelZero.products = new HashSet<>(List.of(bag));
+        ProductFamily pinnedGroup = fam(11L, "P", "Pinned");
+        pinnedGroup.products = new HashSet<>(List.of(prod("PinnedEan", "301", null)));
+        touch(pinnedGroup).pinned = true;
+        ProductFamily alpha = fam(12L, "A", "Alpha");
+        alpha.products = new HashSet<>(List.of(prod("AlphaEan", "302", null)));
+        ProductFamily bravo = fam(13L, "B", "Bravo");
+        bravo.products = new HashSet<>(List.of(prod("BravoEan", "303", null)));
+        List<ProductFamily> all = List.of(levelZero, pinnedGroup, alpha, bravo);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
+            ManualViewData data = serviceWith("ALPHA", 3, all).getManualRootData(1);
+            assertEquals(3, data.items.size());
+            assertEquals("Pinned", data.items.get(0).label);
+            assertFalse(data.items.get(1).isCategory);
+            assertEquals("Sac", data.items.get(1).label);
+            assertEquals("3000000000017", data.items.get(1).ean);
+            assertEquals("data:image/png;base64,AA", data.items.get(1).imageData);
+            assertEquals("—", data.items.get(1).priceFormatted);
+            assertEquals("Alpha", data.items.get(2).label);
+            assertEquals(2, data.totalPages);
+        }
+    }
+
+    /**
+     * BO-03-01-05: a pinned LEVEL-0 group is not drawn as a permanent group
+     * touch on the category levels either — it has no group touch at all.
+     */
+    @Test
+    void aPinnedLevelZeroGroupIsNeverAGroupTouch() {
+        ProductFamily levelZero = fam(10L, ProductFamily.LEVEL_ZERO_CODE, "Niveau 0");
+        levelZero.products = new HashSet<>(List.of(prod("Sac", "3000000000017", null)));
+        touch(levelZero).pinned = true;
+        ProductFamily alpha = fam(12L, "A", "Alpha");
+        alpha.products = new HashSet<>(List.of(prod("AlphaEan", "302", null)));
+        List<ProductFamily> all = List.of(levelZero, alpha);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
+            stubFindByCode(mocked, "A", alpha);
+            ManualViewData data = serviceOver(all).getManualCategoryData("A", 1);
+            assertEquals(1, data.items.size());
+            assertEquals("AlphaEan", data.items.get(0).label);
+        }
+    }
+
+    /**
+     * BO-03-01-04: without a LEVEL-0 group the sale screen carries no direct
+     * article key.
+     */
+    @Test
+    void levelZeroKeysAreEmptyWithoutTheGroup() {
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubFindByCode(mocked, ProductFamily.LEVEL_ZERO_CODE, null);
+            assertTrue(serviceOver(List.of()).levelZeroKeys().isEmpty());
+        }
+    }
+
+    /**
+     * BO-03-01-04: a LEVEL-0 group scoped to another register draws no key on
+     * this one.
+     */
+    @Test
+    void levelZeroKeysAreEmptyWhenTheGroupIsScopedElsewhere() {
+        ProductFamily levelZero = fam(10L, ProductFamily.LEVEL_ZERO_CODE, "Niveau 0");
+        levelZero.products = new HashSet<>(List.of(prod("Sac", "3000000000017", null)));
+        touch(levelZero).terminalIds = "C99";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
+            stubFindByCode(mocked, ProductFamily.LEVEL_ZERO_CODE, levelZero);
+            assertTrue(serviceOver(List.of(levelZero)).levelZeroKeys().isEmpty());
+        }
+    }
+
+    /**
+     * BO-03-01-04/05: the sale screen carries the first LEVEL-0 articles as
+     * direct keys, at most {@link ManualService#SALE_SCREEN_KEYS}, in the
+     * article order.
+     */
+    @Test
+    void levelZeroKeysCarryTheFirstArticles() {
+        ProductFamily levelZero = fam(10L, ProductFamily.LEVEL_ZERO_CODE, "Niveau 0");
+        levelZero.products = new HashSet<>(List.of(prod("E", "5", null), prod("A", "1", null),
+                prod("C", "3", null), prod("B", "2", null), prod("D", "4", null)));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
+            stubFindByCode(mocked, ProductFamily.LEVEL_ZERO_CODE, levelZero);
+            List<ManualItem> keys = serviceOver(List.of(levelZero)).levelZeroKeys();
+            assertEquals(4, keys.size());
+            assertEquals("A", keys.get(0).label);
+            assertEquals("1", keys.get(0).ean);
+            assertFalse(keys.get(0).isCategory);
+            assertEquals("D", keys.get(3).label);
+        }
+    }
+
+    /**
+     * The breadcrumb root reads the bundle in the till's language — « Start » at
+     * a Dutch till, « Accueil » at a French one — and stays French for a service
+     * built outside CDI, which has no resolver.
+     *
+     * @throws Exception if the private method cannot be reached
+     */
+    @Test
+    void breadcrumbRootIsTranslated() throws Exception {
+        ManualService service = new ManualService();
+        var method = ManualService.class.getDeclaredMethod("homeLabel");
+        method.setAccessible(true);
+        assertEquals("Accueil", method.invoke(service));
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        assertEquals("Accueil", method.invoke(service));
+        com.intermarche.pos.ui.PosState dutch = new com.intermarche.pos.ui.PosState();
+        dutch.language = "nl";
+        service.i18n = com.intermarche.pos.ui.TestMessages.french(dutch);
+        assertEquals("Start", method.invoke(service));
     }
 }

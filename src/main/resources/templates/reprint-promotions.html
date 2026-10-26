@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{inject:i18n.get('reprint.promotions')}</title>
+<style>
+{#include theme /}
+body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
+.pos-terminal { grid-template-rows:auto 1fr auto; padding:16px; gap:12px; }
+.calculations { overflow:auto; min-height:0; }
+.calculation { padding:12px; border-bottom:1px solid var(--border-color); }
+.amounts { display:flex; flex-wrap:wrap; gap:16px; }
+</style></head>
+<body data-theme="{posTheme}"><div class="pos-terminal">
+<h1>{inject:i18n.get('reprint.promotions')} — {ticket.ticketNumber}</h1>
+<div class="calculations">
+<p>{inject:i18n.get('reprint.frozenCalculation')}</p>
+{#if traces.isEmpty()}<p>{inject:i18n.get('reprint.noCalculation')}</p>{/if}
+{#for trace in traces}
+<section class="calculation">
+{#for line in ticket.lines}{#if line.lineUid == trace.lineUid}<h2>{line.productLabel} — {inject:units.line(line)}</h2>{/if}{/for}
+<div class="amounts"><span>{inject:i18n.get('reprint.beforeCalculation')} : {inject:units.money(trace.localTotal)} €</span>
+<span>{inject:i18n.get('reprint.afterCalculation')} : {inject:units.money(trace.valuedTotal)} €</span></div>
+{#if trace.offerLabel}<p>{inject:i18n.get('reprint.offer')} : {trace.offerLabel}</p>{/if}
+{#if trace.advantageLabel}<p>{inject:i18n.get('reprint.advantage')} : {trace.advantageLabel} — {#if trace.advantageAmount != null}{inject:units.money(trace.advantageAmount)}{#else}—{/if} €</p>{/if}
+{#if trace.correctionLabel}<p>{inject:i18n.get('reprint.correction')} : {trace.correctionLabel} — {#if trace.correctionAmount != null}{inject:units.money(trace.correctionAmount)}{#else}—{/if} €</p>{/if}
+</section>
+{/for}
+{#for line in ticket.lines}{#if line.modifierLabel}<p>{line.productLabel} : {line.modifierLabel}</p>{/if}{/for}
+{#if ticket.globalDiscountApplied}<p>{inject:i18n.get('reprint.globalDiscount')} : {inject:units.money(ticket.globalDiscountApplied)} €</p>{/if}
+{#for benefit in ticket.fidelityLines}<p>{benefit.label} : {inject:units.money(benefit.amount)} €</p>{/for}
+<p>{inject:i18n.get('reprintticketdetail.totalTtc')} : {ticket.totalFormatted} €</p>
+</div>
+<a class="btn btn-muted" href="/reprint/view/{ticket.id}">{inject:i18n.get('common.back')}</a>
+</div></body></html>

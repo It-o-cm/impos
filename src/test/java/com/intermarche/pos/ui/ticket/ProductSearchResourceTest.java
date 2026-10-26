@@ -240,7 +240,8 @@ class ProductSearchResourceTest {
     /**
      * {@code scanTypedCode(code)} trims a non-null code (code ternary non-null
      * arm) and, when the trimmed code is not empty (is-not-empty guard true
-     * arm), walks the trimmed code through the scan chain and redirects home.
+     * arm), walks the trimmed code through the scan chain as a keyed code
+     * (BO-06-04-05) and redirects home.
      */
     @Test
     void scanTypedCodeWithTypedCodeRoutesThroughScan() {
@@ -248,7 +249,7 @@ class ProductSearchResourceTest {
         Response response = resource.scanTypedCode("  3245  ");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
-        verify(resource.ticketService).processScan("3245");
+        verify(resource.ticketService).processKeyed("3245");
     }
 
     /**
@@ -298,7 +299,7 @@ class ProductSearchResourceTest {
             assertEquals("/", response.getLocation().toString());
             products.verify(() -> Product.findActiveByPlu(org.mockito.ArgumentMatchers.anyString()), never());
         }
-        verify(resource.ticketService).processScan("3245412");
+        verify(resource.ticketService).processKeyed("3245412");
     }
 
     /**
@@ -316,7 +317,7 @@ class ProductSearchResourceTest {
             assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
             assertEquals("/", response.getLocation().toString());
         }
-        verify(resource.ticketService).processScan("1234");
+        verify(resource.ticketService).processKeyed("1234");
     }
 
     /**

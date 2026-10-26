@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.recall.BackOfficeDocumentClient;
 import com.intermarche.pos.ui.recall.RecalledDocument;
@@ -7,6 +8,7 @@ import com.intermarche.pos.ui.ticket.TicketService;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,6 +46,9 @@ class OrderCodeScanHandlerTest {
         OrderCodeScanHandler handler = new OrderCodeScanHandler();
         handler.documentClient = documentClient;
         handler.ticketService = ticketService;
+        handler.posSettingsService = mock(PosSettingsService.class);
+        when(handler.posSettingsService.orderExternalCodePattern()).thenReturn("");
+        handler.selfScanService = mock(com.intermarche.pos.ui.recall.SelfScanService.class);
         return handler;
     }
 
@@ -155,5 +160,137 @@ class OrderCodeScanHandlerTest {
         verify(ticketService).loadRecalledDocument(eq(state), eq(order));
         assertTrue(ctx.handled);
         assertTrue(state.version > 0);
+    }
+    /**
+     * A null administered pattern claims no external code (null pattern arm).
+     */
+    @Test
+    void nullPatternClaimsNoExternalCode() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, mock(TicketService.class));
+        when(handler.posSettingsService.orderExternalCodePattern()).thenReturn(null);
+        ScanContext ctx = new ScanContext("DV-2026-0042", unlocked());
+        handler.handle(ctx);
+        verify(documentClient, never()).fetch(any());
+        assertFalse(ctx.handled);
+    }
+
+    /**
+     * An invalid administered pattern claims nothing rather than failing the
+     * scan chain (PatternSyntaxException arm).
+     */
+    @Test
+    void invalidPatternClaimsNothing() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, mock(TicketService.class));
+        when(handler.posSettingsService.orderExternalCodePattern()).thenReturn("DV-(");
+        ScanContext ctx = new ScanContext("DV-2026-0042", unlocked());
+        handler.handle(ctx);
+        verify(documentClient, never()).fetch(any());
+        assertFalse(ctx.handled);
+    }
+
+    /**
+     * A code that does not match the administered pattern is not claimed
+     * (pattern non-match arm).
+     */
+    @Test
+    void codeOutsideThePatternIsNotClaimed() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, mock(TicketService.class));
+        when(handler.posSettingsService.orderExternalCodePattern()).thenReturn(" DV-[0-9]{4}-[0-9]{4} ");
+        ScanContext ctx = new ScanContext("BV-2026-0042", unlocked());
+        handler.handle(ctx);
+        verify(documentClient, never()).fetch(any());
+        assertFalse(ctx.handled);
+    }
+
+    /**
+     * An external voucher matching the administered pattern and admitting no
+     * deposit loads straight into the sale (LC-06-02-09, pattern match arm).
+     */
+    @Test
+    void externalVoucherLoadsIntoTheSale() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        TicketService ticketService = mock(TicketService.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, ticketService);
+        when(handler.posSettingsService.orderExternalCodePattern()).thenReturn(" DV-[0-9]{4}-[0-9]{4} ");
+        RecalledDocument voucher = new RecalledDocument(RecalledDocument.Kind.BON_VENTE,
+                "DV-2026-0042", null, null);
+        when(documentClient.fetch("DV-2026-0042")).thenReturn(voucher);
+        PosState state = unlocked();
+        ScanContext ctx = new ScanContext("DV-2026-0042", state);
+        handler.handle(ctx);
+        verify(ticketService).loadRecalledDocument(eq(state), eq(voucher));
+        assertTrue(ctx.handled);
+        assertFalse(state.documentChoiceRequested);
+    }
+
+    /**
+     * A document admitting a deposit waits for the cashier's choice instead of
+     * loading (LC-06-02-04, -08, deposit arm).
+     */
+    @Test
+    void depositDocumentWaitsForTheChoice() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        TicketService ticketService = mock(TicketService.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, ticketService);
+        RecalledDocument quote = new RecalledDocument(RecalledDocument.Kind.DEVIS,
+                "C04-CMD000003", null, null);
+        quote.depositRule = RecalledDocument.DEPOSIT_OPTIONAL;
+        when(documentClient.fetch("C04-CMD000003")).thenReturn(quote);
+        PosState state = unlocked();
+        ScanContext ctx = new ScanContext("C04-CMD000003", state);
+        handler.handle(ctx);
+        verify(ticketService, never()).loadRecalledDocument(any(), any());
+        assertSame(quote, state.pendingDocument);
+        assertTrue(state.documentChoiceRequested);
+        assertTrue(ctx.handled);
+        assertTrue(state.version > 0);
+    }
+
+    /**
+     * A selfscanning basket matching its administered pattern opens its control
+     * instead of loading, and asks the sale screen for the selfscanning screen
+     * (LC-06-05-03).
+     */
+    @Test
+    void selfScanBasketOpensItsControl() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        TicketService ticketService = mock(TicketService.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, ticketService);
+        when(handler.posSettingsService.selfScanCodePattern()).thenReturn("SS[0-9]{8}");
+        RecalledDocument basket = new RecalledDocument(RecalledDocument.Kind.SELF_SCAN,
+                "SS00000001", null, null);
+        when(documentClient.fetch("SS00000001")).thenReturn(basket);
+        PosState state = unlocked();
+        ScanContext ctx = new ScanContext("SS00000001", state);
+        handler.handle(ctx);
+        verify(handler.selfScanService).start(state, basket);
+        verify(ticketService, never()).loadRecalledDocument(any(), any());
+        assertTrue(state.selfScanRequested);
+        assertFalse(state.documentChoiceRequested);
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * A queue-busting basket matching its administered range is loaded into the
+     * sale, paid in full like any basket built ahead of the till (BO-03-06-57).
+     */
+    @Test
+    void aQbustingBasketIsLoaded() {
+        BackOfficeDocumentClient documentClient = mock(BackOfficeDocumentClient.class);
+        TicketService ticketService = mock(TicketService.class);
+        OrderCodeScanHandler handler = newHandler(documentClient, ticketService);
+        when(handler.posSettingsService.qbustingCodePattern()).thenReturn("QB[0-9]{8}");
+        RecalledDocument basket = new RecalledDocument(RecalledDocument.Kind.QBUSTING,
+                "QB00000001", null, null);
+        when(documentClient.fetch("QB00000001")).thenReturn(basket);
+        PosState state = unlocked();
+        ScanContext ctx = new ScanContext("QB00000001", state);
+        handler.handle(ctx);
+        verify(ticketService).loadRecalledDocument(state, basket);
+        verify(handler.selfScanService, never()).start(any(), any());
+        assertTrue(ctx.handled);
     }
 }

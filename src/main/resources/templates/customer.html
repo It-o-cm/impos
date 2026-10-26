@@ -4,50 +4,115 @@
  ! operator lock by design; adding any control here would breach it). Phases:
  ! welcome (locked/empty) → running cart → payment → thank-you (change,
  ! digital-receipt link + QR) ; orange banner when data.training.
+ ! ONE CONTROL, which moves no money: the language keys of LC-13-06-08 / -13,
+ ! offered where the store lets the customer choose; the page redraws itself
+ ! whenever the language it is drawn in moves.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{inject:i18n.get('customer.ecranClient')}</title>
+  <title>{inject:i18n.both('customer.ecranClient')}</title>
   <style>
     {#include theme /}
-    body { background: var(--bg-page); color: var(--text-main); height: 100vh; overflow: hidden; }
+    /* LC-10-01-01: banners reserve space instead of covering totals or the header. */
+    body { background: var(--bg-page); color: var(--text-main); height: 100vh; height: 100dvh;
+      overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; }
+    .display-banner { grid-column: 1; padding: 6px 12px; text-align: center; font-weight: bold;
+      overflow-wrap: anywhere; }
+    #trainingBanner { grid-row: 1; background: var(--warning); color: #000; letter-spacing: 2px; }
+    #displayMessage { grid-row: 3; background: var(--bg-panel); font-size: 1.3rem; }
+    /* LC-13-06-08 / -13: the customer's language keys, a touch row under everything
+       else, taking no room at all where the store offers no choice. */
+    #languageBar { grid-row: 4; grid-column: 1; display: none; flex-wrap: wrap; justify-content: center;
+      gap: .5rem; padding: .5rem 1rem; border-top: 1px solid var(--border-color); }
+    #languageBar.active { display: flex; }
+    #languageBar button { min-height: 3rem; min-width: 8rem; padding: .4rem 1.2rem; font-size: 1.2rem;
+      font-weight: bold; border-radius: 6px; border: 2px solid var(--border-color);
+      background: var(--bg-panel); color: var(--text-main); cursor: pointer; }
+    #languageBar button.current { border-color: var(--primary); background: var(--primary); color: #FFF; }
 
-    .screen { height: 100vh; display: none; }
+    .screen { grid-row: 2; grid-column: 1; min-height: 0; min-width: 0; height: 100%; display: none; }
     .screen.active { display: flex; }
 
     /* Welcome / thank-you full screens */
-    .center-screen { flex-direction: column; justify-content: center; align-items: center; gap: 24px; text-align: center; }
+    .center-screen { flex-direction: column; justify-content: safe center; align-items: center;
+      gap: clamp(8px, 2vh, 24px); padding: 16px; text-align: center; overflow-y: auto; }
+    .center-screen > * { flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; }
     .brand-big { color: var(--danger); font-size: 4.5rem; font-weight: bold; letter-spacing: 3px; }
     .subtitle { color: var(--text-muted); font-size: 1.6rem; }
     .change-big { color: var(--success); font-size: 2.2rem; font-weight: bold; }
     .digital-hint { color: var(--text-muted); font-size: 1.2rem; }
-    .qr-img { width: 180px; height: 180px; border-radius: 8px; }
+    .qr-img { width: min(180px, 24vh); height: auto; aspect-ratio: 1; object-fit: contain; border-radius: 8px; }
     .digital-hint .path { color: var(--primary); font-weight: bold; font-size: 1.4rem; }
 
     /* Cart screen */
     .cart-screen { flex-direction: column; }
-    .cart-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 30px; border-bottom: 1px solid var(--border-color); }
+    .cart-header { display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: space-between;
+      align-items: center; padding: 18px 30px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+    .cart-header > span { min-width: 0; overflow-wrap: anywhere; }
+    .cart-header > span:empty { display: none; }
     .cart-header .brand { color: var(--danger); font-size: 1.8rem; font-weight: bold; letter-spacing: 2px; }
-    .cart-lines { flex: 1; overflow-y: auto; padding: 14px 30px; }
-    .cart-line { display: grid; grid-template-columns: 110px 1fr 140px; gap: 14px; padding: 10px 0; border-bottom: 1px solid #222; font-size: 1.35rem; }
+    .cart-lines { min-height: 0; flex: 1; overflow-y: auto; padding: 14px 30px; }
+    .cart-line { display: grid; grid-template-columns: 6rem minmax(0, 1fr) 8rem; gap: 14px; padding: 10px 0; border-bottom: 1px solid #222; font-size: 1.35rem; }
+    .cart-line > span { overflow-wrap: anywhere; }
+    .payments { flex-shrink: 0; max-height: 24vh; overflow-y: auto; padding: 0 30px; }
+    .payment-line { display: flex; justify-content: space-between; gap: 1rem; font-size: 1.2rem; }
+    .payment-line > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+    .payment-line > span:last-child { flex-shrink: 0; white-space: nowrap; }
     .cart-line .qty { color: var(--text-muted); }
     .cart-line .amt { text-align: right; font-weight: bold; }
+    .meal-eligible { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; padding: .5rem 1rem; flex-shrink: 0; color: var(--text-muted); }
+    .meal-eligible strong { white-space: nowrap; }
+    /* LC-10-01-09/11: the other restricted bases sit under the meal one, tighter, and
+       take no room at all where the shop shows none. */
+    .restricted-eligible { flex-shrink: 0; }
+    .restricted-eligible .meal-eligible { padding-top: 0; }
+    /* LC-10-01-04: an advantage reads as a tag under its article, and the line it
+       lowered shows its amount in the same colour. */
+    .customer-advantage { display: block; width: fit-content; max-width: 100%; margin-top: 4px; padding: 1px 8px;
+      border-left: 4px solid var(--success); background: var(--bg-row); color: var(--success);
+      font-weight: bold; font-size: 1.05rem; }
+    .cart-line.has-advantage .amt { color: var(--success); }
+    /* LC-14-02-07: the applied tare, in the muted tone of the other line details. */
+    .customer-tare { color: var(--text-muted); }
     .cart-footer { border-top: 2px solid var(--border-color); padding: 18px 30px; display: flex; justify-content: space-between; align-items: baseline; }
+    .cart-footer > span:last-child { flex-shrink: 0; white-space: nowrap; }
+    .cart-footer { gap: .5rem 1rem; flex-wrap: wrap; flex-shrink: 0; }
+    .cart-footer > span:last-child { margin-left: auto; }
+    .cart-footer .remaining { min-width: 0; overflow-wrap: anywhere; }
+    #thanksPayments { width: min(100%, 38rem); padding: 0; max-height: 18vh; }
+
+    /* LC-10-01-01: compact 4:3 and short widescreen displays keep useful ticket space. */
+    @media (max-width: 900px), (max-height: 650px) {
+      .cart-header, .cart-footer { padding: 10px 16px; }
+      .cart-header .subtitle { font-size: 1.3rem; }
+      .cart-lines { padding: 6px 16px; }
+      .cart-line { grid-template-columns: 4.5rem minmax(0, 1fr) 6.5rem; gap: 8px; padding: 7px 0; }
+      .payments { padding: 0 16px; max-height: 20vh; }
+      .cart-footer .total { font-size: 2.6rem; }
+      .cart-footer .remaining { font-size: 1.25rem; }
+      .brand-big { font-size: 3.5rem; }
+    }
+    @media (max-width: 600px) {
+      .cart-header .brand { flex-basis: 100%; }
+      .cart-footer .remaining { flex-basis: 100%; }
+      .cart-line { grid-template-columns: 3.5rem minmax(0, 1fr) 6rem; }
+    }
     .cart-footer .label { color: var(--text-muted); font-size: 1.4rem; text-transform: uppercase; }
     .cart-footer .total { color: var(--success); font-size: 3.2rem; font-weight: bold; }
     .cart-footer .remaining { color: var(--warning); font-size: 1.5rem; font-weight: bold; }
+    {customerCss}
   </style>
 </head>
 <body data-theme="{posTheme}">
-  <div id="trainingBanner" style="display:none; position:fixed; top:0; left:0; right:0; background:var(--warning); color:#000; text-align:center; font-weight:bold; padding:6px; letter-spacing:2px; z-index:10;">{inject:i18n.get('customer.modeFormation')}</div>
+  <div id="trainingBanner" class="display-banner" style="display:none;">{inject:i18n.both('customer.modeFormation')}</div>
 
   <!-- Welcome -->
   <div class="screen center-screen active" id="welcomeScreen">
-    <div class="brand-big">{inject:i18n.get('common.store')}</div>
-    <div class="subtitle" id="welcomeMessage">{inject:i18n.get('customer.welcome')}</div>
+    <div class="brand-big">{inject:i18n.both('common.store')}</div>
+    <div class="subtitle" id="welcomeMessage">{inject:i18n.both('customer.welcome')}</div>
   </div>
 
   <!-- Running cart -->
@@ -59,24 +124,32 @@
            qu'une recherche l'a trouvé. Vide le reste du temps, et la zone
            n'occupe alors aucune place. -->
       <span class="subtitle" id="fidelityHolder"></span>
+      <!-- LC-03-04-13 : la cagnotte disponible, quand le magasin l'a demandée. -->
+      <span class="subtitle" id="fidelityBalance"></span>
     </div>
     <div class="cart-lines" id="cartLines"></div>
+    <div class="payments" id="cartPayments"></div>
+    <div class="meal-eligible"><span id="mealEligibleLabel"></span><strong id="mealEligibleAmount"></strong></div>
+    <div class="restricted-eligible" id="restrictedEligible"></div>
     <div class="cart-footer">
       <span class="remaining" id="remainingZone"></span>
-      <span><span class="label">{inject:i18n.get('customer.totalNbsp')}</span><span class="total" id="totalZone">0,00 €</span></span>
+      <span><span class="label">{inject:i18n.both('customer.total')} </span><span class="total" id="totalZone">0,00 €</span></span>
     </div>
   </div>
 
   <!-- Thank you -->
   <div class="screen center-screen" id="thanksScreen">
-    <div class="brand-big">{inject:i18n.get('customer.merci')}</div>
+    <div class="brand-big">{inject:i18n.both('customer.merci')}</div>
+    <div class="payments" id="thanksPayments"></div>
     <div class="change-big" id="changeZone"></div>
     <img class="qr-img" id="qrImg" alt="" style="display:none;">
     <div class="digital-hint" id="digitalZone"></div>
-    <div class="subtitle">{inject:i18n.get('customer.bientot')}</div>
+    <div class="subtitle">{inject:i18n.both('customer.bientot')}</div>
   </div>
 
-  <div id="displayMessage" style="display:none; position:fixed; bottom:0; left:0; right:0; background:var(--surface, #222); color:var(--text, #fff); text-align:center; font-size:1.6rem; font-weight:bold; padding:10px; letter-spacing:2px; z-index:10;"></div>
+  <div id="displayMessage" class="display-banner" style="display:none;"></div>
+
+  <div id="languageBar"></div>
 
   <script>
     let lastKnownVersion = null;
@@ -87,20 +160,75 @@
       document.getElementById(id).classList.add('active');
     }
 
+    /* LC-13-06-08 / -13: records the language the customer tapped, then asks for
+       the redrawn display at once. */
+    function chooseLanguage(tag) {
+      fetch('/customer/language', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'tag=' + encodeURIComponent(tag)
+      }).then(poll).catch(() => { /* the next poll shows the language in force */ });
+    }
+
+    /* LC-13-06-08 / -13: one key per offered language, named in its own language,
+       the language the display is drawn in marked as current. */
+    function applyLanguages(data) {
+      const bar = document.getElementById('languageBar');
+      bar.replaceChildren();
+      (data.languages || []).forEach(language => {
+        const key = document.createElement('button');
+        key.type = 'button';
+        key.textContent = language.name;
+        key.lang = language.tag;
+        if (language.tag === data.displayLang) {
+          key.className = 'current';
+        }
+        key.addEventListener('click', () => chooseLanguage(language.tag));
+        bar.appendChild(key);
+      });
+      bar.classList.toggle('active', bar.children.length > 0);
+    }
+
     /* Applies a fresh state payload to the display. */
     function apply(data) {
+      /* LC-13-06-08 / -13: the fixed mentions of this page were drawn in one
+         language; when the display's language moves, the page is drawn again. */
+      if (data.displayLang && data.displayLang !== document.documentElement.lang) {
+        location.reload();
+        return;
+      }
+      applyLanguages(data);
       document.getElementById('trainingBanner').style.display = data.training ? 'block' : 'none';
       /* What a two-line VFD would have shown, on the only customer display there is. */
       const messageZone = document.getElementById('displayMessage');
       messageZone.textContent = data.message || '';
       messageZone.style.display = data.message ? 'block' : 'none';
+      const labels = data.labels;
+      ['cartPayments', 'thanksPayments'].forEach(id => {
+        const zone = document.getElementById(id);
+        zone.replaceChildren();
+        data.payments.forEach(payment => {
+          const row = document.createElement('div');
+          row.className = 'payment-line';
+          const label = document.createElement('span');
+          label.textContent = payment.label;
+          const amount = document.createElement('span');
+          amount.textContent = payment.amount + ' €';
+          row.append(label, amount);
+          zone.appendChild(row);
+        });
+      });
       if (data.complete) {
         document.getElementById('changeZone').textContent =
-            data.change ? 'Rendu : ' + data.change + ' €' : '';
+            data.change ? labels.change + ' : ' + data.change + ' €' : '';
         const digitalZone = document.getElementById('digitalZone');
         digitalZone.innerHTML = data.digitalPath
-            ? 'Votre ticket en ligne&nbsp;: <span class="path">' + data.digitalPath + '</span>'
+            ? '<span class="digital-label"></span> : <span class="path"></span>'
             : '';
+        if (data.digitalPath) {
+          digitalZone.querySelector('.digital-label').textContent = labels.digital;
+          digitalZone.querySelector('.path').textContent = data.digitalPath;
+        }
         const qrImg = document.getElementById('qrImg');
         if (data.digitalPath) {
             qrImg.src = data.digitalPath + '/qr.svg';
@@ -127,21 +255,69 @@
             + '<span>' + item.label
             + (item.ean ? ' <small style="color:var(--text-muted);">' + item.ean + '</small>' : '')
             + (item.detail ? '<br><small style="color:var(--text-muted);">' + item.detail + '</small>' : '')
+            + (item.tare ? '<br><small class="customer-tare"></small>' : '')
             + '</span>'
             + '<span class="amt">' + item.amount + ' €</span>';
+        /* LC-14-02-07: the tare is written as text, like every other value here. */
+        if (item.tare) {
+          row.querySelector('.customer-tare').textContent = labels.tare + ' : ' + item.tare;
+        }
+        /* LC-10-01-03 / LC-10-01-04: keep the engine and manual advantages under their
+           article, as tags, and mark the line they lowered. */
+        [item.promotion, item.modifier].forEach(label => {
+          if (label) {
+            const detail = document.createElement('div');
+            detail.className = 'customer-advantage';
+            detail.textContent = label;
+            row.children[1].appendChild(detail);
+            row.classList.add('has-advantage');
+          }
+        });
         lines.appendChild(row);
       });
+      /* The ticket discount is already allocated into the displayed line amounts. */
+      if (data.discountLabel) {
+        const row = document.createElement('div');
+        row.className = 'cart-line customer-discount';
+        row.appendChild(document.createElement('span'));
+        const label = document.createElement('span');
+        label.textContent = data.discountLabel;
+        row.appendChild(label);
+        const amount = document.createElement('span');
+        amount.className = 'amt';
+        amount.textContent = data.discountAmount + ' €';
+        row.appendChild(amount);
+        lines.appendChild(row);
+      }
       lines.scrollTop = lines.scrollHeight;
       document.getElementById('totalZone').textContent = data.total + ' €';
-      document.getElementById('payingHint').textContent = data.paying ? 'PAIEMENT EN COURS' : '';
+      document.getElementById('mealEligibleLabel').textContent = labels.mealEligible;
+      document.getElementById('mealEligibleAmount').textContent = data.mealEligible + ' €';
+      /* LC-10-01-09/11: one row per base the shop shows, rebuilt at every refresh. */
+      const restricted = document.getElementById('restrictedEligible');
+      restricted.replaceChildren();
+      (data.restrictedEligible || []).forEach(base => {
+        const row = document.createElement('div');
+        row.className = 'meal-eligible';
+        const label = document.createElement('span');
+        label.textContent = base.label;
+        const amount = document.createElement('strong');
+        amount.textContent = base.amount + ' €';
+        row.append(label, amount);
+        restricted.appendChild(row);
+      });
+      document.getElementById('payingHint').textContent = data.paying ? labels.paying : '';
       document.getElementById('fidelityHolder').textContent = data.fidelityHolder || '';
+      document.getElementById('fidelityBalance').textContent =
+          data.fidelityBalance ? labels.fidelityBalance + ' : ' + data.fidelityBalance + ' €' : '';
       /* LC-07-03-03: where the shop rounds, the customer reads both figures —
          what the sale owes and the sum they can actually hand over in coins. */
       document.getElementById('remainingZone').textContent =
           data.paying
               ? (data.rounding
-                  ? 'Reste à payer : ' + data.remaining + ' € — en espèces : ' + data.roundedRemaining + ' €'
-                  : 'Reste à payer : ' + data.remaining + ' €')
+                  ? labels.remaining + ' : ' + data.remaining + ' € — ' + labels.cash + ' : ' + data.roundedRemaining + ' €'
+                  : labels.remaining + ' : ' + data.remaining + ' €')
+                + (data.cashChangerInserted ? ' — ' + labels.inserted + ' : ' + data.cashChangerInserted + ' €' : '')
               : '';
       show('cartScreen');
     }

@@ -208,6 +208,15 @@ class InvoiceServiceTest {
             return existing;
         }
 
+        /** The documents the back office created and activated (BO-03-04-06). */
+        private List<com.intermarche.pos.domain.setting.PrintableDocument> printable = new ArrayList<>();
+
+        /** {@inheritDoc} */
+        @Override
+        public List<com.intermarche.pos.domain.setting.PrintableDocument> activePrintableDocuments() {
+            return printable;
+        }
+
         /** {@inheritDoc} */
         @Override
         public void save(AccountCustomer customer) {
@@ -269,6 +278,51 @@ class InvoiceServiceTest {
         /** The administered automatic emission; blank emits nothing. */
         private String autoPrint = "";
 
+        /** The administered eco-tax attributes (BO-10-06-05); blank means ECO_TAX alone. */
+        private String ecoTaxAttributes = "";
+
+        /** The administered writing of quantities (BO-10-08-28/-29); null means the historical one. */
+        private com.intermarche.pos.domain.catalog.UnitFormat unitFormat;
+
+        /** The administered rounding rule of the register's calculations (BO-10-02-18). */
+        private java.math.RoundingMode roundingMode = java.math.RoundingMode.HALF_UP;
+
+        /** The administered e-invoicing mention (BO-05-01-02); empty while e-invoicing is off. */
+        private String einvoicingMention = "";
+
+        /** {@inheritDoc} */
+        @Override
+        public String einvoicingMention() {
+            return einvoicingMention;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public java.math.RoundingMode calcRoundingMode() {
+            return roundingMode;
+        }
+
+        /** The administered decimals of the foot's total excluding tax (BO-10-02-19). */
+        private int totalExcludingTaxDecimals = 2;
+
+        /** {@inheritDoc} */
+        @Override
+        public int invoiceTotalExcludingTaxDecimals() {
+            return totalExcludingTaxDecimals;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public com.intermarche.pos.domain.catalog.UnitFormat unitFormat() {
+            return unitFormat;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public java.util.List<com.intermarche.pos.domain.catalog.attribute.EcoTaxDefinition> ecoTaxes() {
+            return com.intermarche.pos.domain.catalog.attribute.EcoTaxDefinition.parse(ecoTaxAttributes);
+        }
+
         /** {@inheritDoc} */
         @Override
         public boolean showEan() {
@@ -303,6 +357,24 @@ class InvoiceServiceTest {
         @Override
         public String invoiceAutoPrint() {
             return autoPrint;
+        }
+
+        /** Whether the account number is mandatory (BO-03-04-16). */
+        private boolean accountRequired = false;
+
+        /** {@inheritDoc} */
+        @Override
+        public boolean invoiceAccountNumberRequired() {
+            return accountRequired;
+        }
+
+        /** Whether the VAT codes are stated (BO-03-03-04). */
+        private boolean vatCodes = false;
+
+        /** {@inheritDoc} */
+        @Override
+        public boolean ticketVatCode() {
+            return vatCodes;
         }
 
         /** Whether a till may open a customer at all (BO-10-04-01). */
@@ -399,6 +471,16 @@ class InvoiceServiceTest {
         @Override
         public void printReceipt(String content) {
             printed.add(content);
+        }
+
+        /** The sheets it was asked to print on the slip station (BO-03-04-14). */
+        private final List<String> slips = new ArrayList<>();
+
+        /** {@inheritDoc} */
+        @Override
+        public void printSlip(String content) {
+            printed.add(content);
+            slips.add(content);
         }
 
         /** {@inheritDoc} */
@@ -802,6 +884,58 @@ class InvoiceServiceTest {
     }
 
     /**
+     * BO-05-01-02: while e-invoicing is active, the laid-out invoice of a
+     * French business carries the administered mention after its legal
+     * mentions; the invoice of a buyer without SIRET or French VAT does not.
+     */
+    @Test
+    void previewCarriesTheEinvoicingMention() {
+        onPreviewStep();
+        settings.einvoicingMention = "Facture électronique transmise par plateforme agréée.";
+        assertEquals("", service.preview().einvoicingMention);
+        repository.customers.get(0).siret = "732 829 320 00074";
+        InvoiceDocument document = service.preview();
+        assertEquals("Facture électronique transmise par plateforme agréée.", document.einvoicingMention);
+        assertTrue(document.getLegalMentions().endsWith("Facture électronique transmise par plateforme agréée."));
+    }
+
+    /**
+     * BO-05-01-02: an electronic invoice is a FACTURE to a business named by a
+     * SIRET of at least nine digits or a French VAT number; a foreign buyer, a
+     * short SIRET or another document type is not.
+     */
+    @Test
+    void anElectronicInvoiceIsAFactureToAFrenchBusiness() {
+        com.intermarche.pos.domain.sale.Invoice invoice = new com.intermarche.pos.domain.sale.Invoice();
+        assertFalse(InvoiceService.electronicallyInvoiced(invoice));
+        invoice.customerSiret = "12345678";
+        assertFalse(InvoiceService.electronicallyInvoiced(invoice));
+        invoice.customerVatNumber = "DE123456789";
+        assertFalse(InvoiceService.electronicallyInvoiced(invoice));
+        invoice.customerVatNumber = " fr12123456789";
+        assertTrue(InvoiceService.electronicallyInvoiced(invoice));
+        invoice.customerVatNumber = null;
+        invoice.customerSiret = "123 456 789";
+        assertTrue(InvoiceService.electronicallyInvoiced(invoice));
+        invoice.documentType = com.intermarche.pos.domain.sale.DocumentType.BON_LIVRAISON;
+        assertFalse(InvoiceService.electronicallyInvoiced(invoice));
+    }
+
+    /**
+     * BO-10-08-28 / BO-10-08-29: the document writes a weighed quantity with the
+     * administered decimals and symbol, the very writing the receipt uses.
+     */
+    @Test
+    void previewWritesTheWeightTheAdministeredWay() {
+        settings.unitFormat = new com.intermarche.pos.domain.catalog.UnitFormat(2, 2, "KG");
+        Ticket ticket = onPreviewStep();
+        ticket.lines.get(0).plu = "2001";
+        ticket.lines.get(0).quantity = new BigDecimal("1.4805");
+        InvoiceDocument document = service.preview();
+        assertEquals("1,48 KG", document.lines.get(0).quantity());
+    }
+
+    /**
      * The preview RE-READS the ticket and the customer instead of using the instances
      * the screen has been carrying since the earlier steps.
      * <p>
@@ -878,11 +1012,46 @@ class InvoiceServiceTest {
     }
 
     /**
+     * BO-10-02-18: the document's totals are cut by the administered rounding rule —
+     * 8,19 at 20 % is 6,82 excluding tax rounded down where half up gives 6,83 — so
+     * they state what the document's VAT table states.
+     */
+    @Test
+    void issueCutsTheTotalsWithTheAdministeredRounding() {
+        settings.roundingMode = java.math.RoundingMode.DOWN;
+        Ticket ticket = onPreviewStep();
+        ticket.lines.get(0).unitPrice = new BigDecimal("8.19");
+        ticket.lines.get(0).totalPrice = new BigDecimal("8.19");
+        service.issue();
+        Invoice document = repository.savedInvoices.get(0);
+        assertEquals(0, new BigDecimal("6.82").compareTo(document.totalExcludingTax));
+        assertEquals(0, new BigDecimal("1.37").compareTo(document.totalVat));
+    }
+
+    /**
+     * BO-10-02-19: a foot administered on three decimals is COMPUTED on three —
+     * 10,03 at 20 % is 8,358 excluding tax, not 8,36 padded with a zero — and the
+     * VAT is what is left of the tax-included total.
+     */
+    @Test
+    void issueComputesTheTotalExcludingTaxAtTheAdministeredScale() {
+        settings.totalExcludingTaxDecimals = 3;
+        Ticket ticket = onPreviewStep();
+        ticket.lines.get(0).unitPrice = new BigDecimal("10.03");
+        ticket.lines.get(0).totalPrice = new BigDecimal("10.03");
+        service.issue();
+        Invoice document = repository.savedInvoices.get(0);
+        assertEquals(0, new BigDecimal("8.358").compareTo(document.totalExcludingTax));
+        assertEquals(0, new BigDecimal("1.672").compareTo(document.totalVat));
+    }
+
+    /**
      * The first issue draws a number, writes the document, prints it as an original
      * and cuts the paper.
      */
     @Test
     void issueWritesAndPrintsTheOriginal() {
+        service.ticketPrinterService = org.mockito.Mockito.mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         onPreviewStep();
         service.issue();
         assertEquals(1, numbers.documentDraws);
@@ -899,6 +1068,9 @@ class InvoiceServiceTest {
         assertEquals(1, printer.cuts);
         assertFalse(printer.printed.get(0).contains("DUPLICATA"));
         assertEquals(document.id, state.invoice.issuedInvoiceId);
+        org.mockito.Mockito.verify(service.ticketPrinterService).archiveCustomerDocument(
+                com.intermarche.pos.domain.sale.CustomerDocument.Kind.INVOICE,
+                "C04-F000001", printer.printed.get(0));
     }
 
     /**
@@ -2420,6 +2592,30 @@ class InvoiceServiceTest {
     }
 
     /**
+     * BO-10-06-05: the invoice totals EVERY eco-tax the articles carry, the
+     * declared ones and those kept off the ticket alike.
+     */
+    @Test
+    void theInvoiceTotalsEveryDeclaredEcoTax() {
+        settings.ecoTaxAttributes = "DEEE;PILES>NOPRINT";
+        Ticket ticket = ticket(1L, "C04-00000417");
+        com.intermarche.pos.domain.catalog.Product bearing =
+                new com.intermarche.pos.domain.catalog.Product();
+        bearing.attributes.put("ECO_TAX", "0.10");
+        bearing.attributes.put("DEEE", "1,00");
+        bearing.attributes.put("PILES", "0.40");
+        ticket.lines.get(0).product = bearing;
+        ticket.lines.get(0).quantity = new BigDecimal("2");
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        service.issue();
+        assertEquals(new BigDecimal("3.0000"), repository.savedInvoices.get(0).totalEcoTax);
+    }
+
+    /**
      * A line carrying NO article and NO quantity bears the article's eco-tax once
      * — the null arms of the two guards of the sum.
      */
@@ -2542,5 +2738,233 @@ class InvoiceServiceTest {
         service.chooseTicket("C04-00000417", "", "");
         service.chooseCustomer(2L);
         assertEquals("PT123456789", service.preview().customerTaxId);
+    }
+
+    /** BO-03-05: an all-blank invoice banner trims to no lines, a real logo is propagated, and blank dates remain absent. */
+    @Test
+    void emptyBannerAndOptionalInvoiceFormattingAreHandled() throws Exception {
+        service.documentTemplateService = mock(com.intermarche.pos.service.DocumentTemplateService.class);
+        var type = com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.TICKET_HEADER;
+        when(service.documentTemplateService.render(type, java.util.Map.of())).thenReturn("\n  \n");
+        var banner = InvoiceService.class.getDeclaredMethod("banner", type.getClass(), java.util.Map.class);
+        banner.setAccessible(true);
+        assertEquals(List.of(), banner.invoke(service, type, java.util.Map.of()));
+        service.storeImageService = mock(com.intermarche.pos.service.StoreImageService.class);
+        when(service.storeImageService.receiptLogo()).thenReturn("LOGO");
+        var logo = InvoiceService.class.getDeclaredMethod("administeredLogo");
+        logo.setAccessible(true);
+        assertEquals("LOGO", logo.invoke(service));
+        var date = InvoiceService.class.getDeclaredMethod("parseDate", String.class);
+        date.setAccessible(true);
+        assertNull(date.invoke(null, " "));
+        assertNull(date.invoke(null, (Object) null));
+    }
+
+
+    /**
+     * Builds an administered document.
+     *
+     * @param code its code
+     * @param label its printed name
+     * @param kind its nature
+     * @return the document
+     */
+    private com.intermarche.pos.domain.setting.PrintableDocument printable(String code, String label,
+            DocumentType kind) {
+        com.intermarche.pos.domain.setting.PrintableDocument document =
+                new com.intermarche.pos.domain.setting.PrintableDocument();
+        document.code = code;
+        document.label = label;
+        document.kind = kind;
+        return document;
+    }
+
+    /**
+     * BO-03-04-06/09: one administered document is drawn without asking, its
+     * nature numbering the paper and its name printed on it; the count of
+     * choices is the administered documents'.
+     */
+    @Test
+    void aSingleAdministeredDocumentIsDrawnWithoutAsking() {
+        assertEquals(1, service.documentChoiceCount());
+        repository.printable.add(printable("BL_PRO", "BON PRO", DocumentType.BON_LIVRAISON));
+        onPreviewStep();
+        assertEquals("BL_PRO", state.invoice.document.code);
+        assertEquals(DocumentType.BON_LIVRAISON, state.invoice.documentType);
+        assertEquals(1, service.documentChoiceCount());
+        service.issue();
+        Invoice issued = repository.savedInvoices.get(0);
+        assertEquals("BL_PRO", issued.documentCode);
+        assertEquals("BON PRO", issued.documentTitle);
+        assertTrue(printer.printed.get(0).contains("BON PRO"));
+    }
+
+    /**
+     * BO-03-04-09: several administered documents are offered; an unknown
+     * code is refused, a known one is drawn and kept when the ticket is
+     * corrected, and forgotten once the back office no longer offers it.
+     */
+    @Test
+    void severalAdministeredDocumentsAreOffered() {
+        repository.printable.add(printable("FACT_PRO", "FACTURE PRO", DocumentType.FACTURE));
+        repository.printable.add(printable("BL_PRO", "BON PRO", DocumentType.BON_LIVRAISON));
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.chooseTicket("C04-00000417", "", "");
+        assertTrue(state.invoice.isOnDocumentStep());
+        assertEquals(2, service.documentChoiceCount());
+        service.chooseDocumentType("NOPE");
+        assertEquals(TestMessages.french().get("op.typeDocumentIndisponible"), state.invoice.error);
+        service.chooseDocumentType("BL_PRO");
+        assertEquals("BL_PRO", state.invoice.document.code);
+        assertTrue(state.invoice.isOnCustomerStep());
+        service.chooseCustomer(2L);
+        service.chooseTicket("C04-00000417", "", "");
+        assertEquals("BL_PRO", state.invoice.document.code);
+        assertTrue(state.invoice.isOnPreviewStep());
+        repository.printable.remove(1);
+        repository.printable.add(printable("OTHER", "AUTRE", DocumentType.FACTURE));
+        service.chooseTicket("C04-00000417", "", "");
+        assertNull(state.invoice.document);
+        assertTrue(state.invoice.isOnDocumentStep());
+    }
+
+    /**
+     * BO-03-03-02: the order number is typed on the review, cut to what the
+     * document stores, cleared by a blank entry, and stated by the document.
+     */
+    @Test
+    void theOrderNumberIsTypedOnTheReview() {
+        onPreviewStep();
+        service.editOrderNumber();
+        assertTrue(state.invoice.enteringOrderNumber);
+        service.setOrderNumber(" " + "9".repeat(60) + " ");
+        assertEquals(50, state.invoice.orderNumber.length());
+        assertFalse(state.invoice.enteringOrderNumber);
+        service.setOrderNumber("  ");
+        assertEquals("", state.invoice.orderNumber);
+        service.setOrderNumber(" CMD-42 ");
+        assertEquals("CMD-42", service.preview().orderNumber);
+        service.issue();
+        assertEquals("CMD-42", repository.savedInvoices.get(0).orderNumber);
+        assertNull(repository.savedInvoices.get(0).documentCode);
+    }
+
+    /**
+     * BO-03-04-16: where the account number is mandatory, a customer without
+     * one — none, blank, or a passing customer whose number is the register's
+     * own sequence — is refused, and one carrying it is billed.
+     */
+    @Test
+    void aMandatoryAccountNumberRefusesACustomerWithoutOne() {
+        settings.accountRequired = true;
+        onPreviewStep();
+        state.invoice.customer.accountNumber = null;
+        assertNull(service.issue());
+        assertEquals(TestMessages.french().get("op.compteClientObligatoire"), state.invoice.error);
+        state.invoice.customer.accountNumber = " ";
+        assertNull(service.issue());
+        state.invoice.customer.accountNumber = "C04-CLI000043";
+        state.invoice.customer.origin = AccountCustomer.Origin.VOLATILE;
+        assertNull(service.issue());
+        assertTrue(repository.savedInvoices.isEmpty());
+        state.invoice.customer.origin = AccountCustomer.Origin.INTEGRATED;
+        state.invoice.customer.accountNumber = "C04-CLI000042";
+        service.issue();
+        assertEquals(1, repository.savedInvoices.size());
+    }
+
+    /**
+     * BO-03-04-14: the printer the administered document names wins over the
+     * one its nature is administered to — the slip station here, each sheet
+     * numbered « page X / Y » and sent to the station; a document naming none
+     * keeps the nature's.
+     */
+    @Test
+    void theAdministeredDocumentsPrinterWins() {
+        com.intermarche.pos.domain.setting.PrintableDocument document =
+                printable("FACT_PRO", "FACTURE PRO", DocumentType.FACTURE);
+        document.output = "FACTURETTE";
+        repository.printable.add(document);
+        settings.slipLines = 10;
+        onPreviewStep();
+        service.issue();
+        assertTrue(state.invoice.isOnInsertStep());
+        assertTrue(state.invoice.slipPages.get(0).get(0).contains("1 / "));
+        service.printNextSlip();
+        assertEquals(1, printer.slips.size());
+        state.invoice.clear();
+        printer.slips.clear();
+        document.output = null;
+        settings.documentOutput = "FACTURE:A4";
+        onPreviewStep();
+        service.issue();
+        assertEquals(1, networkPrinter.printed.size());
+    }
+
+    /**
+     * BO-03-04-09: the administered document's own template lays out the roll
+     * when it is a roll template; an A4 one, an unknown one, or one that
+     * renders nothing leaves the register's layout.
+     */
+    @Test
+    void theAdministeredDocumentsOwnTemplateLaysOutTheRoll() {
+        service.documentTemplateService = new com.intermarche.pos.service.DocumentTemplateService(
+                io.quarkus.qute.Engine.builder().addDefaults().build());
+        com.intermarche.pos.domain.setting.DocumentTemplate roll = new com.intermarche.pos.domain.setting.DocumentTemplate();
+        roll.code = "ROLL_PRO";
+        roll.label = "Roll";
+        roll.documentType = com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE;
+        roll.source = "PRO {document.number}";
+        com.intermarche.pos.domain.setting.DocumentTemplate a4 = new com.intermarche.pos.domain.setting.DocumentTemplate();
+        a4.code = "A4_PRO";
+        a4.documentType = com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_A4;
+        a4.source = "A4";
+        com.intermarche.pos.domain.setting.DocumentTemplate blank = new com.intermarche.pos.domain.setting.DocumentTemplate();
+        blank.code = "BLANK";
+        blank.documentType = com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE;
+        blank.source = " ";
+        @SuppressWarnings("unchecked")
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> rollQuery = mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(rollQuery.firstResult()).thenReturn(roll);
+        @SuppressWarnings("unchecked")
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> a4Query = mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(a4Query.firstResult()).thenReturn(a4);
+        @SuppressWarnings("unchecked")
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> blankQuery = mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(blankQuery.firstResult()).thenReturn(blank);
+        panache.when(() -> PanacheEntityBase.find("code", "ROLL_PRO")).thenReturn(rollQuery);
+        panache.when(() -> PanacheEntityBase.find("code", "A4_PRO")).thenReturn(a4Query);
+        panache.when(() -> PanacheEntityBase.find("code", "BLANK")).thenReturn(blankQuery);
+        com.intermarche.pos.domain.setting.PrintableDocument document =
+                printable("FACT_PRO", "FACTURE PRO", DocumentType.FACTURE);
+        repository.printable.add(document);
+        for (String code : new String[]{"ROLL_PRO", "A4_PRO", "BLANK", "UNKNOWN", null}) {
+            document.templateCode = code;
+            state.invoice.clear();
+            printer.printed.clear();
+            onPreviewStep();
+            service.issue();
+            boolean own = "ROLL_PRO".equals(code);
+            assertEquals(own, printer.printed.get(0).startsWith("PRO C04-F000001"), String.valueOf(code));
+        }
+    }
+
+    /**
+     * BO-03-03-04: where the shop states VAT codes, the invoice's table carries
+     * them too, exactly as the receipt's.
+     */
+    @Test
+    void theInvoiceStatesTheVatCodesWhereTheShopDoes() {
+        settings.vatCodes = true;
+        com.intermarche.pos.domain.catalog.VatRate regime = new com.intermarche.pos.domain.catalog.VatRate();
+        regime.number = 3;
+        @SuppressWarnings("unchecked")
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Object> found = mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(found.firstResult()).thenReturn(regime);
+        panache.when(() -> PanacheEntityBase.find(org.mockito.ArgumentMatchers.eq("rate"),
+                any(Object[].class))).thenReturn(found);
+        onPreviewStep();
+        assertEquals("D", service.preview().vatRows.get(0).code());
     }
 }

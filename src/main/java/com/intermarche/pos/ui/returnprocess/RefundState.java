@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.returnprocess;
 
+import com.intermarche.pos.domain.sale.Refund;
+
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
 
@@ -26,11 +28,22 @@ import java.util.*;
 public class RefundState implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    /** LC-07: prepared return waits for actual credit acceptance before persistence. */
+    public transient Refund pendingCardRefund;
+    /** LC-07: original ticket belonging to the prepared return. */
+    public transient Ticket pendingCardOriginal;
+    /** LC-07: previously returned total used by the same refund completion path. */
+    public BigDecimal pendingCardAlreadyRefunded;
+    /** LC-07: asynchronously deposited decision; merchant receipts remain ephemeral. */
+    public transient volatile com.intermarche.pos.ui.hardware.terminal.TerminalOutcome pendingCardOutcome;
+
     /** Number of ticket lines per detail page. */
     private static final int PAGE_SIZE = 6;
 
     /** The typed search pattern. */
     public String searchPattern = "";
+    /** LC-04-05-01: independently entered criteria retained through selection and pagination. */
+    public com.intermarche.pos.ui.ticket.TicketSearchCriteria searchCriteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
 
     /** The tickets found by the search. */
     public List<Ticket> foundTickets = new ArrayList<>();
@@ -57,6 +70,48 @@ public class RefundState implements Serializable {
 
     /** The refund quantities keyed by original line id. */
     public Map<Long, BigDecimal> returnQuantities = new HashMap<>();
+
+    /**
+     * The dematerialised line waiting for the unique code of the article handed
+     * back (LC-05-03-01), or null.
+     */
+    public Long pendingActivationLineId = null;
+
+    /**
+     * The dematerialised articles read on the payment hub and staged for
+     * deactivation, by original line id (LC-05-03-01).
+     */
+    public Map<Long, Deactivation> deactivations = new HashMap<>();
+
+    /** The last confirmation of the return screen, or null. */
+    public String infoMessage = null;
+
+    /**
+     * A dematerialised article handed back: its code, its provider and what the
+     * hub says it still carries — the amount its deactivation unloads
+     * (LC-05-03-01).
+     *
+     * @param code the article's unique code
+     * @param provider the provider, or null
+     * @param balance what the article still carries
+     */
+    public record Deactivation(String code, String provider, BigDecimal balance) implements java.io.Serializable {
+    }
+
+    /**
+     * What one original line refunds for a quantity: the price actually paid
+     * (LC-05-02-12), capped for a dematerialised article at what it still
+     * carries (LC-05-03-01).
+     *
+     * @param line the original line
+     * @param qty the quantity returned
+     * @return the amount refunded, rounded to the centime
+     */
+    public BigDecimal lineRefund(TicketLine line, BigDecimal qty) {
+        BigDecimal paid = line.getEffectiveUnitPrice().multiply(qty).setScale(2, RoundingMode.HALF_UP);
+        Deactivation deactivation = deactivations.get(line.id);
+        return deactivation == null ? paid : paid.min(deactivation.balance().setScale(2, RoundingMode.HALF_UP));
+    }
 
     /** The current detail page. */
     public int detailPage = 0;
@@ -218,8 +273,7 @@ public class RefundState implements Serializable {
                 // ventilation of the refund is: the effective unit price carries
                 // four decimals, and a total built from unrounded products would
                 // not match the restituted HT and VAT it is supposed to sum to.
-                total = total.add(line.getEffectiveUnitPrice().multiply(qty)
-                        .setScale(2, RoundingMode.HALF_UP));
+                total = total.add(lineRefund(line, qty));
             }
         }
         return total;
@@ -246,6 +300,9 @@ public class RefundState implements Serializable {
         selectedTicket = null;
         fullyReturnedLineIds.clear();
         returnQuantities.clear();
+        pendingActivationLineId = null;
+        deactivations.clear();
+        infoMessage = null;
         detailPage = 0;
         selectedLineId = null;
         isEditingAmount = false;
@@ -261,11 +318,19 @@ public class RefundState implements Serializable {
      * Clears the whole refund state.
      */
     public void clear() {
+        pendingCardRefund = null;
+        pendingCardOriginal = null;
+        pendingCardAlreadyRefunded = null;
+        pendingCardOutcome = null;
         searchPattern = "";
+        searchCriteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
         foundTickets.clear();
         selectedTicket = null;
         fullyReturnedLineIds.clear();
         returnQuantities.clear();
+        pendingActivationLineId = null;
+        deactivations.clear();
+        infoMessage = null;
         detailPage = 0;
         selectedLineId = null;
         isEditingAmount = false;

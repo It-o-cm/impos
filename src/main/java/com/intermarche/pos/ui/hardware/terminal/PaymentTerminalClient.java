@@ -39,6 +39,16 @@ public interface PaymentTerminalClient {
      */
     void requestCredit(BigDecimal amount, TerminalTransactionCallback callback);
 
+    /** Requests LC-07-06-02 combined processing; simple simulators retain their normal decision.
+     * @param amount total amount
+     * @param eligible eligible meal amount
+     * @param callback decision receiver
+     */
+    default void requestCombinedDebit(BigDecimal amount, BigDecimal eligible, TerminalTransactionCallback callback) {
+        requestDebit(amount, callback);
+    }
+
+
     /**
      * Abandons the in-flight transaction from the register side. Repeated
      * calls are serialized by the implementation to avoid desynchronizing

@@ -1,8 +1,13 @@
 package com.intermarche.pos.domain.session;
 
-import com.intermarche.pos.domain.sale.DocumentType;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import com.intermarche.pos.domain.sale.DocumentType;
 
 /**
  * The number sequence of one document type on one register.

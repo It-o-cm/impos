@@ -88,6 +88,27 @@ class BalanceTicketScanHandlerTest {
     }
 
     /**
+     * BO-10-05-01: a shop that takes no counter ticket leaves the counter code
+     * to the handlers behind; a shop that takes them picks the paper up.
+     */
+    @Test
+    void theRetrievalModeDecidesWhetherTheCodeIsACounterTicket() {
+        BalanceTicketService service = mock(BalanceTicketService.class);
+        BalanceTicketScanHandler handler = newHandler(service);
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        ScanContext off = new ScanContext(COUNTER_CODE, newState());
+        ScanContext on = new ScanContext(COUNTER_CODE, newState());
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            handler.handle(off);
+            org.mockito.Mockito.when(handler.posSettingsService.balanceTicketEnabled()).thenReturn(true);
+            handler.handle(on);
+        }
+        assertFalse(off.handled);
+        assertTrue(on.handled);
+        org.mockito.Mockito.verify(service).integrate(on.state, COUNTER_CODE.substring(2, 12));
+    }
+
+    /**
      * A null code is not a counter ticket: the context stays unhandled and no
      * pick-up is attempted.
      */
@@ -319,4 +340,67 @@ class BalanceTicketScanHandlerTest {
         assertTrue(ctx.handled);
         verify(service).integrate(any(), any());
     }
+    /** BO-03-06-56: blank scans and blank administered references never claim a counter ticket. */
+    @Test
+    void blankScansAndReferencesRemainUnhandled() {
+        var service = mock(BalanceTicketService.class);
+        var handler = newHandler(service);
+        var state = mock(PosState.class);
+        ScanContext blank = new ScanContext(" ", state);
+        handler.handle(blank);
+        assertFalse(blank.handled);
+        ArticleBarcodeRange range = mock(ArticleBarcodeRange.class);
+        range.purpose = ArticleBarcodeRange.Purpose.BALANCE_TICKET;
+        when(range.articleSegment("LOOKUP")).thenReturn(" ");
+        try (var ranges = mockStatic(ArticleBarcodeRange.class)) {
+            ranges.when(() -> ArticleBarcodeRange.findMatching("LOOKUP")).thenReturn(range);
+            ScanContext context = new ScanContext("LOOKUP", state);
+            handler.handle(context);
+            assertFalse(context.handled);
+        }
+        verifyNoInteractions(service);
+    }
+
+    /** BO-03-06-56: checksum validation applies only to thirteen-character administered references. */
+    @Test
+    void administeredChecksumDistinguishesOtherLengthsAndInvalidEan() {
+        var service = mock(BalanceTicketService.class);
+        var handler = newHandler(service);
+        var state = mock(PosState.class);
+        ArticleBarcodeRange range = mock(ArticleBarcodeRange.class);
+        range.purpose = ArticleBarcodeRange.Purpose.BALANCE_TICKET;
+        range.checkDigit = true;
+        when(range.articleSegment("LOOKUP")).thenReturn("REFERENCE");
+        try (var ranges = mockStatic(ArticleBarcodeRange.class)) {
+            ranges.when(() -> ArticleBarcodeRange.findMatching(any())).thenReturn(range);
+            ScanContext shortCode = new ScanContext("LOOKUP", state);
+            handler.handle(shortCode);
+            assertTrue(shortCode.handled);
+            verify(service).integrate(state, "REFERENCE");
+            ScanContext invalid = new ScanContext(BAD_CHECKSUM_CODE, state);
+            handler.handle(invalid);
+            assertFalse(invalid.handled);
+        }
+    }
+
+
+    /** BO-03-06-56: a thirteen-digit administered counter ticket with a correct check digit is integrated. */
+    @Test
+    void administeredValidCheckDigitAllowsIntegration() {
+        var service = mock(BalanceTicketService.class);
+        var handler = newHandler(service);
+        var state = mock(PosState.class);
+        var range = mock(ArticleBarcodeRange.class);
+        range.purpose = ArticleBarcodeRange.Purpose.BALANCE_TICKET;
+        range.checkDigit = true;
+        when(range.articleSegment(COUNTER_CODE)).thenReturn(REFERENCE);
+        try (var ranges = mockStatic(ArticleBarcodeRange.class)) {
+            ranges.when(() -> ArticleBarcodeRange.findMatching(COUNTER_CODE)).thenReturn(range);
+            var context = new ScanContext(COUNTER_CODE, state);
+            handler.handle(context);
+            assertTrue(context.handled);
+            verify(service).integrate(state, REFERENCE);
+        }
+    }
+
 }

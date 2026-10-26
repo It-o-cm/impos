@@ -30,6 +30,17 @@
     .recall-kb { max-width: 30rem; margin: 0 auto; }
     .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
     .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    /* LC-06-02 : le document rappelé qui attend le choix du caissier. */
+    .panel.wide { width: 46rem; max-height: 100%; padding: 16px 20px; gap: 10px; }
+    .doc-lines { max-height: 11rem; overflow-y: auto; border-top: 1px solid var(--border-strong); }
+    .doc-lines table { width: 100%; border-collapse: collapse; font-size: var(--fs-row-sub); }
+    .doc-lines th { color: var(--text-muted); text-align: right; font-weight: normal; padding: 4px 6px; position: sticky; top: 0; background: var(--bg-panel); }
+    .doc-lines th:first-child, .doc-lines td:first-child { text-align: left; }
+    .doc-lines td { text-align: right; padding: 4px 6px; border-bottom: 1px dashed var(--border-strong); }
+    .doc-totals { display: flex; justify-content: space-between; gap: 10px; font-size: var(--fs-body); }
+    .doc-totals strong { font-size: var(--fs-row); }
+    .doc-hint { font-size: var(--fs-label); color: var(--warning); }
+    .doc-actions { display: flex; gap: 10px; justify-content: space-between; }
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -40,10 +51,43 @@
       <span id="clock"></span>
     </div>
     <div class="main-area">
-      <div class="panel">
+      <div class="panel {#if document}wide{/if}">
         {#if error??}<div class="error-box">{error}</div>{/if}
         {#if saved}<div class="ok-box">{inject:i18n.get('recall.acompteEnregistre')}</div>{/if}
 
+        {#if document}
+        {! LC-06-02-02/-04/-08 : le devis ou la commande de l'outil de gestion commerciale,
+         ! rappelé par son code. Le caissier y prend un acompte — obligatoire ou facultatif
+         ! selon le document — ou le règle dans la vente, acomptes repris au paiement. !}
+        <div class="card">
+          <h3>{inject:i18n.get(document.kindKey)} {document.code}{#if document.label} — {document.label}{/if}</h3>
+          <div class="doc-lines">
+            <table>
+              <tr><th>{inject:i18n.get('recall.article')}</th><th>{inject:i18n.get('recall.qteCommandee')}</th><th>{inject:i18n.get('recall.qteLivree')}</th><th>{inject:i18n.get('recall.prixUnitaire')}</th><th>{inject:i18n.get('recall.total')}</th></tr>
+              {#for row in documentRows}
+              <tr><td>{row.label}</td><td>{row.ordered}</td><td>{row.delivered}</td><td>{row.unitPrice}</td><td>{row.total}</td></tr>
+              {/for}
+            </table>
+          </div>
+          <div class="doc-totals">
+            <span>{inject:i18n.get('recall.total')} <strong>{documentTotal}</strong></span>
+            <span>{inject:i18n.get('recall.dejaVerse')} <strong>{documentPaid}</strong></span>
+            <span>{inject:i18n.get('recall.reste')} <strong>{documentRemaining}</strong></span>
+          </div>
+          {#if document.depositRequired}<div class="doc-hint">{inject:i18n.get('recall.acompteObligatoire')}</div>{/if}
+          <form class="row" method="post" action="/action/recall/document/deposit">
+            <div id="dispDeposit" class="pad-display" data-placeholder="{inject:i18n.get('recall.montant')}" onclick="activateField('deposit')"></div>
+            <input type="hidden" name="amount" id="valDeposit" value="">
+            <button type="submit" class="btn btn-success">{inject:i18n.get('recall.enregistrerLAcompte')}</button>
+          </form>
+          <div class="doc-actions">
+            <form method="post" action="/action/recall/document/forget"><button type="submit" class="btn btn-muted">{inject:i18n.get('recall.mettreDeCote')}</button></form>
+            {#if !document.depositRequired}
+            <form method="post" action="/action/recall/document/settle"><button type="submit" class="btn btn-primary">{inject:i18n.get('recall.reglerDocument')}</button></form>
+            {/if}
+          </div>
+        </div>
+        {#else}
         <div class="card">
           <h3>{inject:i18n.get('recall.devisCommandeBonVente')}</h3>
           <form class="row" method="post" action="/action/recall">
@@ -67,6 +111,7 @@
             </div>
           </form>
         </div>
+        {/if}
         {! UN seul pave pour les trois champs: PosInput est un singleton et
          ! l'operateur n'en remplit qu'un a la fois. Un clic sur un champ
          ! rebranche le pave dessus en restaurant ce qui y avait ete saisi —
@@ -85,11 +130,14 @@
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 
     /* Les codes de document et les references de commande sont alphanumeriques
-       — ils viennent du back office —, l'acompte est un montant. */
+       — ils viennent du back office ou de l'outil de gestion commerciale, en
+       majuscules et avec leur tiret (DV-0001, C04-CMD000001) —, l'acompte est
+       un montant. */
     const RECALL_FIELDS = {
-        code:   { display: 'dispCode',   hidden: 'valCode',   type: 'searchAlpha', mode: 'text',    max: 30 },
-        order:  { display: 'dispOrder',  hidden: 'valOrder',  type: 'searchAlpha', mode: 'text',    max: 30 },
-        amount: { display: 'dispAmount', hidden: 'valAmount', type: 'price',       mode: 'cents', max: 10 }
+        code:   { display: 'dispCode',   hidden: 'valCode',   type: 'documentCode', mode: 'text', max: 30, uppercase: true },
+        order:  { display: 'dispOrder',  hidden: 'valOrder',  type: 'documentCode', mode: 'text', max: 30, uppercase: true },
+        amount: { display: 'dispAmount', hidden: 'valAmount', type: 'price',       mode: 'cents', max: 10 },
+        deposit: { display: 'dispDeposit', hidden: 'valDeposit', type: 'price',      mode: 'cents', max: 10 }
     };
 
     function activateField(name) {
@@ -106,13 +154,13 @@
             containerId: 'recallKbArea',
             keyboardType: field.type,
             mode: field.mode,
-            uppercase: false,
+            uppercase: field.uppercase === true,
             maxLength: field.max,
             initialValue: document.getElementById(field.hidden).value || ''
         });
     }
 
-    activateField('code');
+    activateField(document.getElementById('valDeposit') ? 'deposit' : 'code');
   </script>
 </body>
 </html>

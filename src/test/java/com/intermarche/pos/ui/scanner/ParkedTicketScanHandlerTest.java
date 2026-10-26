@@ -166,4 +166,47 @@ class ParkedTicketScanHandlerTest {
         assertTrue(ctx.handled);
         assertTrue(state.version > before);
     }
+
+    /**
+     * BO-03-13-04: the barcode of a receipt carries the administered prefix
+     * before the ticket number; it is stripped, and the ONE ticket found is
+     * selected so the return opens on its detail. A code without the prefix,
+     * a blank prefix and no prefix read the code as it is; several results
+     * select nothing.
+     */
+    @Test
+    void theReceiptBarcodeSelectsItsTicketForTheReturn() {
+        TicketParkingService parking = mock(TicketParkingService.class);
+        ParkedTicketScanHandler handler = newHandler(parking);
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(handler.posSettingsService.ticketBarcodePrefix()).thenReturn(" TK ");
+        when(handler.refundService.isReturnableTicket("C04-00000042")).thenReturn(true);
+        com.intermarche.pos.domain.sale.Ticket found = new com.intermarche.pos.domain.sale.Ticket();
+        found.id = 42L;
+        PosState state = unlocked();
+        org.mockito.Mockito.doAnswer(call -> {
+            state.refund.foundTickets = java.util.List.of(found);
+            return null;
+        }).when(handler.refundService).searchTickets(state);
+        ScanContext ctx = new ScanContext("TKC04-00000042", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(handler.refundService).selectTicket(state, 42L);
+        ScanContext plain = new ScanContext("C04-00000042", state);
+        handler.handle(plain);
+        assertTrue(plain.handled);
+        when(handler.posSettingsService.ticketBarcodePrefix()).thenReturn(" ");
+        org.mockito.Mockito.doAnswer(call -> {
+            state.refund.foundTickets = java.util.List.of(found, found);
+            return null;
+        }).when(handler.refundService).searchTickets(state);
+        ScanContext several = new ScanContext("C04-00000042", state);
+        handler.handle(several);
+        when(handler.posSettingsService.ticketBarcodePrefix()).thenReturn(null);
+        handler.handle(new ScanContext("C04-00000042", state));
+        ScanContext nothing = new ScanContext(null, state);
+        handler.handle(nothing);
+        assertFalse(nothing.handled);
+        verify(handler.refundService, org.mockito.Mockito.times(2)).selectTicket(state, 42L);
+    }
 }

@@ -37,6 +37,29 @@ public class ChequePayment extends TicketPayment {
     public String magneticLine;
 
     /**
+     * The account number the cashier keyed for this cheque (BO-03-02-24), or
+     * null when the tender does not ask for it. Nullable on the shared payment
+     * table.
+     */
+    @Column(name = "cheque_account_number", length = 40)
+    public String accountNumber;
+
+    /**
+     * The authorization number the CHEQUE-GUARANTEE service gave this cheque
+     * (BO-03-02-24), or null when no service was asked — none administered,
+     * or a supervisor authorized the cheque instead.
+     */
+    @Column(name = "cheque_guarantee_authorization", length = 40)
+    public String guaranteeAuthorization;
+
+    /**
+     * The cheque-guarantee provider that authorized this cheque
+     * (BO-03-02-24), or null when none did.
+     */
+    @Column(name = "cheque_guarantee_provider", length = 40)
+    public String guaranteeProvider;
+
+    /**
      * Default constructor for JPA.
      */
     protected ChequePayment() {}

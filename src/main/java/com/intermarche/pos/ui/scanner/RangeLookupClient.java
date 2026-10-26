@@ -94,4 +94,39 @@ public class RangeLookupClient {
             return null;
         }
     }
+
+    /**
+     * Reads what the register acts on out of a third-party answer, through the
+     * mapping administered on the range (BO-03-06-41).
+     *
+     * <p>No field administered: the answer is plain text and is used whole, as
+     * it always was. A field administered: the answer is read as JSON and the
+     * field — dotted for a nested one — is taken, a text or number as its
+     * text, anything else as its JSON. An answer that is not JSON, or does
+     * not carry the field, says nothing usable: null, which the handler
+     * reports instead of showing the operator a raw document.
+     *
+     * @param answer the service's answer, never null
+     * @param field the administered field path, or null
+     * @return the value to act on, or null when the answer does not carry it
+     */
+    public static String extract(String answer, String field) {
+        if (field == null || field.isBlank()) {
+            return answer;
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(answer);
+            for (String step : field.trim().split("\\.")) {
+                node = node == null ? null : node.get(step);
+            }
+            if (node == null || node.isNull()) {
+                return null;
+            }
+            String value = node.isValueNode() ? node.asText().trim() : node.toString();
+            return value.isEmpty() ? null : value;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

@@ -68,6 +68,20 @@ public final class TestMessages {
         return messages;
     }
     /**
+     * A resolver answering the French bundle with a second language
+     * administered, for the bilingual paper and customer display of a
+     * bilingual region (LC-13-06-06 / -11).
+     *
+     * @param second the administered second language tag
+     * @return a resolver ready to be assigned to a service's {@code i18n} field
+     */
+    public static Messages bilingual(String second) {
+        Messages messages = french();
+        lenient().when(messages.posSettingsService.customerSecondLanguage()).thenReturn(second);
+        return messages;
+    }
+
+    /**
      * A register state carrying a French resolver, for a test driving a
      * sub-state that reaches its labels through its parent.
      *

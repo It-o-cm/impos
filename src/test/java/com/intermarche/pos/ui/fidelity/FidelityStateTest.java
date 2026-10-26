@@ -564,4 +564,17 @@ class FidelityStateTest {
         full.holderFirstName = "Jean";
         assertEquals("DUPONT Jean", full.getHolderName());
     }
+
+    /**
+     * {@code clear()} drops the card's personal promotions with the card: the
+     * next sale, without a card, sends none of them to the engine.
+     */
+    @Test
+    void clearDropsTheCardsPromotions() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.cardPromotions.add(new ImfidClient.CardPromotion());
+        fid.clear();
+        assertTrue(fid.cardPromotions.isEmpty());
+    }
 }

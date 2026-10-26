@@ -2,13 +2,19 @@ package com.intermarche.pos.domain.setting;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link DocumentTemplate}, targeting 100% branch coverage.
@@ -200,7 +206,23 @@ class DocumentTemplateTest {
      */
     @Test
     void theDocumentTypesAreTheOnesTheRegisterEmits() {
-        assertEquals(31, DocumentTemplate.DocumentType.values().length);
+        // The closed list, by NAME and in declaration order, so a type added
+        // without a document that prints it shows here before anywhere else.
+        assertEquals(List.of(
+                "SALE_RECEIPT", "FS", "FT", "NC", "RC", "FRAGMENT",
+                "TICKET_HEADER", "TICKET_FOOTER", "INVOICE_HEADER", "INVOICE_FOOTER",
+                "REFUND_RECEIPT", "INVOICE", "X_REPORT", "Z_REPORT", "WITHDRAWAL_TICKET",
+                "TRANSFER_TICKET", "GIFT_CARD_VOUCHER", "CREDIT_NOTE_VOUCHER", "CARD_RECEIPT",
+                "INVOICE_A4", "LOYALTY_RECEIPT", "EXIT_TICKET", "UNKNOWN_ARTICLE_TICKET",
+                "PARKED_TICKET_RESUME", "PARKED_TICKET", "PAYMENT_CANCELLATION", "DEPOSIT_RECEIPT",
+                "GIFT_CARD_PAYMENT",
+                // BO-10-03-05 with -11, -12 and -13: the four loyalty zones of
+                // a sale — a SECTION of the receipt, one type per case, so the
+                // preview shows a paramétreur exactly the values his case has.
+                "LOYALTY_ONLINE", "LOYALTY_OFFLINE",
+                "LOYALTY_NON_HOLDER_ONLINE", "LOYALTY_NON_HOLDER_OFFLINE"),
+                java.util.Arrays.stream(DocumentTemplate.DocumentType.values())
+                        .map(Enum::name).toList());
         // BO-03-03-09 and -11: the deposit slip of an order, and the slip of a
         // settlement PAID by gift card (not the voucher of one being bought).
         assertEquals("Justificatif d'acompte",
@@ -219,6 +241,9 @@ class DocumentTemplateTest {
                 DocumentTemplate.DocumentType.valueOf("EXIT_TICKET").getLabel());
         assertEquals("Ticket de reprise",
                 DocumentTemplate.DocumentType.valueOf("PARKED_TICKET_RESUME").getLabel());
+        // BO-03-03-06: the parked ticket, now laid out by a template too.
+        assertEquals("Ticket en attente",
+                DocumentTemplate.DocumentType.valueOf("PARKED_TICKET").getLabel());
         assertEquals("Ticket de vente",
                 DocumentTemplate.DocumentType.valueOf("SALE_RECEIPT").getLabel());
         // BO-03-03-10: the loyalty settlement slip, additional to the receipt.
@@ -425,4 +450,15 @@ class DocumentTemplateTest {
             assertTrue(type.getLabel().startsWith("Portugal"), type.name());
         }
     }
+    /** BO-03-04-24: a blank copy-title setting is ignored without replacing it with a literal blank. */
+    @Test
+    void blankCopyTitlesDoNotNameAnOriginal() {
+        DocumentTemplate template = new DocumentTemplate();
+        template.copyTitles = " ";
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(() -> PanacheEntityBase.list("active = true and documentType = ?1 order by priority, code", DocumentTemplate.DocumentType.NC)).thenReturn(List.of(template));
+            assertNull(DocumentTemplate.copyTitleFor(DocumentTemplate.DocumentType.NC, 1));
+        }
+    }
+
 }

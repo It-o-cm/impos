@@ -15,10 +15,25 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link StoreCsvResource}.
@@ -110,7 +125,7 @@ class StoreCsvResourceTest {
         StoreCsvResource resource = new StoreCsvResource();
         Response response = resource.importStores(stream("CODE|NAME|STREET_LINE1|STREET_LINE2|POSTAL_CODE|CITY|COUNTRY\n"));
         assertEquals(200, response.getStatus());
-        assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+        assertEquals("{\"createdCount\":0,\"updatedCount\":0}", response.getEntity());
     }
 
     /**

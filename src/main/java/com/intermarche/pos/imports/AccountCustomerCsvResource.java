@@ -10,7 +10,12 @@ import org.jboss.logging.Logger;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Integrates the CUSTOMERS IN ACCOUNT sent by the commercial management
@@ -50,6 +55,10 @@ public class AccountCustomerCsvResource extends ImporterCsvResource {
 
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(AccountCustomerCsvResource.class);
+
+    /** The back-office parameters, for the address control (BO-10-08-27). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
 
     /** Header name of the natural key: the account number. */
     static final String COL_ACCOUNT_NUMBER = "ACCOUNT_NUMBER";
@@ -156,8 +165,8 @@ public class AccountCustomerCsvResource extends ImporterCsvResource {
     public long blockAbsentAccounts(Set<String> seen) {
         LOGGER.info("Entering method blockAbsentAccounts with " + seen.size() + " account(s) seen");
         List<AccountCustomer> absent = seen.isEmpty()
-                ? AccountCustomer.list("blocked = false")
-                : AccountCustomer.list("blocked = false and accountNumber not in ?1", seen);
+                ? AccountCustomer.<AccountCustomer>list("blocked = false")
+                : AccountCustomer.<AccountCustomer>list("blocked = false and accountNumber not in ?1", seen);
         for (AccountCustomer customer : absent) {
             customer.blocked = true;
             customer.persist();
@@ -201,6 +210,7 @@ public class AccountCustomerCsvResource extends ImporterCsvResource {
      */
     @Override
     protected void processLineLogic(LineData data, Map<String, Object> entityMap, int[] counters) {
+        refuseIncompleteAddress(data);
         AccountCustomer customer = (AccountCustomer) entityMap.get(data.code);
         if (customer == null) {
             customer = new AccountCustomer();
@@ -227,6 +237,49 @@ public class AccountCustomerCsvResource extends ImporterCsvResource {
     @Override
     protected Object findEntityForLine(LineData data) {
         return AccountCustomer.find("accountNumber", data.code).firstResult();
+    }
+
+    /**
+     * REFUSES a row whose billing address is incomplete, where the shop asks
+     * for it (BO-10-08-27).
+     *
+     * <p>Thrown rather than skipped: the base importer turns a row that throws
+     * into one error entry naming its line and its account number, and goes on
+     * with the rest of the file. A client one cannot invoice is better named in
+     * the report than quietly integrated — but the shop that did not ask for
+     * the control keeps integrating what the feed carries, which is what every
+     * feed did before this parameter existed.
+     *
+     * @param data the parsed row
+     */
+    private void refuseIncompleteAddress(LineData data) {
+        if (!posSettingsService.customerIntegrationRequiresAddress()) {
+            return;
+        }
+        List<String> missing = new ArrayList<>();
+        if (isBlank(safeGet(data, COL_STREET_LINE1))) {
+            missing.add(COL_STREET_LINE1);
+        }
+        if (isBlank(safeGet(data, COL_POSTAL_CODE))) {
+            missing.add(COL_POSTAL_CODE);
+        }
+        if (isBlank(safeGet(data, COL_CITY))) {
+            missing.add(COL_CITY);
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "adresse incomplète, colonnes manquantes : " + String.join(", ", missing));
+        }
+    }
+
+    /**
+     * Whether a cell carries nothing a person could post a bill to.
+     *
+     * @param value the cell, possibly null
+     * @return true when it is null, empty or blank
+     */
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     /**

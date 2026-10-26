@@ -11,7 +11,16 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TicketNumberService}.
@@ -349,6 +358,59 @@ class TicketNumberServiceTest {
             assertEquals(31L, counter.lastSessionNumber);
             assertEquals(7L, counter.lastRefundNumber);
             assertEquals(12L, counter.lastCustomerNumber);
+        }
+    }
+    /** BO-03-06-53: malformed reserved customer ranges fail over rather than issuing a number outside their bounds. */
+    @Test
+    void reservedCustomerRangeRejectsEachMalformedBoundLeg() throws Exception {
+        TicketNumberService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        var method = TicketNumberService.class.getDeclaredMethod("administeredCustomerNumber", long.class);
+        method.setAccessible(true);
+        for (String range : new String[]{"X:1-", "X:-2", " :1-2", "X:3-2"}) {
+            when(service.posSettingsService.customerLocalCodeRange()).thenReturn(range);
+            assertNull(method.invoke(service, 1L), range);
+        }
+    }
+
+    /** BO-03-04: fiscal numbering uses the document type as prefix and an empty shop scope when both are absent. */
+    @Test
+    void fiscalNumberingKeepsMissingPrefixAndShopFallbacks() {
+        TicketNumberService service = newService();
+        var type = com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.FT;
+        try (var templates = mockStatic(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+             var sequences = mockStatic(com.intermarche.pos.domain.session.DocumentSequence.class)) {
+            sequences.when(() -> com.intermarche.pos.domain.session.DocumentSequence.next("FT", "C04", "", 2026)).thenReturn(7L);
+            assertEquals("FT C04/2026/00000007", service.nextDocumentNumber(type, null, 2026));
+        }
+    }
+
+
+    /** BO-03-04: an administered fiscal prefix wins and a named shop is retained as the sequence scope. */
+    @Test
+    void fiscalNumberingUsesAdministeredPrefixAndShop() {
+        var service = newService();
+        var type = com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.FT;
+        try (var templates = mockStatic(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+             var sequences = mockStatic(com.intermarche.pos.domain.session.DocumentSequence.class)) {
+            templates.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.prefixFor(type)).thenReturn("FACT");
+            sequences.when(() -> com.intermarche.pos.domain.session.DocumentSequence.next("FT", "C04", "PDV", 2026)).thenReturn(8L);
+            assertEquals("FACT C04/2026/00000008", service.nextDocumentNumber(type, "PDV", 2026));
+        }
+    }
+
+    /**
+     * LC-08-04-15: the deposit invoices are numbered in their own sequence,
+     * per register and per year.
+     */
+    @Test
+    void nextDepositInvoiceNumberUsesItsOwnSequence() {
+        TicketNumberService service = newService();
+        int year = java.time.Year.now().getValue();
+        try (var sequences = mockStatic(com.intermarche.pos.domain.session.DocumentSequence.class)) {
+            sequences.when(() -> com.intermarche.pos.domain.session.DocumentSequence.next(
+                    "DEPOSIT_INVOICE", "C04", "", year)).thenReturn(3L);
+            assertEquals("C04-FA" + year + "-000003", service.nextDepositInvoiceNumber());
         }
     }
 }

@@ -204,6 +204,57 @@ class EmployeeIdentityProviderTest {
         assertTrue(identity.<Boolean>getAttribute("mustChangePassword"));
     }
 
+    /** BO-01-02-09: an account administered SSO only has no password door. */
+    @Test
+    void identityOfRefusesAPasswordForAnSsoOnlyAccount() {
+        Employee employee = backOfficeEmployee(Employee.EmployeeRole.MANAGER);
+        employee.authMode = Employee.AuthMode.SSO;
+        assertThrows(AuthenticationFailedException.class,
+                () -> identityOfWithLookup(employee, "correct-horse"));
+    }
+
+    /**
+     * BO-01-02-01: a session opened through the single sign-on is restored
+     * without any back-office password, and an SSO-only account is never
+     * asked to change one.
+     */
+    @Test
+    void identityOfRestoresAnSsoSessionWithoutPassword() {
+        Employee employee = new Employee();
+        employee.loginName = "jdupont";
+        employee.firstName = "Jean";
+        employee.lastName = "Dupont";
+        employee.active = true;
+        employee.role = Employee.EmployeeRole.CASHIER;
+        employee.authMode = Employee.AuthMode.SSO;
+        employee.mustChangePassword = true;
+        SecurityIdentity identity = identityOfWithLookup(employee, null);
+        assertEquals("jdupont", identity.getPrincipal().getName());
+        assertFalse(identity.<Boolean>getAttribute("mustChangePassword"));
+    }
+
+    /** A password-only account without back-office password has no session to restore. */
+    @Test
+    void identityOfRefusesARestoreForAPasswordOnlyAccountWithoutPassword() {
+        Employee employee = new Employee();
+        employee.loginName = "jdupont";
+        employee.active = true;
+        employee.role = Employee.EmployeeRole.CASHIER;
+        employee.authMode = Employee.AuthMode.PASSWORD;
+        assertThrows(AuthenticationFailedException.class,
+                () -> identityOfWithLookup(employee, null));
+    }
+
+    /** BO-01-01-03: an account the central node owns changes its password there. */
+    @Test
+    void identityOfNeverForcesAChangeOnACentralAccount() {
+        Employee employee = backOfficeEmployee(Employee.EmployeeRole.MANAGER);
+        employee.mustChangePassword = true;
+        employee.centralManaged = true;
+        SecurityIdentity identity = identityOfWithLookup(employee, "correct-horse");
+        assertFalse(identity.<Boolean>getAttribute("mustChangePassword"));
+    }
+
     /**
      * Builds a mocked request context whose {@code runBlocking} runs the
      * supplied lookup immediately, synchronously.

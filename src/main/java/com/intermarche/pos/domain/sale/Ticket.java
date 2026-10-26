@@ -116,6 +116,15 @@ public class Ticket extends BaseEntity {
     @Column(name = "formatted_content")
     public String formattedContent;
 
+    /**
+     * The customer language the ticket was sold and printed in — chosen by the
+     * customer or retrieved from the loyalty base (LC-13-06-09, -14) — so its
+     * restitution, here or through the store node's API, speaks it too; null when
+     * the sale ran in the register's language.
+     */
+    @Column(name = "customer_language", length = 8)
+    public String customerLanguage;
+
     @Column(name = "terminal_id", nullable = false, length = 20)
     @NotNull
     public String terminalId;
@@ -252,6 +261,35 @@ public class Ticket extends BaseEntity {
     public boolean fidelityUnavailable;
 
     /**
+     * The balance of each loyalty pot as the programme computed it with this
+     * sale, frozen at closing so the receipt and any duplicata print the
+     * "SOLDES DES CAGNOTTES" block (BO-10-02-33); null when the shop does not
+     * read the pots or the programme returned none.
+     *
+     * <p>One pot per line, its label then a tab then its balance as a plain
+     * decimal (empty when the programme sent none). Text rather than a child
+     * table: the block is a printed statement of the day, never queried.
+     */
+    @jakarta.persistence.Lob
+    @Column(name = "fidelity_pot_balances")
+    public String fidelityPotBalances;
+
+    /**
+     * The loyalty programme's MESSAGES for this sale, frozen at closing so the
+     * receipt and any duplicata print them (BO-03-03-26, BO-03-03-27): the
+     * short two-line advantage message, then up to five commercial messages of
+     * up to ten lines each; null when the programme sent none.
+     *
+     * <p>Written by {@code ImfidClient.LoyaltyMessages.encode}: one message per
+     * block, blocks separated by an empty line, the first block being the
+     * short message. Text rather than a child table, like the pots: a printed
+     * statement of the day, never queried.
+     */
+    @jakarta.persistence.Lob
+    @Column(name = "fidelity_messages")
+    public String fidelityMessages;
+
+    /**
      * The advantage lines as displayed, frozen at closing; empty when the sale
      * displayed none (BO-03-03-25).
      */
@@ -294,6 +332,52 @@ public class Ticket extends BaseEntity {
     @Column(name = "customer_email", length = 120)
     public String customerEmail;
 
+    /** Fiscal identifier selected for this sale, independently of a customer account (LC-08-06-02/-03). */
+    @Column(name = "customer_tax_id", length = 30)
+    public String customerTaxId;
+
+    /**
+     * The sales channel the transaction comes from (BO-07-01-02): null on a
+     * sale of the store's own lanes, the third-party system's channel on a
+     * transaction the point of sale integrated.
+     */
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "sales_channel", length = 16)
+    public SalesChannel salesChannel;
+
+    /**
+     * True when the sale was a SELF-SCANNING basket loaded at the till
+     * (BO-04-01-41/50): the « Autonome » column of the electronic journal.
+     */
+    @Column(name = "self_scanning", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean selfScanning;
+
+    /**
+     * True when the self-scanning basket was put under a control the hostess
+     * decided at the till (BO-04-01-42).
+     */
+    @Column(name = "self_scan_controlled", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean selfScanControlled;
+
+    /**
+     * True when the self-scanning basket was put under a control the system
+     * decided — drawn by the store's rate or required by the basket
+     * (BO-04-01-43).
+     */
+    @Column(name = "self_scan_verified", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean selfScanVerified;
+
+    /**
+     * True when the sale was made while the register had lost the store node
+     * (BO-04-01-14, event « déconnecté »).
+     */
+    @Column(name = "offline_sale", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean offline;
+
     /** The ticket lines (FK held by the child table, orphan removal on). */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "ticket_id", nullable = false)
@@ -330,6 +414,18 @@ public class Ticket extends BaseEntity {
      */
     @Column(name = "resumed_terminal_id", length = 30)
     public String resumedTerminalId;
+
+    /**
+     * When the cashier went to PAYMENT on this ticket (BO-06-06-02,
+     * BO-06-06-03), null while it is still being rung up.
+     *
+     * <p>The first article opens the ticket ({@link #creationDate}) and the
+     * last payment closes it ({@link #closingDate}): this third instant cuts
+     * the customer's time in two — the scanning before it, the payment after
+     * it — which is what the cashier performance states measure.
+     */
+    @Column(name = "payment_started_at")
+    public java.time.LocalDateTime paymentStartedAt;
 
     /** The registered payments (FK held by the child table, orphan removal on). */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)

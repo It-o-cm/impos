@@ -23,6 +23,7 @@ import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -63,13 +64,21 @@ class RefundServiceTest {
      */
     private RefundService newService() {
         RefundService s = new RefundService();
+        s.terminalClient = new com.intermarche.pos.ui.hardware.terminal.AutoAcceptTerminalClient();
         // The operator messages come from the French bundle, so every
         // assertion below keeps the literal sentence the register shows
         // (LC-13-06).
         s.i18n = TestMessages.french();
         s.endorsementService = mock(EndorsementService.class);
         s.ticketPrinterService = mock(TicketPrinterService.class);
+        s.portugueseFiscalService = mock(com.intermarche.pos.ui.invoice.PortugueseFiscalService.class);
         s.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        // BO-03-02-34: the card receipt is printed, as it always was.
+        org.mockito.Mockito.when(s.posSettingsService.cardReceiptPrinted()).thenReturn(true);
+        // BO-10-01-04 / -05: the e-commerce return rules over the same parameters,
+        // which administer no e-commerce register: no ticket here is concerned.
+        s.channelRules = new com.intermarche.pos.ui.recall.ChannelRules(s.posSettingsService);
+        s.ecommerceTicketClient = mock(EcommerceTicketClient.class);
         s.posListService = mock(com.intermarche.pos.service.PosListService.class);
         s.cashSessionService = mock(CashSessionService.class);
         s.ticketNumberService = mock(TicketNumberService.class);
@@ -77,6 +86,12 @@ class RefundServiceTest {
         s.hardwareService = mock(HardwareService.class);
         s.syncOutboxService = mock(SyncOutboxService.class);
         s.ticketSearchService = mock(com.intermarche.pos.ui.ticket.TicketSearchService.class);
+        // BO-03-06-30 to -38: no issuing range administered, so the note keeps
+        // its historical number, the prefix and its own row id.
+        s.storedValueNumberService = mock(com.intermarche.pos.service.StoredValueNumberService.class);
+        when(s.storedValueNumberService.numberOf(any(), any())).thenAnswer(
+                invocation -> StoredValue.CREDIT_NOTE_PREFIX
+                        + String.format("%012d", ((StoredValue) invocation.getArgument(0)).id));
         // A return on a card-bearing ticket enqueues the loyalty event that
         // feeds imfid's RETURN_DEBIT recomputation — in the refund's own
         // transaction, so the collaborator belongs to the fixture.
@@ -93,6 +108,10 @@ class RefundServiceTest {
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(ReturnValuationService.Recalculation
                         .none(ReturnValuationService.RecalculationStatus.NOT_APPLICABLE));
+        // LC-05-07-02: the loyalty half answers nothing taken back; LC-05-03-01:
+        // no payment hub is administered — every pre-existing case.
+        s.returnLoyaltyService = mock(ReturnLoyaltyService.class);
+        s.nexoHubClient = mock(com.intermarche.pos.ui.payment.NexoHubClient.class);
         return s;
     }
 
@@ -1507,6 +1526,8 @@ class RefundServiceTest {
             verify(refund).persist();
         }
         verify(s.ticketPrinterService).printRefund(55L);
+        // LC-05-07-03: the return is stated on its credit note before its paper.
+        verify(s.portugueseFiscalService).issueCreditNoteForRefund(55L);
     }
 
     /**
@@ -1600,6 +1621,40 @@ class RefundServiceTest {
                     org.mockito.ArgumentMatchers.same(original), captor.capture());
             assertEquals(0, BigDecimal.ZERO.compareTo(captor.getValue().get(1L)));
             assertEquals(0, BigDecimal.ZERO.compareTo(captor.getValue().get(2L)));
+        }
+    }
+
+    /**
+     * BO-10-02-18: the refund's ventilation is cut by the administered rounding
+     * rule — 8,19 at 20 % is 6,82 excluding tax rounded down where half up gives
+     * 6,83 — as its printed return ticket is.
+     */
+    @Test
+    void performRefundCutsTheVentilationWithTheAdministeredRounding() {
+        RefundService s = newService();
+        when(s.posSettingsService.calcRoundingMode()).thenReturn(java.math.RoundingMode.DOWN);
+        PosState state = new PosState();
+        TicketLine sold = line(1L, "1", "8.19", "0.20", "MILK");
+        sold.totalPrice = new BigDecimal("8.19");
+        Ticket original = ticket(10L, "T-1", "8.19", sold);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        CashSession session = mock(CashSession.class);
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(session);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals(new BigDecimal("8.19"), refund.totalAmount);
+            assertEquals(new BigDecimal("6.82"), refund.totalExcludingTax);
+            assertEquals(new BigDecimal("1.37"), refund.totalVat);
         }
     }
 
@@ -1764,6 +1819,10 @@ class RefundServiceTest {
             assertEquals(new BigDecimal("20.00"), note.initialAmount);
             assertEquals(new BigDecimal("20.00"), note.balance);
             assertEquals(Long.valueOf(55L), note.issuingRefundId);
+            assertEquals(refund.terminalId, note.issuingTerminalId);
+            assertEquals(refund.refundNumber, note.issuingDocumentNumber);
+            verify(s.storedValueNumberService).numberOf(note, refund.refundNumber);
+            verify(s.syncOutboxService).enqueue(SyncOutbox.EntityType.STORED_VALUE, 77L);
             assertNotNull(note.issuedAt);
             // persistAndFlush, not persist: the number column is NOT NULL, so
             // the INSERT carries a provisional value and the definitive number
@@ -2044,6 +2103,24 @@ class RefundServiceTest {
         assertTrue(payload.getValue().contains("\"refundToCard\""));
         assertTrue(payload.getValue().contains("\"card\":\"2990000000019\""));
         assertTrue(payload.getValue().contains("\"amount\":20.00"));
+        com.fasterxml.jackson.databind.JsonNode event = readJson(payload.getValue());
+        assertEquals("2990000000019", event.get("refundToCard").get("card").asText());
+        assertEquals(0, new BigDecimal("20.00").compareTo(event.get("refundToCard").get("amount").decimalValue()));
+        assertTrue(event.get("lines").isArray());
+    }
+
+    /**
+     * Reads a JSON text with a real parser, so a malformed document fails.
+     *
+     * @param text the JSON text
+     * @return the parsed document
+     */
+    private static com.fasterxml.jackson.databind.JsonNode readJson(String text) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readTree(text);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException malformed) {
+            throw new AssertionError(malformed);
+        }
     }
 
     /**
@@ -2827,5 +2904,960 @@ class RefundServiceTest {
             assertTrue(captor.getValue().containsKey(1L));
             assertEquals(1, captor.getValue().size());
         }
+    }
+    /** LC-07: a real asynchronous credit creates no refund before approval and prints exact attached frames once. */
+    @Test
+    void asynchronousCardCreditWaitsForDecision() {
+        RefundService s = newService();
+        s.terminalClient = mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class);
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.posSettingsService.cardReceiptAttached()).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> {
+                 value.lines = new ArrayList<>();
+                 value.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            Refund prepared = created.constructed().get(0);
+            verify(prepared, never()).persist();
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            assertEquals(1, created.constructed().size());
+            var callback = ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+            verify(s.terminalClient).requestCredit(eq(new BigDecimal("20.00")), callback.capture());
+            callback.getValue().onDisplay("INFORMATION", "WAITING");
+            verify(prepared, never()).persist();
+            var outcome = com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(new BigDecimal("20.00"));
+            outcome.server = "2";
+            outcome.customerReceiptFrame = "CLIENT\n";
+            outcome.merchantReceiptFrame = "MERCHANT\n";
+            callback.getValue().onAccepted(outcome);
+            verify(prepared, never()).persist();
+            s.completeCardRefund(state);
+            callback.getValue().onAccepted(outcome);
+            s.completeCardRefund(state);
+            verify(prepared, times(1)).persist();
+            assertEquals("2", prepared.moneticServer);
+            verify(s.ticketPrinterService).printRefund(55L, false);
+            verify(s.ticketPrinterService).printTerminalFrame("CLIENT\n", null);
+            verify(s.ticketPrinterService).printTerminalFrame("MERCHANT\n", null);
+            verify(s.ticketPrinterService).archiveCustomerDocument(
+                    com.intermarche.pos.domain.sale.CustomerDocument.Kind.CARD, 55L, "CLIENT\n");
+            verify(s.ticketPrinterService, never()).archiveCustomerDocument(any(), any(), eq("MERCHANT\n"));
+            verify(s.ticketPrinterService, never()).printCardCreditReceipt(any());
+        }
+    }
+
+    /**
+     * BO-03-02-34: a store printing no card receipt still archives the
+     * terminal's customer frame, prints the return alone and no frame.
+     */
+    @Test
+    void cardCreditWithoutCardReceiptPrintsNoFrame() {
+        RefundService s = newService();
+        s.terminalClient = mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class);
+        when(s.posSettingsService.cardReceiptPrinted()).thenReturn(false);
+        when(s.posSettingsService.cardReceiptAttached()).thenReturn(true);
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> {
+                 value.lines = new ArrayList<>();
+                 value.id = 56L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            var callback = ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+            verify(s.terminalClient).requestCredit(eq(new BigDecimal("20.00")), callback.capture());
+            var outcome = com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(new BigDecimal("20.00"));
+            outcome.customerReceiptFrame = "CLIENT\n";
+            callback.getValue().onAccepted(outcome);
+            s.completeCardRefund(state);
+            verify(s.ticketPrinterService).printRefund(56L);
+            verify(s.ticketPrinterService).archiveCustomerDocument(
+                    com.intermarche.pos.domain.sale.CustomerDocument.Kind.CARD, 56L, "CLIENT\n");
+            verify(s.ticketPrinterService, never()).printTerminalFrame(any(), any());
+        }
+    }
+
+    /** LC-07: credit refusal or transport failure leaves the selected return unpaid and records no refund. */
+    @Test
+    void asynchronousCardCreditFailureDoesNotPersist() {
+        RefundService s = newService();
+        s.terminalClient = mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class);
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> value.lines = new ArrayList<>())) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            var callback = ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+            verify(s.terminalClient).requestCredit(eq(new BigDecimal("20.00")), callback.capture());
+            callback.getValue().onRefused(null);
+            callback.getValue().onError("LATE");
+            s.completeCardRefund(state);
+            assertNull(state.refund.pendingCardRefund);
+            assertNotNull(state.refund.selectedTicket);
+            verify(created.constructed().get(0), never()).persist();
+            verifyNoInteractions(s.ticketPrinterService);
+        }
+    }
+
+    /** LC-07-04-11/-17-05: customer-only, merchant-only and additional-only credit frames print separately by default. */
+    @Test
+    void cardCreditIndependentFrameLegs() {
+        for (String kind : new String[] {"customer", "merchant", "additional"}) {
+            RefundService s = newService();
+            s.terminalClient = mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class);
+            var outcome = com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(new BigDecimal("20.00"));
+            if ("customer".equals(kind)) outcome.customerReceiptFrame = "FRAME";
+            if ("merchant".equals(kind)) outcome.merchantReceiptFrame = "FRAME";
+            if ("additional".equals(kind)) outcome.additionalReceiptFrames.add("FRAME");
+            doAnswer(invocation -> {
+                invocation.getArgument(1, com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class).onAccepted(outcome);
+                return null;
+            }).when(s.terminalClient).requestCredit(any(), any());
+            PosState state = new PosState();
+            state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+            state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+            try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+                 MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> {
+                     value.lines = new ArrayList<>();
+                     value.id = 55L;
+                 })) {
+                panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+                panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+                s.performRefund(state, Refund.RefundMethod.CARD);
+                verify(created.constructed().get(0)).persist();
+                verify(s.ticketPrinterService).printRefund(55L);
+                verify(s.ticketPrinterService).printTerminalFrame("FRAME", null);
+            }
+        }
+    }
+
+
+    /** LC-05: a blocked refund neither persists nor requests supervisor authorization. */
+    @Test
+    void requestRefundBlockingControlStopsBeforePersistence() {
+        RefundService service = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        when(service.endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.REFUND))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        when(service.endorsementService.controlMessage(com.intermarche.pos.ui.endorsement.ControlPoint.REFUND,
+                com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK)).thenReturn("REFUND BLOCKED");
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            service.requestRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertEquals("REFUND BLOCKED", state.refund.errorMessage);
+        verify(service.endorsementService, never()).requestAuthorization(any(), any());
+        verifyNoInteractions(service.syncOutboxService);
+    }
+
+    /** LC-05: a warning proceeds directly, while an independent refund guard still prevents persistence. */
+    @Test
+    void requestRefundWarningRetainsGuardFailure() {
+        RefundService service = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        when(service.endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.REFUND))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.WARN);
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            RefundLine previous = new RefundLine();
+            previous.quantity = new BigDecimal("5");
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of(previous));
+            service.requestRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertEquals("QUANTITÉ DÉJÀ REMBOURSÉE (MILK)", state.refund.errorMessage);
+        verify(service.endorsementService, never()).requestAuthorization(any(), any());
+        verifyNoInteractions(service.syncOutboxService);
+    }
+
+    /** LC-05: an already-authorized refund retains an independent guard's error without reopening supervisor authorization. */
+    @Test
+    void authorizedRefundRetainsAnIndependentGuardRefusal() {
+        var service = spy(newService());
+        var state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        when(service.endorsementService.gestureAuthorized(state, "refund")).thenReturn(true);
+        doAnswer(call -> {
+            state.refund.errorMessage = "GUARD REFUSAL";
+            throw new IllegalStateException("GUARD REFUSAL");
+        }).when(service).performRefund(state, Refund.RefundMethod.CASH);
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            assertDoesNotThrow(() -> service.requestRefund(state, Refund.RefundMethod.CASH));
+        }
+        assertEquals("GUARD REFUSAL", state.refund.errorMessage);
+        verify(service).performRefund(state, Refund.RefundMethod.CASH);
+        verify(service.endorsementService, never()).requestAuthorization(any(), any());
+    }
+    /** LC-05 and BO-10-02-03: a warning permits the selected refund while preserving its informational wording. */
+    @Test
+    void warningControlProceedsWithoutSupervisorAuthorization() {
+        var service = spy(newService());
+        var state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        when(service.endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.REFUND)).thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.WARN);
+        when(service.endorsementService.controlMessage(com.intermarche.pos.ui.endorsement.ControlPoint.REFUND, com.intermarche.pos.ui.endorsement.ControlLevel.WARN)).thenReturn("REFUND WARNING");
+        doNothing().when(service).performRefund(state, Refund.RefundMethod.CASH);
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            service.requestRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertEquals("REFUND WARNING", state.refund.errorMessage);
+        verify(service).performRefund(state, Refund.RefundMethod.CASH);
+        verify(service.endorsementService, never()).requestAuthorization(any(), any());
+    }
+
+    /** LC-04-05-01: a fresh combined return search drops any stale selected ticket while preserving its entered criteria and results. */
+    @Test
+    void combinedSearchSupersedesAStaleReturnSelection() {
+        var service = newService();
+        service.ticketSearchService = mock(com.intermarche.pos.ui.ticket.TicketSearchService.class);
+        var criteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
+        criteria.terminalId = "C04";
+        var state = new PosState();
+        state.refund.selectedTicket = new Ticket();
+        var results = List.of(new Ticket());
+        when(service.ticketSearchService.searchCriteria(criteria, false)).thenReturn(results);
+        service.searchCriteria(state, criteria);
+        assertNull(state.refund.selectedTicket);
+        assertSame(criteria, state.refund.searchCriteria);
+        assertSame(results, state.refund.foundTickets);
+    }
+
+
+    // --------------------------------------------------
+    // LC-05-03-01: a dematerialised article handed back
+    // --------------------------------------------------
+
+    /**
+     * A dematerialised line of the origin ticket, at 25,00.
+     *
+     * @param code the activation code the sale recorded, or null
+     * @param provider the provider, or null
+     * @return the line
+     */
+    private TicketLine dematerialised(String code, String provider) {
+        TicketLine line = line(1L, "1", "25.00", "0.00", "CARTE CADEAU");
+        line.totalPrice = new BigDecimal("25.00");
+        line.activationCode = code;
+        line.activationProvider = provider;
+        return line;
+    }
+
+    /**
+     * A service whose payment hub is administered.
+     *
+     * @return the service
+     */
+    private RefundService hubService() {
+        RefundService s = newService();
+        when(s.nexoHubClient.isConfigured()).thenReturn(true);
+        return s;
+    }
+
+    /**
+     * An accepted hub answer.
+     *
+     * @param balance the balance, or null
+     * @param provider the provider, or null
+     * @return the answer
+     */
+    private com.intermarche.pos.ui.payment.NexoHubClient.HubResult hubOk(String balance, String provider) {
+        return new com.intermarche.pos.ui.payment.NexoHubClient.HubResult(true, null, null, "HUB5", null,
+                balance == null ? null : new BigDecimal(balance), provider, null);
+    }
+
+    /**
+     * Without a hub, a dematerialised line comes back like any other.
+     */
+    @Test
+    void withoutAHubADematerialisedLineComesBackPlainly() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", dematerialised("9001", null));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        }
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+        assertNull(state.refund.pendingActivationLineId);
+    }
+
+    /**
+     * With a hub, taking a dematerialised line back asks for its code; a line
+     * already read is left as it is; taking it out again forgets it.
+     */
+    @Test
+    void withAHubADematerialisedLineAsksForItsCode() {
+        RefundService s = hubService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", dematerialised(null, "TRANSACTIS"));
+        state.refund.errorMessage = "AVANT";
+        s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        assertEquals(1L, state.refund.pendingActivationLineId);
+        assertNull(state.refund.errorMessage);
+        assertEquals("SCANNEZ LE CODE UNIQUE DE L'ARTICLE DÉMATÉRIALISÉ", state.refund.infoMessage);
+        assertFalse(state.refund.returnQuantities.containsKey(1L));
+        state.refund.pendingActivationLineId = null;
+        state.refund.deactivations.put(1L, new RefundState.Deactivation("9001", null, BigDecimal.TEN));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        s.setReturnQuantity(state, 1L, new BigDecimal("2"));
+        assertNull(state.refund.pendingActivationLineId);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+        s.setReturnQuantity(state, 1L, BigDecimal.ZERO);
+        assertTrue(state.refund.deactivations.isEmpty());
+        assertFalse(state.refund.returnQuantities.containsKey(1L));
+    }
+
+    /**
+     * The code awaited must be the one the sale recorded; a line that vanished
+     * closes the wait.
+     */
+    @Test
+    void theAwaitedCodeMustBeTheArticles() {
+        RefundService s = hubService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", dematerialised("9001", "TRANSACTIS"));
+        state.refund.pendingActivationLineId = 1L;
+        s.enterArticleByCode(state, "9002");
+        assertEquals("CE CODE N'EST PAS CELUI DE L'ARTICLE VENDU", state.refund.errorMessage);
+        assertEquals(1L, state.refund.pendingActivationLineId);
+        state.refund.pendingActivationLineId = 7L;
+        s.enterArticleByCode(state, "9001");
+        assertEquals("ARTICLE ABSENT DU TICKET D'ORIGINE", state.refund.errorMessage);
+        assertNull(state.refund.pendingActivationLineId);
+        verify(s.nexoHubClient, never()).balance(any());
+    }
+
+    /**
+     * The hub refusing, absent, or saying the article carries nothing leaves it
+     * out of the return and says why.
+     */
+    @Test
+    void theHubMustSayTheArticleStillCarriesSomething() {
+        RefundService s = hubService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", dematerialised("9001", "TRANSACTIS"));
+        String[] expected = {"HUB DE PAIEMENT INJOIGNABLE", "ARTICLE REFUSÉ PAR LE HUB (INCONNU)",
+                "ARTICLE REFUSÉ PAR LE HUB (InvalidCard)", "ARTICLE SANS SOLDE RESTANT : AUCUN REMBOURSEMENT",
+                "ARTICLE SANS SOLDE RESTANT : AUCUN REMBOURSEMENT"};
+        com.intermarche.pos.ui.payment.NexoHubClient.HubResult[] answers = {
+                com.intermarche.pos.ui.payment.NexoHubClient.HubResult.failure(
+                        com.intermarche.pos.ui.payment.NexoHubClient.UNAVAILABLE, null),
+                com.intermarche.pos.ui.payment.NexoHubClient.HubResult.failure("InvalidCard", "INCONNU"),
+                com.intermarche.pos.ui.payment.NexoHubClient.HubResult.failure("InvalidCard", null),
+                hubOk(null, null), hubOk("0.00", null)};
+        for (int i = 0; i < answers.length; i++) {
+            when(s.nexoHubClient.balance("9001")).thenReturn(answers[i]);
+            state.refund.pendingActivationLineId = 1L;
+            state.refund.infoMessage = "AVANT";
+            s.enterArticleByCode(state, "9001");
+            assertEquals(expected[i], state.refund.errorMessage);
+            assertNull(state.refund.infoMessage);
+            assertTrue(state.refund.deactivations.isEmpty());
+        }
+    }
+
+    /**
+     * An article the hub says still carries something is staged for
+     * deactivation, its refund capped at what was paid, its provider the sale's
+     * or the hub's.
+     */
+    @Test
+    void anArticleStillCarryingSomethingIsStaged() {
+        RefundService s = hubService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", dematerialised(null, null));
+        state.refund.pendingActivationLineId = 1L;
+        state.refund.manualTotalAmount = BigDecimal.TEN;
+        when(s.nexoHubClient.balance("ANY")).thenReturn(hubOk("30.00", "HUBSIM"));
+        s.enterArticleByCode(state, "ANY");
+        RefundState.Deactivation staged = state.refund.deactivations.get(1L);
+        assertEquals("ANY", staged.code());
+        assertEquals("HUBSIM", staged.provider());
+        assertEquals(0, new BigDecimal("30.00").compareTo(staged.balance()));
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+        assertNull(state.refund.manualTotalAmount);
+        assertEquals(1L, state.refund.selectedLineId);
+        assertNull(state.refund.pendingActivationLineId);
+        assertEquals("SOLDE RESTANT 30,00 € : 25,00 € REMBOURSÉS À LA DÉSACTIVATION", state.refund.infoMessage);
+        assertEquals(new BigDecimal("25.00"), state.refund.getTotalRefundAmount());
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", dematerialised("9001", "TRANSACTIS"));
+        state.refund.pendingActivationLineId = 1L;
+        when(s.nexoHubClient.balance("9001")).thenReturn(hubOk("12.50", "HUBSIM"));
+        s.enterArticleByCode(state, "9001");
+        assertEquals("TRANSACTIS", state.refund.deactivations.get(1L).provider());
+        assertEquals(new BigDecimal("12.50"), state.refund.getTotalRefundAmount());
+    }
+
+    /**
+     * The refund deactivates each staged article on the hub before it is
+     * written, and refunds what each still carried; a refusal undoes the
+     * deactivations already made and writes nothing.
+     */
+    @Test
+    void theRefundDeactivatesTheArticlesFirst() {
+        RefundService s = hubService();
+        PosState state = new PosState();
+        TicketLine second = dematerialised("9002", null);
+        second.id = 2L;
+        Ticket original = ticket(10L, "T-1", "50.00", dematerialised("9001", "TRANSACTIS"), second);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        state.refund.deactivations.put(1L, new RefundState.Deactivation("9001", "TRANSACTIS", new BigDecimal("12.50")));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(s.nexoHubClient.unload("R-1-1", "TRANSACTIS", "9001", new BigDecimal("12.50")))
+                .thenReturn(hubOk("0.00", null));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list(eq("originalLineId"), any(Object[].class))).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals(new BigDecimal("12.50"), refund.totalAmount);
+            assertEquals(0, new BigDecimal("12.50").compareTo(refund.lines.get(0).price));
+            verify(refund).persist();
+        }
+        PosState refused = new PosState();
+        refused.refund.selectedTicket = original;
+        refused.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        refused.refund.returnQuantities.put(2L, BigDecimal.ONE);
+        refused.refund.deactivations.put(1L, new RefundState.Deactivation("9001", "TRANSACTIS", new BigDecimal("12.50")));
+        refused.refund.deactivations.put(2L, new RefundState.Deactivation("9002", null, new BigDecimal("5.00")));
+        when(s.nexoHubClient.unload("R-1-2", null, "9002", new BigDecimal("5.00")))
+                .thenReturn(com.intermarche.pos.ui.payment.NexoHubClient.HubResult.failure("Refusal", null));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 56L;
+             })) {
+            panache.when(() -> RefundLine.list(eq("originalLineId"), any(Object[].class))).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            refused.refund.infoMessage = "AVANT";
+            s.performRefund(refused, Refund.RefundMethod.CASH);
+            verify(mc.constructed().get(0), never()).persist();
+        }
+        verify(s.nexoHubClient).reverseStoredValue("R-1-R", "HUB5");
+        assertEquals("ARTICLE REFUSÉ PAR LE HUB (Refusal)", refused.refund.errorMessage);
+        assertNull(refused.refund.infoMessage);
+    }
+
+    /**
+     * BO-03-08-06: a deactivation the provider refuses shows the shop's own
+     * sentence for that answer where the shop wrote one.
+     *
+     * @throws Exception when the helper cannot be reached
+     */
+    @Test
+    void aRefusedDeactivationShowsTheShopsSentence() throws Exception {
+        RefundService s = hubService();
+        java.lang.reflect.Method refusal = RefundService.class.getDeclaredMethod("hubRefusal",
+                com.intermarche.pos.ui.payment.NexoHubClient.HubResult.class, String.class);
+        refusal.setAccessible(true);
+        com.intermarche.pos.domain.setting.ProviderMessage message =
+                new com.intermarche.pos.domain.setting.ProviderMessage();
+        message.screenText = "Carte déjà utilisée";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            io.quarkus.hibernate.orm.panache.PanacheQuery<Object> found =
+                    mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            when(found.firstResult()).thenReturn(message);
+            panache.when(() -> PanacheEntityBase.find(anyString(), any(Object[].class))).thenReturn(found);
+            assertEquals("Carte déjà utilisée", refusal.invoke(s,
+                    com.intermarche.pos.ui.payment.NexoHubClient.HubResult.failure("Refusal", "USED"),
+                    "TRANSACTIS"));
+        }
+    }
+
+    // --- BO-10-01-04 / -05: the return types of an e-commerce ticket ---
+
+    /**
+     * An e-commerce ticket of two lines, the first already partly returned.
+     *
+     * @return the ticket, booked on the virtual register ECOM
+     */
+    private Ticket ecommerceTicket() {
+        Ticket ticket = ticket(20L, "ECOM-W1", "30.00", line(1L, "2", "10.00", "0.20", "MILK"),
+                line(2L, "1", "10.00", "0.20", "BREAD"));
+        TicketLine cancelled = line(3L, "1", "5.00", "0.20", "GONE");
+        cancelled.cancelled = true;
+        ticket.lines.add(cancelled);
+        ticket.terminalId = "ECOM";
+        return ticket;
+    }
+
+    /**
+     * Runs a refund request on the e-commerce ticket, one MILK already returned.
+     *
+     * @param s the service
+     * @param state the state, its return quantities set
+     */
+    private void requestOnEcommerce(RefundService s, PosState state) {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of(refundLineQty("1")));
+            panache.when(() -> RefundLine.list("originalLineId", 2L)).thenReturn(List.of());
+            s.requestRefund(state, Refund.RefundMethod.CASH);
+        }
+    }
+
+    /**
+     * Returning the WHOLE e-commerce ticket — what remained of every line not
+     * cancelled — takes one of the ticket-return types: another type, or none,
+     * is refused before any endorsement, an allowed one goes on, whatever its
+     * case (BO-10-01-04).
+     */
+    @Test
+    void theWholeEcommerceTicketTakesATicketReturnType() {
+        RefundService s = newService();
+        when(s.posSettingsService.ecommerceTerminal()).thenReturn("ECOM");
+        when(s.posSettingsService.ecommerceReturnTicketTypes()).thenReturn("Retour web");
+        when(s.posSettingsService.ecommerceReturnArticleTypes()).thenReturn("Défectueux");
+        PosState state = new PosState();
+        state.refund.selectedTicket = ecommerceTicket();
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        state.refund.returnQuantities.put(2L, BigDecimal.ONE);
+        requestOnEcommerce(s, state);
+        assertEquals("TYPE DE RETOUR NON AUTORISÉ POUR UN TICKET E-COMMERCE", state.refund.errorMessage);
+        state.returnTypeLabel = "Défectueux";
+        requestOnEcommerce(s, state);
+        assertEquals("TYPE DE RETOUR NON AUTORISÉ POUR UN TICKET E-COMMERCE", state.refund.errorMessage);
+        verify(s.endorsementService, never()).requestAuthorization(any(), any());
+        state.returnTypeLabel = " retour WEB ";
+        requestOnEcommerce(s, state);
+        assertNull(state.refund.errorMessage);
+        verify(s.endorsementService).requestAuthorization(state, "REFUND_CASH_20");
+    }
+
+    /**
+     * Returning PART of the e-commerce ticket takes one of the article-return
+     * types (BO-10-01-05).
+     */
+    @Test
+    void partOfAnEcommerceTicketTakesAnArticleReturnType() {
+        RefundService s = newService();
+        when(s.posSettingsService.ecommerceTerminal()).thenReturn("ECOM");
+        when(s.posSettingsService.ecommerceReturnTicketTypes()).thenReturn("Retour web");
+        when(s.posSettingsService.ecommerceReturnArticleTypes()).thenReturn("Défectueux");
+        PosState state = new PosState();
+        state.refund.selectedTicket = ecommerceTicket();
+        state.refund.returnQuantities.put(2L, BigDecimal.ONE);
+        state.returnTypeLabel = "Retour web";
+        requestOnEcommerce(s, state);
+        assertEquals("TYPE DE RETOUR NON AUTORISÉ POUR UN TICKET E-COMMERCE", state.refund.errorMessage);
+        state.returnTypeLabel = "Défectueux";
+        requestOnEcommerce(s, state);
+        assertNull(state.refund.errorMessage);
+    }
+
+    /**
+     * An e-commerce ticket whose store lists no type takes every return, and a
+     * ticket of another register is not concerned whatever the lists say.
+     */
+    @Test
+    void theEcommerceTypesConcernTheEcommerceTicketsOnly() {
+        RefundService s = newService();
+        when(s.posSettingsService.ecommerceTerminal()).thenReturn("ECOM");
+        PosState state = new PosState();
+        state.refund.selectedTicket = ecommerceTicket();
+        state.refund.returnQuantities.put(2L, BigDecimal.ONE);
+        requestOnEcommerce(s, state);
+        assertNull(state.refund.errorMessage);
+        when(s.posSettingsService.ecommerceReturnArticleTypes()).thenReturn("Défectueux");
+        state.refund.selectedTicket.terminalId = "C04";
+        requestOnEcommerce(s, state);
+        assertNull(state.refund.errorMessage);
+    }
+
+    /**
+     * BO-10-01-04 / -05: a search finding nothing here asks the store node for
+     * the e-commerce ticket the number names, and lists it when it comes; a
+     * search finding a local ticket asks nothing.
+     */
+    @Test
+    void aSearchFindingNothingBringsTheEcommerceTicketBack() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.searchPattern = "ECOM-W1";
+        state.auth.operatorId = 7L;
+        when(s.ticketSearchService.searchByPattern("ECOM-W1")).thenReturn(List.of());
+        s.searchTickets(state);
+        assertTrue(state.refund.foundTickets.isEmpty());
+        Ticket imported = ticket(30L, "ECOM-W1", "10.00");
+        when(s.ecommerceTicketClient.importTicket("ECOM-W1", 7L)).thenReturn(imported);
+        s.searchTickets(state);
+        assertEquals(List.of(imported), state.refund.foundTickets);
+        Ticket local = ticket(31L, "C04-1", "10.00");
+        state.refund.searchPattern = "C04-1";
+        when(s.ticketSearchService.searchByPattern("C04-1")).thenReturn(List.of(local));
+        s.searchTickets(state);
+        verify(s.ecommerceTicketClient, never()).importTicket(eq("C04-1"), any());
+    }
+
+    // --------------------------------------------------
+    // BO-03-13-04: a TICKET-mode return type forces the identification
+    // --------------------------------------------------
+
+    /**
+     * Puts the state under a TICKET-mode return type.
+     *
+     * @param s the service whose list resolver answers the type
+     * @param state the state choosing the type
+     */
+    private void underTicketMode(RefundService s, PosState state) {
+        state.returnTypeLabel = "Ticket";
+        when(s.posListService.returnType("Ticket"))
+                .thenReturn(new com.intermarche.pos.service.PosSettingsService.ReturnType("Ticket", true));
+    }
+
+    /**
+     * Builds a Panache query whose list is the given tickets.
+     *
+     * @param tickets the tickets listed
+     * @return the query
+     */
+    @SuppressWarnings("unchecked")
+    private io.quarkus.hibernate.orm.panache.PanacheQuery<PanacheEntityBase> listing(Ticket... tickets) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<PanacheEntityBase> query =
+                mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(query.list()).thenReturn(List.of(tickets));
+        return query;
+    }
+
+    /**
+     * BO-03-13-04: only a type administered in TICKET mode forces the
+     * identification; no type, or an in-sale type, does not.
+     */
+    @Test
+    void identificationIsForcedOnlyByATicketModeType() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        assertFalse(s.identificationForced(state));
+        state.returnTypeLabel = "Contenant";
+        when(s.posListService.returnType("Contenant"))
+                .thenReturn(new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false));
+        assertFalse(s.identificationForced(state));
+        underTicketMode(s, state);
+        assertTrue(s.identificationForced(state));
+    }
+
+    /**
+     * BO-03-13-04: in TICKET mode a fragment finds nothing and says how to
+     * identify the ticket; the full number of a closed ticket selects it at
+     * once; two tickets of that number are listed without a selection.
+     */
+    @Test
+    void aForcedSearchIdentifiesTheTicketByItsNumber() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        underTicketMode(s, state);
+        state.refund.searchPattern = null;
+        s.searchTickets(state);
+        assertTrue(state.refund.foundTickets.isEmpty());
+        assertEquals("TYPE DE RETOUR TICKET : SCANNEZ LE TICKET D'ORIGINE OU SAISISSEZ SON NUMERO ET SA DATE",
+                state.refund.errorMessage);
+        verify(s.ticketSearchService, never()).searchByPattern(any());
+        Ticket original = ticket(40L, "C04-00000040", "12.00");
+        Ticket twin = ticket(41L, "C04-00000040", "8.00");
+        var single = listing(original);
+        var pair = listing(original, twin);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PanacheEntityBase.find("ticketNumber = ?1 and status = ?2",
+                    "C04-00000040", Ticket.TicketStatus.CLOSED)).thenReturn(single, pair);
+            panache.when(() -> Ticket.findById(40L)).thenReturn(original);
+            state.refund.searchPattern = " C04-00000040 ";
+            state.refund.errorMessage = null;
+            s.searchTickets(state);
+            assertSame(original, state.refund.selectedTicket);
+            state.refund.clearSelection();
+            s.searchTickets(state);
+            assertEquals(2, state.refund.foundTickets.size());
+            assertNull(state.refund.selectedTicket);
+            assertNull(state.refund.errorMessage);
+        }
+        state.refund.searchPattern = "  ";
+        s.searchTickets(state);
+        assertTrue(state.refund.foundTickets.isEmpty());
+    }
+
+    /**
+     * BO-03-13-04: in TICKET mode a ticket the identification did not find
+     * cannot be selected; one it found can.
+     */
+    @Test
+    void aForcedSelectionRefusesAnUnidentifiedTicket() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        underTicketMode(s, state);
+        Ticket original = ticket(50L, "C04-00000050", "5.00");
+        s.selectTicket(state, 50L);
+        assertNull(state.refund.selectedTicket);
+        assertEquals("TYPE DE RETOUR TICKET : SCANNEZ LE TICKET D'ORIGINE OU SAISISSEZ SON NUMERO ET SA DATE",
+                state.refund.errorMessage);
+        state.refund.foundTickets = new java.util.ArrayList<>(List.of(ticket(51L, "C04-00000051", "1.00"), original));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(50L)).thenReturn(original);
+            s.selectTicket(state, 50L);
+        }
+        assertSame(original, state.refund.selectedTicket);
+    }
+
+    /**
+     * BO-03-13-04: in TICKET mode the criteria identify the ticket only with
+     * both its number and its date — a missing one (empty or absent) is
+     * refused before any search; both select the single ticket found.
+     */
+    @Test
+    void forcedCriteriaNeedTheNumberAndTheDate() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        underTicketMode(s, state);
+        var noDate = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
+        noDate.number = "00000060";
+        s.searchCriteria(state, noDate);
+        assertEquals("TYPE DE RETOUR TICKET : SAISISSEZ LE NUMERO ET LA DATE DU TICKET D'ORIGINE",
+                state.refund.errorMessage);
+        assertTrue(noDate.submitted);
+        var noNumber = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
+        noNumber.number = null;
+        noNumber.date = "25/10/2026";
+        s.searchCriteria(state, noNumber);
+        assertTrue(state.refund.foundTickets.isEmpty());
+        verify(s.ticketSearchService, never()).searchCriteria(any(), eq(false));
+        var both = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
+        both.number = "00000060";
+        both.date = "25/10/2026";
+        Ticket original = ticket(60L, "C04-00000060", "9.00");
+        when(s.ticketSearchService.searchCriteria(both, false)).thenReturn(List.of(original));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(60L)).thenReturn(original);
+            s.searchCriteria(state, both);
+        }
+        assertSame(original, state.refund.selectedTicket);
+        assertNull(state.refund.errorMessage);
+    }
+
+    // --------------------------------------------------
+    // lot 21: the card credit decision serialized with the return screen
+    // --------------------------------------------------
+
+    /**
+     * Waits, bounded, until a thread is blocked on a monitor.
+     *
+     * @param thread the thread expected to block
+     */
+    private static void awaitBlocked(Thread thread) {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (thread.getState() != Thread.State.BLOCKED && System.currentTimeMillis() < deadline) {
+            Thread.yield();
+        }
+    }
+
+    /**
+     * Waits, bounded, until a condition holds.
+     *
+     * @param condition the condition awaited
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    private static void awaitTrue(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5);
+        }
+    }
+
+    /**
+     * Runs a decision on another thread while this thread holds the register's
+     * lock, and proves it waits for it: blocked and without effect while the
+     * lock is held, applied once it is released.
+     *
+     * @param state the register state whose lock is held
+     * @param decision the decision run on the other thread
+     * @param applied tells whether the decision's effect is visible
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    private static void assertWaitsForTheRegisterLock(PosState state, Runnable decision,
+            java.util.function.BooleanSupplier applied) throws InterruptedException {
+        Thread other = new Thread(decision, "terminal-decision");
+        synchronized (state) {
+            other.start();
+            awaitBlocked(other);
+            assertEquals(Thread.State.BLOCKED, other.getState());
+            assertFalse(applied.getAsBoolean());
+        }
+        other.join(5000);
+        assertFalse(other.isAlive());
+        assertTrue(applied.getAsBoolean());
+    }
+
+    /**
+     * Prepares a twenty-euro return of two MILK lines on a fresh state.
+     *
+     * @return the state carrying the selected ticket and the quantities
+     */
+    private PosState cardReturnState() {
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        return state;
+    }
+
+    /**
+     * Lot 21: the accept leg of a card credit waits for the register's lock
+     * before depositing its outcome; the first outcome is the one kept — a
+     * second accept and a late error are ignored — and the refund is written
+     * once ({@code pendingCardOutcome == null} false leg of both guards).
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void cardCreditAcceptWaitsForTheLockAndIsKeptOnce() throws InterruptedException {
+        RefundService s = newService();
+        s.terminalClient = mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class);
+        PosState state = cardReturnState();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> {
+                 value.lines = new ArrayList<>();
+                 value.id = 57L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            var callback = ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+            verify(s.terminalClient).requestCredit(eq(new BigDecimal("20.00")), callback.capture());
+            var first = com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(new BigDecimal("20.00"));
+            first.server = "1";
+            var second = com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(new BigDecimal("20.00"));
+            second.server = "4";
+            assertWaitsForTheRegisterLock(state, () -> callback.getValue().onAccepted(first),
+                    () -> state.refund.pendingCardOutcome != null);
+            callback.getValue().onAccepted(second);
+            callback.getValue().onError("LATE");
+            assertSame(first, state.refund.pendingCardOutcome);
+            assertNotNull(state.refund.pendingCardRefund);
+            assertNull(state.refund.errorMessage);
+            s.completeCardRefund(state);
+            Refund prepared = created.constructed().get(0);
+            verify(prepared, times(1)).persist();
+            assertEquals("1", prepared.moneticServer);
+        }
+    }
+
+    /**
+     * Lot 21: the error leg of a card credit waits for the register's lock
+     * before dropping the pending return.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void cardCreditErrorWaitsForTheRegisterLock() throws InterruptedException {
+        RefundService s = newService();
+        s.terminalClient = mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class);
+        PosState state = cardReturnState();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> value.lines = new ArrayList<>())) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            var callback = ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+            verify(s.terminalClient).requestCredit(eq(new BigDecimal("20.00")), callback.capture());
+            assertWaitsForTheRegisterLock(state, () -> callback.getValue().onError("INJOIGNABLE"),
+                    () -> state.refund.pendingCardRefund == null);
+            assertEquals("INJOIGNABLE", state.refund.errorMessage);
+            verify(created.constructed().get(0), never()).persist();
+        }
+    }
+
+    /**
+     * Plays a card return through the real terminal chain — the degraded-mode
+     * gate in front of the hardware bridge, whose terminal decides at the
+     * first reading — while the test holds the register's lock as the return
+     * screen does: the decision read by the follower thread waits for the
+     * lock, is then deposited, and the request side writes the refund once.
+     *
+     * @param forced whether this register forced the degraded mode
+     * @return the mocked bridge, for the request it was sent
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    private com.intermarche.pos.ui.hardware.HardwareClient playBridgeCardReturn(boolean forced)
+            throws InterruptedException {
+        RefundService s = newService();
+        com.intermarche.pos.ui.hardware.HardwareClient hardware = mock(com.intermarche.pos.ui.hardware.HardwareClient.class);
+        Thread[] follower = new Thread[1];
+        when(hardware.getPaymentStatus()).thenAnswer(invocation -> {
+            follower[0] = Thread.currentThread();
+            return "state=DONE\napproved=true\nresult=00\nanswer={RS}00";
+        });
+        PosState state = cardReturnState();
+        state.moneticsDegradedUntil = forced ? LocalDateTime.now().plusMinutes(10) : null;
+        s.terminalClient = new com.intermarche.pos.ui.hardware.terminal.DegradedModePaymentTerminalClient(
+                new com.intermarche.pos.ui.hardware.terminal.HardwareBridgeTerminalClient(hardware, 1, 10000,
+                        TestMessages.french()),
+                mock(com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient.class), s.posSettingsService, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> created = mockConstruction(Refund.class, (value, context) -> {
+                 value.lines = new ArrayList<>();
+                 value.id = 58L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            synchronized (state) {
+                s.performRefund(state, Refund.RefundMethod.CARD);
+                verify(hardware, timeout(5000).atLeastOnce()).getPaymentStatus();
+                awaitTrue(() -> follower[0] != null);
+                awaitBlocked(follower[0]);
+                assertEquals(Thread.State.BLOCKED, follower[0].getState());
+                assertNull(state.refund.pendingCardOutcome);
+            }
+            awaitTrue(() -> state.refund.pendingCardOutcome != null);
+            s.completeCardRefund(state);
+            s.completeCardRefund(state);
+            verify(created.constructed().get(0), times(1)).persist();
+            assertNull(state.refund.pendingCardRefund);
+        }
+        return hardware;
+    }
+
+    /**
+     * Lot 21, return refund credited through the bridge: serialized, written
+     * once.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeCardReturnDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        verify(playBridgeCardReturn(false)).startCredit("2000");
+    }
+
+    /**
+     * Lot 21, return refund credited through the bridge on a register that
+     * forced the degraded mode (LC-07-08-02): serialized, written once.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeForcedDegradedCardReturnDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        verify(playBridgeCardReturn(true)).startDegradedCredit("2000");
     }
 }

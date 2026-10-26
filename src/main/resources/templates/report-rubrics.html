@@ -1,0 +1,11 @@
+{! LC-12-07-02: the rows already carry the scope, visibility and rounded amounts used by the receipt. !}
+<section class="report-rubrics" style="overflow:auto;min-height:0;">
+<h2>{inject:i18n.get('report.operations')}</h2>
+<p>{inject:i18n.get('report.countingBasis')}</p>
+<table style="width:100%;border-collapse:collapse;">
+<thead><tr><th style="text-align:left;">{inject:i18n.get('report.rubric')}</th><th style="text-align:right;">{inject:i18n.get('report.count')}</th><th style="text-align:right;">{inject:i18n.get('report.amount')}</th></tr></thead>
+<tbody>
+{#for row in report.operationRows}
+<tr><td style="padding:8px 4px;">{inject:i18n.get(row.key)}{#if row.tender} — {inject:i18n.code('ticketsearch.payment.', row.tender)}{/if}</td><td style="text-align:right;">{row.count}</td><td style="text-align:right;white-space:nowrap;">{row.amountFormatted} €</td></tr>
+{/for}
+</tbody></table></section>

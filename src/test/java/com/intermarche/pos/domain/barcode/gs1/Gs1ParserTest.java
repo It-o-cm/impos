@@ -521,4 +521,34 @@ class Gs1ParserTest {
         assertEquals("CD", message.value("10"));
         assertEquals("EF", message.value("21"));
     }
+
+    /** LC-11-03-02: missing Digital Link identifier text contributes no pair and cannot be treated as digits. */
+    @Test
+    void absentDigitalLinkIdentifierContributesNothing() throws Exception {
+        var pairs = new java.util.ArrayList<Gs1Element>();
+        var add = Gs1Parser.class.getDeclaredMethod("addPair", java.util.List.class, String.class, String.class);
+        add.setAccessible(true);
+        add.invoke(null, pairs, null, "VALUE");
+        assertTrue(pairs.isEmpty());
+        var digits = Gs1Parser.class.getDeclaredMethod("isDigits", String.class);
+        digits.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertFalse((boolean) digits.invoke(null, (Object) null));
+    }
+
+    /**
+     * Lot-19 defect: a code carrying the additional product identification 240
+     * and a ship-to location 410 decodes each element under its true code, and
+     * the elements around them are not shifted.
+     */
+    @Test
+    void threeDigitIdentifiersAreReadUnderTheirTrueCode() {
+        Gs1Message message = Gs1Parser.parse("(01)03560070123456(240)REF77(4103012345678901)");
+        assertEquals("REF77", message.value("240"));
+        assertEquals("3012345678901", message.value("410"));
+        assertNull(message.get("24"));
+        Gs1Message bare = Gs1Parser.parse("]C10103560070123456240REF77" + GS + "17261231");
+        assertEquals("REF77", bare.value("240"));
+        assertEquals("261231", bare.value("17"));
+    }
+
 }

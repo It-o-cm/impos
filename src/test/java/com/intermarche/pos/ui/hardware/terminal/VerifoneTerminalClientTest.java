@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.hardware.terminal;
 
 import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -465,6 +466,39 @@ class VerifoneTerminalClientTest {
     }
 
     /**
+     * BO-03-09-30: the frame an exchange sends is built on the CALLER's thread,
+     * where the tender referential is readable — read on the exchange thread,
+     * the VIC codes were never found. The static mock only exists on the test
+     * thread, so the codes reach the transport only if the frame is built here.
+     *
+     * @throws Exception never under the test timeout
+     */
+    @Test
+    void theExchangedFrameCarriesTheCodesReadOnTheCallersThread() throws Exception {
+        com.intermarche.pos.domain.payment.TenderDefinition mealpass =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        mealpass.code = "TR";
+        mealpass.active = true;
+        mealpass.vicProductCode = "{DAJ}01";
+        VerifoneTransport transport = Mockito.mock(VerifoneTransport.class);
+        Mockito.when(transport.isReachable()).thenReturn(true);
+        Mockito.when(transport.exchange(ArgumentMatchers.anyString())).thenReturn("{D16}72");
+        VerifoneTerminalClient client = new VerifoneTerminalClient(transport, TestMessages.french(), null);
+        LatchingCallback callback = new LatchingCallback();
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> ms =
+                     Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            ms.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                            .list("order by displayOrder, code"))
+                    .thenReturn(java.util.List.of(mealpass));
+            client.requestDebit(new BigDecimal("12.00"), callback);
+        }
+        assertTrue(callback.latch.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(transport).exchange(sent.capture());
+        assertTrue(sent.getValue().endsWith("{DAJ}01"), sent.getValue());
+    }
+
+    /**
      * A referential the client cannot reach costs the customer nothing: the
      * codes are an addition to the request, never a condition of it (the catch
      * arm — no static mock here, so the finder raises).
@@ -475,5 +509,26 @@ class VerifoneTerminalClientTest {
                 new StubTransport(true), TestMessages.french(), null);
         String frame = client.buildRequest("debit", new BigDecimal("12.00"));
         assertTrue(frame.contains("AMOUNT-PLACEHOLDER"), frame);
+    }
+
+    /**
+     * BO-03-09-29: the payment label of the island travels under its tag; a
+     * blank or absent label adds nothing.
+     */
+    @Test
+    void theIslandLabelTravelsUnderItsTag() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        String bare = new VerifoneTerminalClient(new StubTransport(true), TestMessages.french(), settings)
+                .buildRequest("debit", new BigDecimal("12.00"));
+        Mockito.when(settings.islandPaymentLabel()).thenReturn("  ");
+        assertEquals(bare, new VerifoneTerminalClient(new StubTransport(true), TestMessages.french(), settings)
+                .buildRequest("debit", new BigDecimal("12.00")));
+        Mockito.when(settings.islandPaymentLabel()).thenReturn(" ILOT DRIVE ");
+        String frame = new VerifoneTerminalClient(new StubTransport(true), TestMessages.french(), settings)
+                .buildRequest("debit", new BigDecimal("12.00"));
+        assertTrue(frame.contains(VerifoneTags.ISLAND_LABEL));
+        assertTrue(frame.contains("ILOT DRIVE"));
+        org.junit.jupiter.api.Assertions.assertFalse(frame.contains(" ILOT DRIVE "));
     }
 }

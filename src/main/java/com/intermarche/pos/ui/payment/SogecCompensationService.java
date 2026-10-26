@@ -90,8 +90,7 @@ public class SogecCompensationService {
             return null;
         }
         Gs1Message message = Gs1Parser.parse(code.trim());
-        BigDecimal encoded = message == null
-                ? null : message.decimal(Gs1ApplicationIdentifier.AMOUNT_PAYABLE);
+        BigDecimal encoded = message.decimal(Gs1ApplicationIdentifier.AMOUNT_PAYABLE);
         if (encoded == null || encoded.signum() <= 0) {
             LOGGER.info("Exiting method faceValueOf with null");
             return null;

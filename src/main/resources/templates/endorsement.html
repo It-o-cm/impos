@@ -17,6 +17,11 @@
   .endorse-hint { color: var(--text-muted); text-align: center; font-size: var(--fs-body); }
   .endorse-display { background: var(--bg-page); border: 3px solid var(--warning); border-radius: 6px; padding: 12px; font-size: var(--fs-field-num); text-align: center; color: var(--warning); letter-spacing: 4px; }
   .endorse-kb-area { min-height: 220px; display: flex; flex-direction: column; }
+  /* BO-10-02-31 : le clavier reste dans le panneau quelle que soit la taille de
+     police de l'ecran — des colonnes qui peuvent retrecir, des touches sans
+     marge laterale imposee. */
+  .endorse-kb-area .pos-keyboard--alpha { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+  .endorse-kb-area .pos-key { min-width: 0; padding-left: 0; padding-right: 0; }
   .endorse-error { color: var(--danger); text-align: center; font-weight: bold; background: rgba(211,47,47,0.1); padding: 8px; border-radius: 4px; }
 
   /* MODIF: Style spécifique pour les boutons du panel afin de forcer le centrage vertical */
@@ -41,6 +46,15 @@
       <a href="/action/endorse-cancel" class="btn btn-muted" style="width:50%;">{inject:i18n.get('common.cancel')}</a>
       <button class="btn btn-warning" style="width:50%; color:black;" onclick="endorseNext()">{inject:i18n.get('lock.next')}</button>
     </div>
+    <!-- LC-01-05-08 : quand le back-office a autorise le geste, une touche le
+         valide sans code ; elle n'apparait qu'apres l'autorisation recue. -->
+    <div id="endorseRemote" style="display:none; margin-top:10px;">
+      <form action="/action/endorse-validate" method="POST" style="width:100%;">
+        <input type="hidden" name="login" value="">
+        <input type="hidden" name="password" value="">
+        <button type="submit" class="btn btn-success" style="width:100%;" id="endorseRemoteBtn">{inject:i18n.get('endorsement.validerBackOffice')}</button>
+      </form>
+    </div>
     {#if supervisorLogged}
     <!-- Connected-supervisor shortcut (LC-01-05-07): the logged operator IS
          the authority — one tap, role re-checked server-side. -->
@@ -56,19 +70,48 @@
 <!-- Script Autonome -->
 <script>
   (function() {
+    /* BO-10-02-31 : le panneau suit le mode de validation superviseur administre.
+       Etape 0 : attente du code-barres (ou de la cle Dallas) lu par la caisse ;
+       etape 1 : code superviseur tape ; etape 2 : mot de passe. Le serveur ne
+       croit que ce que le lecteur a lu : le badge transmis ici ne vaut rien seul. */
+    const HINTS = {
+      code: "{inject:i18n.get('endorsement.identifiantManager')}",
+      pin: "{inject:i18n.get('endorsement.codePin')}",
+      barcode: "{inject:i18n.get('endorsement.presenterCodeBarres')}",
+      dallas: "{inject:i18n.get('endorsement.presenterCleDallas')}",
+      supervisorCode: "{inject:i18n.get('endorsement.codeSuperviseur')}"
+    };
+    let endorseMode = "CODE_PASSWORD";
     let endorseStep = 1;
     let endorseLogin = "";
+    let endorseCode = "";
     let endorseStr = "";
+    let endorseSubmitted = false;
 
     // Démarrage polling
     setInterval(pollEndorsement, 500);
 
-    function resetEndorseState() {
-      endorseStep = 1; endorseLogin = ""; endorseStr = "";
-      document.getElementById('endorseError').style.display = 'none';
-      document.getElementById('endorseHint').innerText = "Identifiant Manager :";
+    function waitsForProof() {
+      return endorseMode !== "CODE_PASSWORD";
+    }
+
+    function hintOf(step) {
+      if (step === 0) return endorseMode === "DALLAS" ? HINTS.dallas : HINTS.barcode;
+      if (step === 1) return endorseMode === "BARCODE_CODE_PASSWORD" ? HINTS.supervisorCode : HINTS.code;
+      return HINTS.pin;
+    }
+
+    function goToStep(step) {
+      endorseStep = step; endorseStr = "";
+      document.getElementById('endorseHint').innerText = hintOf(step);
       updateEndorseDisplay();
       renderEndorseKeyboard();
+    }
+
+    function resetEndorseState() {
+      endorseLogin = ""; endorseCode = ""; endorseSubmitted = false;
+      document.getElementById('endorseError').style.display = 'none';
+      goToStep(waitsForProof() ? 0 : 1);
     }
 
     function updateEndorseDisplay() {
@@ -78,23 +121,32 @@
       display.textContent = (endorseStep === 1) ? endorseStr.toLowerCase() : "*".repeat(endorseStr.length);
     }
 
+    function submitEndorsement(login, code, password) {
+      if (endorseSubmitted) return;
+      endorseSubmitted = true;
+      const form = document.createElement('form');
+      form.method = 'POST'; form.action = '/action/endorse-validate';
+      [['login', login], ['code', code], ['password', password]].forEach(function(pair) {
+        const input = document.createElement('input');
+        input.name = pair[0]; input.value = pair[1]; form.appendChild(input);
+      });
+      document.body.appendChild(form);
+      form.submit();
+    }
+
     window.endorseNext = function() {
+      if (endorseStep === 0) return;
       if (endorseStep === 1) {
         if (endorseStr.length < 2) return;
-        endorseLogin = endorseStr.toLowerCase();
-        endorseStr = ""; endorseStep = 2;
-        document.getElementById('endorseHint').innerText = "Code PIN :";
+        if (endorseMode === "BARCODE_CODE_PASSWORD") {
+          endorseCode = endorseStr.toLowerCase();
+        } else {
+          endorseLogin = endorseStr.toLowerCase();
+        }
         document.getElementById('endorseError').style.display = 'none';
-        updateEndorseDisplay();
-        renderEndorseKeyboard();
+        goToStep(2);
       } else {
-        // Soumission
-        const form = document.createElement('form');
-        form.method = 'POST'; form.action = '/action/endorse-validate';
-        const lInput = document.createElement('input'); lInput.name = 'login'; lInput.value = endorseLogin; form.appendChild(lInput);
-        const pInput = document.createElement('input'); pInput.name = 'password'; pInput.value = endorseStr; form.appendChild(pInput);
-        document.body.appendChild(form);
-        form.submit();
+        submitEndorsement(endorseLogin, endorseCode, endorseStr);
       }
     };
 
@@ -102,6 +154,7 @@
       const area = document.getElementById('endorseKeyboardArea');
       if (!area) return;
       area.innerHTML = '';
+      if (endorseStep === 0) return;
       const wrapper = document.createElement('div');
       wrapper.style.width = '100%';
 
@@ -121,6 +174,16 @@
       updateEndorseDisplay();
     }
 
+    function onBadge(badge) {
+      if (endorseMode === "BARCODE") {
+        submitEndorsement(badge, "", "");
+      } else if (endorseMode === "BARCODE_CODE_PASSWORD") {
+        endorseLogin = badge; goToStep(1);
+      } else if (endorseMode !== "DALLAS") {
+        endorseLogin = badge; goToStep(2);
+      }
+    }
+
     function pollEndorsement() {
       fetch('/endorsement-data')
               .then(r => r.json())
@@ -128,12 +191,22 @@
                 const modal = document.getElementById('endorseModal');
                 if (!modal) return;
                 if (data.active) {
+                  const opening = !modal.classList.contains('active');
                   modal.classList.add('active');
-                  if (data.scannedBadge && data.scannedBadge !== "") {
-                    endorseLogin = data.scannedBadge; endorseStep = 2; endorseStr = "";
-                    document.getElementById('endorseHint').innerText = "Code PIN :";
-                    updateEndorseDisplay(); renderEndorseKeyboard();
+                  if (data.mode && data.mode !== endorseMode) {
+                    endorseMode = data.mode; resetEndorseState();
+                  } else if (opening) {
+                    resetEndorseState();
                   }
+                  if (data.scannedBadge && data.scannedBadge !== "") {
+                    onBadge(data.scannedBadge);
+                  }
+                  if (endorseMode === "DALLAS" && data.dallas) {
+                    submitEndorsement("", "", "");
+                  }
+                  /* LC-01-05-08: the back office's authorisation, named, with its key. */
+                  const remote = document.getElementById('endorseRemote');
+                  remote.style.display = data.granted ? 'flex' : 'none';
                   if (data.error) {
                     const errEl = document.getElementById('endorseError');
                     errEl.innerText = data.error; errEl.style.display = 'block';

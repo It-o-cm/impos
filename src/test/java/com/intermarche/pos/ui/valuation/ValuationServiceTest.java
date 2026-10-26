@@ -452,6 +452,18 @@ class ValuationServiceTest {
     }
 
     /**
+     * BO-03-06-42: a configured engine is not called when the back office
+     * switched its call off.
+     */
+    @Test
+    void isEnabledHonoursTheAdministeredLocalOnlySwitch() {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(posSettingsService.valuationLocalOnly()).thenReturn(true);
+        assertFalse(service.isEnabled());
+    }
+
+    /**
      * isEnabled delegates a false answer to the client.
      */
     @Test
@@ -823,6 +835,42 @@ class ValuationServiceTest {
     }
 
     /**
+     * BO-03-06-42/43: the codes scanned for the engine travel verbatim, and the
+     * promotions a barcode DEFINED travel as immediate discounts beside the
+     * card-borne ones, even with no card on the ticket.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateCarriesTheEngineCodesAndTheDefinedPromotions() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("42.00"));
+        Store store = new Store();
+        store.code = "0034";
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        PanacheQuery<Store> storeQuery = query(store);
+        TicketState armed = ticketWith(item("L1", "1", "10", "1"));
+        armed.armEngineBarcode("9912345678901");
+        armed.armOffer(new TicketState.ScannedOffer("2101234001509", "COUPON", "3000000000018",
+                "PERCENT", new BigDecimal("0.20")));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(armed, null, null, LocalDateTime.of(2026, 9, 23, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        ValuationPayloads.BasketDto basket = captor.getValue();
+        assertEquals(java.util.List.of("9912345678901"), basket.scannedBarcodes);
+        assertEquals(1, basket.cardPromotions.size());
+        assertEquals("3000000000018", basket.cardPromotions.get(0).ean);
+        assertEquals("PERCENT", basket.cardPromotions.get(0).promotionType);
+        assertEquals(new BigDecimal("0.20"), basket.cardPromotions.get(0).value);
+        assertEquals("IMMEDIATE_DISCOUNT", basket.cardPromotions.get(0).benefit);
+        assertNull(basket.cardNumber);
+    }
+
+    /**
      * A ticket where no promotion barcode was scanned leaves the block absent
      * (the other leg of the guard).
      *
@@ -845,6 +893,7 @@ class ValuationServiceTest {
         }
         verify(valuationClient).valuate(captor.capture());
         assertNull(captor.getValue().scannedPromotions);
+        assertNull(captor.getValue().scannedBarcodes);
     }
 
     /**
@@ -1286,5 +1335,158 @@ class ValuationServiceTest {
         verify(valuationClient).valuate(captor.capture());
         assertEquals("2026-12-31", captor.getValue().items.get(0).bestBeforeDate);
         assertNull(captor.getValue().items.get(1).bestBeforeDate);
+    }
+
+    /** BO-10-03: absent and blank parent nomenclature codes remain absent, while a real parent is carried to valuation. */
+    @Test
+    void nomenclatureParentPreservesNullBlankAndNamedCases() {
+        var service = newService();
+        when(service.posSettingsService.fidelitySendSubFamily()).thenReturn(true);
+        var product = mock(com.intermarche.pos.domain.catalog.Product.class);
+        var family = mock(com.intermarche.pos.domain.catalog.ProductFamily.class);
+        family.code = "SUB";
+        var line = item("L1", "1", "10", "1");
+        line.plu = null;
+        line.ean = "EAN";
+        try (var products = mockStatic(com.intermarche.pos.domain.catalog.Product.class);
+             var families = mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            products.when(() -> com.intermarche.pos.domain.catalog.Product.findByEan("EAN")).thenReturn(product);
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findDirectFamily(product)).thenReturn(family);
+            for (String parent : new String[]{null, " ", "PARENT"}) {
+                when(family.parentCode()).thenReturn(parent);
+                var dto = new ValuationPayloads.ItemDto();
+                service.fillNomenclature(dto, line);
+                assertEquals("SUB", dto.subFamilyCode);
+                assertEquals("PARENT".equals(parent) ? "PARENT" : null, dto.familyCode);
+            }
+        }
+    }
+
+    /** BO-03-06-43: a legacy basket with no promotion collection sends no invented promotion list. */
+    @Test
+    void missingPromotionCollectionIsNotSent() throws Exception {
+        var service = newService();
+        var ticket = ticketWith(item("L1", "1", "10", "1"));
+        ticket.scannedPromotions = null;
+        var method = ValuationService.class.getDeclaredMethod("buildBasket", TicketState.class, String.class, java.util.List.class, LocalDateTime.class);
+        method.setAccessible(true);
+        var query = query((Store) null);
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(Store::findAll).thenReturn(query);
+            var basket = (ValuationPayloads.BasketDto) method.invoke(service, ticket, null, null, LocalDateTime.of(2026, 10, 20, 12, 0));
+            assertNull(basket.scannedPromotions);
+        }
+    }
+
+
+    /** LC-03-04-05: the pre-settlement card refresh reaches imvaluation with the card, updates the due amount and feeds loyalty. */
+    @Test
+    void cardAttachedDuringPaymentRevaluesBeforeFirstSettlement() throws Exception {
+        var service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("8.00"));
+        var state = posStateWith(item("L1", "1", "10", "1"));
+        state.payment.paymentInProgress = true;
+        state.payment.ticketDbId = DB_ID;
+        state.fidelity.active = true;
+        state.fidelity.label = "CARD123";
+        when(valuationReconciler.apply(any(), any(), any())).thenAnswer(call -> {
+            state.ticket.items.get(0).unitPrice = new BigDecimal("8.00");
+            return new BigDecimal("-2.00");
+        });
+        var stores = query((Store) null);
+        try (var entities = mockStatic(PanacheEntityBase.class)) {
+            entities.when(Store::findAll).thenReturn(stores);
+            service.revalueAfterCard(state);
+        }
+        var request = ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        verify(valuationClient).valuate(request.capture());
+        assertEquals("CARD123", request.getValue().customerCode);
+        assertEquals("ENGINE", state.payment.valuationStatus);
+        assertEquals(new BigDecimal("8.00"), state.getRemaining());
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        verify(fidelityService).onValuation(eq(state), anyString(), anyString());
+        verify(ticketPersistenceService).syncDraft(state);
+    }
+
+    /** LC-03-04-05: every settled or pending-tender leg freezes the amount; ordinary scanning keeps its existing valuation hook. */
+    @Test
+    void cardRefreshNeverChangesCommittedOrPendingSettlementAmounts() {
+        var service = newService();
+        java.util.List<java.util.function.Consumer<PosState>> blocked = java.util.List.of(
+                s -> s.payment.paymentInProgress = false,
+                s -> s.trainingMode = true,
+                s -> s.payment.transactionComplete = true,
+                s -> s.payment.payments.add(null),
+                s -> s.payment.paidAmount = BigDecimal.ONE,
+                s -> s.payment.pendingCardAmount = BigDecimal.ONE,
+                s -> s.payment.pendingChequeAmount = BigDecimal.ONE,
+                s -> s.payment.pendingFidelitySignatureAmount = BigDecimal.ONE,
+                s -> s.payment.chequeFrontPrinting = true,
+                s -> s.payment.tenderHeldMethod = "CARD",
+                s -> s.payment.creditPendingAmount = BigDecimal.ONE,
+                s -> s.payment.backupRequest = new com.intermarche.pos.ui.payment.BackupPaymentTicket.Request("PAY", 100, 0, "T1", "0034", "POS01", LocalDateTime.of(2026, 10, 22, 10, 0)));
+        for (var block : blocked) {
+            var state = posStateWith(item("L1", "1", "10", "1"));
+            state.payment.paymentInProgress = true;
+            block.accept(state);
+            service.revalueAfterCard(state);
+        }
+        verifyNoInteractions(valuationClient, valuationReconciler, ticketPersistenceService);
+    }
+
+    /**
+     * BO-10-01-13 / -22 / -28 / -31 / -34: the promotion channel of the external
+     * basket loaded on the ticket travels to the engine, and a ticket with none
+     * leaves the field absent from the request.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateCarriesThePromotionChannelOfTheExternalBasket() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("42.00"));
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        PanacheQuery<Store> storeQuery = query(new Store());
+        TicketState web = ticketWith(item("L1", "1", "10", "1"));
+        web.promotionChannel = "WEB";
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(web, null, null, LocalDateTime.of(2026, 10, 24, 10, 0));
+            service.valuate(ticketWith(item("L1", "1", "10", "1")), null, null, LocalDateTime.of(2026, 10, 24, 10, 0));
+        }
+        verify(valuationClient, org.mockito.Mockito.times(2)).valuate(captor.capture());
+        assertEquals("WEB", captor.getAllValues().get(0).promotionChannel);
+        assertNull(captor.getAllValues().get(1).promotionChannel);
+        org.junit.jupiter.api.Assertions.assertFalse(new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(captor.getAllValues().get(1)).contains("promotionChannel"));
+    }
+
+    /**
+     * BO-02-03-09: a line whose article bans manual reductions tells the engine
+     * so; an ordinary line leaves the flag absent.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void aDiscountForbiddenLineIsFlaggedToTheEngine() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("20.00"));
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        PanacheQuery<Store> storeQuery = query(new Store());
+        TicketState.TicketItem banned = item("L1", "1", "10", "1");
+        banned.discountForbidden = true;
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(banned, item("L2", "2", "10", "1")), null,
+                    java.util.List.of(), LocalDateTime.of(2026, 9, 23, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        assertEquals(Boolean.TRUE, captor.getValue().items.get(0).discountForbidden);
+        assertNull(captor.getValue().items.get(1).discountForbidden);
     }
 }

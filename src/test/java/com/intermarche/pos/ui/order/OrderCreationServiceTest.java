@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
@@ -71,6 +72,7 @@ class OrderCreationServiceTest {
         wiring.service.documentClient = wiring.documentClient;
         wiring.service.ticketPrinterService = wiring.ticketPrinterService;
         wiring.service.ticketPersistenceService = wiring.ticketPersistenceService;
+        wiring.service.posSettingsService = wiring.posSettingsService;
         when(wiring.ticketNumberService.nextOrderCode()).thenReturn("C04-CMD000001");
         when(wiring.cashSessionService.getOpenSession()).thenReturn(new CashSession());
         when(wiring.cashMovementService.recordAcompte(any(), any(),
@@ -106,6 +108,9 @@ class OrderCreationServiceTest {
 
         /** The draft persistence. */
         final TicketPersistenceService ticketPersistenceService = mock(TicketPersistenceService.class);
+
+        /** The store settings (deposit invoice). */
+        final PosSettingsService posSettingsService = mock(PosSettingsService.class);
     }
 
     /**
@@ -214,7 +219,7 @@ class OrderCreationServiceTest {
         OrderCreationService.Result result = wiring.service.create(wiring.state, new BigDecimal("10.00"));
         assertEquals(OrderCreationService.Outcome.BAD_AMOUNT, result.outcome());
         verify(wiring.documentClient, never()).pushOrder(any());
-        verify(wiring.ticketPrinterService, never()).printOrderDepositTicket(any(), any(), any(), any());
+        verify(wiring.ticketPrinterService, never()).printOrderDepositTicket(any(), any(), any(), any(), any(), any());
         assertEquals(2, wiring.state.ticket.items.size());
     }
 
@@ -263,8 +268,8 @@ class OrderCreationServiceTest {
         assertEquals("C04-CMD000001", result.orderCode());
         // LC-06-03-05: 10.00 perceived on a 60.00 @ 20% + 40.00 @ 5.5% order
         // ventilates 6.00 (VAT 1.00) and 4.00 (VAT 0.21).
-        verify(wiring.ticketPrinterService).printOrderDepositTicket(eq("C04-CMD000001"),
-                any(), eq(new BigDecimal("10.00")), eq("0.055:0.21;0.2:1"));
+        verify(wiring.ticketPrinterService).printOrderDepositTicket(eq(RecalledDocument.Kind.COMMANDE),
+                eq("C04-CMD000001"), any(), eq(new BigDecimal("10.00")), eq("0.055:0.21;0.2:1"), isNull());
         ArgumentCaptor<RecalledDocument> pushed = ArgumentCaptor.forClass(RecalledDocument.class);
         verify(wiring.documentClient).pushOrder(pushed.capture());
         assertEquals(RecalledDocument.Kind.COMMANDE, pushed.getValue().kind);
@@ -276,6 +281,33 @@ class OrderCreationServiceTest {
         assertTrue(wiring.state.ticket.items.isEmpty());
         assertEquals("COMMANDE C04-CMD000001 CRÉÉE", wiring.state.ticket.transientError);
         assertTrue(wiring.state.ticket.transientOk);
+    }
+
+    /**
+     * create prints no deposit invoice when the store does not ask for one
+     * (LC-08-04-15, setting off arm).
+     */
+    @Test
+    void createPrintsNoDepositInvoiceByDefault() {
+        Wiring wiring = wired();
+        wiring.service.create(wiring.state, new BigDecimal("10.00"));
+        verify(wiring.ticketPrinterService, never()).printDepositInvoice(any(), any(), any(), any(), any(), any(), any());
+        verify(wiring.ticketNumberService, never()).nextDepositInvoiceNumber();
+    }
+
+    /**
+     * create prints the numbered deposit invoice when the store asks for one
+     * (LC-08-04-15, setting on arm): the order total, the deposit and nothing
+     * previously paid.
+     */
+    @Test
+    void createPrintsTheDepositInvoiceWhenAdministered() {
+        Wiring wiring = wired();
+        when(wiring.posSettingsService.orderDepositInvoice()).thenReturn(true);
+        when(wiring.ticketNumberService.nextDepositInvoiceNumber()).thenReturn("C04-FA2026-000001");
+        wiring.service.create(wiring.state, new BigDecimal("10.00"));
+        verify(wiring.ticketPrinterService).printDepositInvoice(eq(RecalledDocument.Kind.COMMANDE), eq("C04-FA2026-000001"), eq("C04-CMD000001"),
+                any(), eq(new BigDecimal("100.00")), eq(new BigDecimal("10.00")), eq(BigDecimal.ZERO));
     }
 
     /**
@@ -304,5 +336,44 @@ class OrderCreationServiceTest {
         ArgumentCaptor<RecalledDocument> pushed = ArgumentCaptor.forClass(RecalledDocument.class);
         verify(wiring.documentClient).pushOrder(pushed.capture());
         assertEquals(2, pushed.getValue().lines.size());
+    }
+
+    /** LC-06-03: an absent basket total is frozen as zero and cannot accept a positive deposit. */
+    @Test
+    void missingBasketTotalCannotAcceptADeposit() throws Exception {
+        org.junit.jupiter.api.Assertions.assertFalse(new OrderCreationService.Result(OrderCreationService.Outcome.BAD_AMOUNT, null).created());
+        var wiring = wired();
+        wiring.state.ticket.totalAmount = null;
+        assertEquals(OrderCreationService.Outcome.OVER_TOTAL, wiring.service.create(wiring.state, BigDecimal.ONE).outcome());
+        var method = OrderCreationService.class.getDeclaredMethod("toOrder", PosState.class, String.class);
+        method.setAccessible(true);
+        var order = (com.intermarche.pos.ui.recall.RecalledDocument) method.invoke(wiring.service, wiring.state, "ORDER");
+        assertEquals(BigDecimal.ZERO, order.totalAmount);
+        org.mockito.Mockito.verifyNoInteractions(wiring.cashMovementService);
+    }
+
+
+    /**
+     * BO-03-03-09: the deposit slip names the holder the identity lookup gave
+     * — last name, then first name when there is one — and nobody without a
+     * last name.
+     *
+     * @throws Exception when the helper cannot be reached
+     */
+    @Test
+    void theDepositSlipNamesTheCardHolder() throws Exception {
+        java.lang.reflect.Method holder = OrderCreationService.class.getDeclaredMethod("holderName",
+                com.intermarche.pos.ui.PosState.class);
+        holder.setAccessible(true);
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        assertNull(holder.invoke(null, state));
+        state.fidelity.holderLastName = "  ";
+        assertNull(holder.invoke(null, state));
+        state.fidelity.holderLastName = " MARTIN ";
+        assertEquals("MARTIN", holder.invoke(null, state));
+        state.fidelity.holderFirstName = " ";
+        assertEquals("MARTIN", holder.invoke(null, state));
+        state.fidelity.holderFirstName = " Claire ";
+        assertEquals("MARTIN Claire", holder.invoke(null, state));
     }
 }

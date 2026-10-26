@@ -39,7 +39,58 @@ class PosHardwareResourceTest {
                 mock(com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient.class);
         resource.state = mock(PosState.class);
         resource.state.payment = new PaymentState();
+        resource.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
         return resource;
+    }
+
+    // --- handleDallasKey (BO-01-02-07) ---
+
+    /**
+     * A Dallas key touched while the register is locked is normalized and
+     * deposited for the lock page.
+     */
+    @Test
+    void handleDallasKeyDepositsTheKeyWhileLocked() {
+        PosHardwareResource resource = newResource();
+        resource.state.auth = mock(com.intermarche.pos.ui.auth.AuthState.class);
+        resource.state.auth.isLocked = true;
+        Response response = resource.handleDallasKey("01-a2-b3-c4-d5-e6-f7-08");
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(resource.state.auth).setScannedDallasKey("01A2B3C4D5E6F708");
+        verify(resource.state).touch();
+    }
+
+    /**
+     * BO-10-02-31: a key touched while the supervisor panel is open answers
+     * the panel, not the lock page.
+     */
+    @Test
+    void handleDallasKeyAnswersAnOpenSupervisorPanel() {
+        PosHardwareResource resource = newResource();
+        resource.state.auth = mock(com.intermarche.pos.ui.auth.AuthState.class);
+        resource.state.auth.isLocked = true;
+        resource.state.endorsement.active = true;
+        Response response = resource.handleDallasKey("01-a2-b3-c4-d5-e6-f7-08");
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertEquals("01A2B3C4D5E6F708", resource.state.endorsement.presentedDallasKey);
+        verify(resource.state.auth, never()).setScannedDallasKey(any());
+        verify(resource.state).touch();
+    }
+
+    /**
+     * A key touched on an open register is ignored; what is not a key is
+     * refused.
+     */
+    @Test
+    void handleDallasKeyIgnoresAnOpenRegisterAndRefusesGarbage() {
+        PosHardwareResource resource = newResource();
+        resource.state.auth = mock(com.intermarche.pos.ui.auth.AuthState.class);
+        resource.state.auth.isLocked = false;
+        assertEquals(Response.Status.NO_CONTENT.getStatusCode(),
+                resource.handleDallasKey("01A2B3C4D5E6F708").getStatus());
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), resource.handleDallasKey("XYZ").getStatus());
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), resource.handleDallasKey(null).getStatus());
+        verify(resource.state.auth, never()).setScannedDallasKey(any());
     }
 
     // --- handleScan ---
@@ -51,7 +102,7 @@ class PosHardwareResourceTest {
     @Test
     void handleScanRejectsNullCode() {
         PosHardwareResource resource = newResource();
-        Response response = resource.handleScan(null);
+        Response response = resource.handleScan(null, null);
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         verifyNoInteractions(resource.ticketService);
     }
@@ -63,7 +114,7 @@ class PosHardwareResourceTest {
     @Test
     void handleScanRejectsEmptyCode() {
         PosHardwareResource resource = newResource();
-        Response response = resource.handleScan("");
+        Response response = resource.handleScan("", null);
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         verifyNoInteractions(resource.ticketService);
     }
@@ -75,9 +126,32 @@ class PosHardwareResourceTest {
     @Test
     void handleScanProcessesValidCode() {
         PosHardwareResource resource = newResource();
-        Response response = resource.handleScan("3456789012345");
+        Response response = resource.handleScan("3456789012345", null);
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         verify(resource.ticketService).processScan("3456789012345");
+    }
+
+    /**
+     * BO-06-04-05: a code the pad marks as keyed rings as keyed, whatever the
+     * marker's case; any other marker rings as scanned.
+     */
+    @Test
+    void aKeyedCodeRingsAsKeyed() {
+        PosHardwareResource resource = newResource();
+        assertEquals(200, resource.handleScan("3456789012345", "keyed").getStatus());
+        verify(resource.ticketService).processKeyed("3456789012345");
+        resource.handleScan("3456789012346", "SCAN");
+        verify(resource.ticketService).processScan("3456789012346");
+    }
+
+    /** LC-13-02-05/-07: a maintenance scan is displayed and never sold. */
+    @Test
+    void maintenanceScanDoesNotSellAnArticle() {
+        PosHardwareResource resource = newResource();
+        resource.state.maintenanceScreenOpen = true;
+        assertEquals(200, resource.handleScan("3456789012345", null).getStatus());
+        assertEquals("3456789012345", resource.state.maintenanceScanCode);
+        verifyNoInteractions(resource.ticketService);
     }
 
     // --- handleWeight ---
@@ -155,8 +229,8 @@ class PosHardwareResourceTest {
     @Test
     void tpeAcceptConflictsWhenNoPending() {
         PosHardwareResource resource = newResource();
-        when(resource.virtualTerminalClient.accept()).thenReturn(false);
-        Response response = resource.tpeAccept();
+        when(resource.virtualTerminalClient.accept("")).thenReturn(false);
+        Response response = resource.tpeAccept("");
         assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
         assertEquals("Aucune demande en attente", response.getEntity());
     }
@@ -168,10 +242,10 @@ class PosHardwareResourceTest {
     @Test
     void tpeAcceptConfirmsWhenPending() {
         PosHardwareResource resource = newResource();
-        when(resource.virtualTerminalClient.accept()).thenReturn(true);
-        Response response = resource.tpeAccept();
+        when(resource.virtualTerminalClient.accept("RECU")).thenReturn(true);
+        Response response = resource.tpeAccept("RECU");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        verify(resource.virtualTerminalClient).accept();
+        verify(resource.virtualTerminalClient).accept("RECU");
     }
 
     // --- tpeRefuse ---
@@ -214,5 +288,62 @@ class PosHardwareResourceTest {
         assertTrue(result.containsKey("pending"));
         assertTrue(result.containsKey("amount"));
         assertFalse(result.isEmpty());
+    }
+    /** LC-13-02-11: an administratively disabled scanner cannot sell an article. */
+    @Test
+    void disabledScannerDoesNotSellAnArticle() {
+        PosHardwareResource resource = newResource();
+        resource.state.scannerDisabled = true;
+        assertEquals(204, resource.handleScan("123", null).getStatus());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * EXP-67: while the Resto Flash zone of a payment in progress is open, the code
+     * read is the customer's token — its symbology prefix taken off — and goes to
+     * the Resto Flash confirmation at the remaining due, never to the sale's chain;
+     * the arming is consumed by that one reading.
+     */
+    @Test
+    void handleScanDeliversATokenToTheOpenRestoFlashZone() {
+        PosHardwareResource resource = newResource();
+        resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
+        resource.state.payment.paymentInProgress = true;
+        resource.state.payment.restoFlashScanArmed = true;
+        Response response = resource.handleScan("]Q1RF-QR-PAYLOAD-0001 ", null);
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(resource.paymentService).processRestoFlash(resource.state, "RF-QR-PAYLOAD-0001", BigDecimal.ZERO);
+        assertFalse(resource.state.payment.restoFlashScanArmed);
+        verify(resource.state).touch();
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * EXP-67: an arming left behind by a payment no longer in progress does not
+     * capture the scan: the sale's chain reads it (the second leg of the guard).
+     */
+    @Test
+    void handleScanIgnoresAnArmingOutsideAPayment() {
+        PosHardwareResource resource = newResource();
+        resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
+        resource.state.payment.paymentInProgress = false;
+        resource.state.payment.restoFlashScanArmed = true;
+        resource.handleScan("3456789012345", null);
+        verify(resource.ticketService).processScan("3456789012345");
+        verifyNoInteractions(resource.paymentService);
+    }
+
+    /**
+     * EXP-67: on the payment screen with the Resto Flash zone closed, the scan
+     * walks the sale's chain as before (the first leg of the guard).
+     */
+    @Test
+    void handleScanOnThePaymentScreenWithoutTheZoneWalksTheChain() {
+        PosHardwareResource resource = newResource();
+        resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
+        resource.state.payment.paymentInProgress = true;
+        resource.handleScan("3456789012345", null);
+        verify(resource.ticketService).processScan("3456789012345");
+        verifyNoInteractions(resource.paymentService);
     }
 }

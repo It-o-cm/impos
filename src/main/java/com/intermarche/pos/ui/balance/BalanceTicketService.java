@@ -163,6 +163,11 @@ public class BalanceTicketService {
      */
     private boolean addLines(PosState state, String reference,
             SyncPayloads.BalanceTicketDto dto) {
+        // LC-02-03-11: no counter line is recorded before all blocking messages have been checked.
+        for (SyncPayloads.BalanceTicketLineDto line : dto.lines) {
+            Product product = line.ean == null ? null : Product.findActiveByEan(line.ean);
+            if (com.intermarche.pos.ui.ticket.ArticleMessageService.refuse(state, product)) return false;
+        }
         List<String> refused = new ArrayList<>();
         List<String> recalled = new ArrayList<>();
         int added = 0;
@@ -248,6 +253,7 @@ public class BalanceTicketService {
         // software tare is applied here.
         state.ticket.addItem(line.ean, product == null ? null : product.plu,
                 labelOf(line, product), total, BigDecimal.ONE, vatRateOf(line, product));
+        com.intermarche.pos.ui.ticket.LinkedArticleService.snapshot(state.ticket, product);
         // The line just added is the one to flag, and reading it back is the only way
         // to reach it — addItem returns nothing. An empty list here means the ticket
         // did not take the line: nothing to flag, and certainly nothing to index.
@@ -325,7 +331,9 @@ public class BalanceTicketService {
     /**
      * Builds the line label: the counter's own wording when it sent one, the
      * catalog's otherwise, with the weighed quantity appended because that is
-     * where the customer reads it.
+     * where the customer reads it — written with the administered decimals and
+     * weight symbol, as every other weight on the screens and the receipt
+     * (BO-10-08-28, BO-10-08-29).
      *
      * @param line the counter line as the scale priced it
      * @param product the catalog article behind the EAN, or null when unknown here
@@ -336,7 +344,8 @@ public class BalanceTicketService {
                 ? line.label
                 : (product != null ? product.saleLabel() : "ARTICLE COMPTOIR");
         if (line.quantity != null && line.quantity.signum() > 0) {
-            base = base + " " + line.quantity.setScale(3, RoundingMode.HALF_UP).toPlainString() + "KG";
+            base = base + " " + com.intermarche.pos.domain.catalog.UnitFormat
+                    .orDefault(posSettingsService.unitFormat()).weight(line.quantity);
         }
         return base.toUpperCase();
     }

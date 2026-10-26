@@ -99,6 +99,23 @@ public class InvoiceState implements Serializable {
             Collections.emptyList();
 
     /** What the operator typed to look a customer up. */
+    /**
+     * The documents the back office created and activated for the registers
+     * ({@code BO-03-04-06}, {@code -09}), offered in place of the built-in kinds;
+     * empty while the shop created none.
+     */
+    public List<com.intermarche.pos.domain.setting.PrintableDocument> documents =
+            Collections.emptyList();
+
+    /** The administered document chosen ({@code BO-03-04-09}), or null for a built-in kind. */
+    public com.intermarche.pos.domain.setting.PrintableDocument document;
+
+    /** The customer's order number typed at the register ({@code BO-03-03-02}), empty when none. */
+    public String orderNumber = "";
+
+    /** Whether the operator is typing the order number ({@code BO-03-03-02}). */
+    public boolean enteringOrderNumber = false;
+
     public String customerSearch = "";
 
     /**
@@ -167,6 +184,10 @@ public class InvoiceState implements Serializable {
         ticket = null;
         documentType = null;
         documentTypes = Collections.emptyList();
+        documents = Collections.emptyList();
+        document = null;
+        orderNumber = "";
+        enteringOrderNumber = false;
         customerSearch = "";
         customerNumber = "";
         customers = new ArrayList<>();
@@ -261,6 +282,9 @@ public class InvoiceState implements Serializable {
      * @return the title, or an empty string while no kind is named
      */
     public String getDocumentTitle() {
+        if (document != null) {
+            return document.label;
+        }
         return documentType == null ? "" : documentType.getTitle();
     }
 

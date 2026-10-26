@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{inject:i18n.get('operatorReport.title')}</title><style>
+{#include theme /}
+body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
+.pos-terminal { display:flex; flex-direction:column; gap:12px; padding:20px; overflow:auto; }
+form { display:flex; flex-direction:column; gap:10px; max-width:32rem; margin:auto; width:100%; }
+.sup-field { padding:10px; border:2px solid var(--primary); border-radius:6px; }
+.error { color:var(--danger); }
+</style></head><body data-theme="{posTheme}"><div class="pos-terminal">
+<h1>{inject:i18n.get('operatorReport.title')}</h1>
+{#if error}<p class="error">{error}</p>{/if}
+<form method="post" action="/session/x-report/authorized" onsubmit="return SupAuth.fill(this)">
+{#include supervisor-auth padContainer='reportKeyboard' displayClass='sup-field' /}
+<input type="hidden" name="supervisor"><input type="hidden" name="supervisorPassword">
+<input type="hidden" name="print" value="{print}"><div id="reportKeyboard" class="pos-kb-compact"></div>
+<button class="btn btn-primary" type="submit">{#if print}{inject:i18n.get('operatorReport.print')}{#else}{inject:i18n.get('operatorReport.approve')}{/if}</button>
+<button class="btn btn-muted" type="submit" formaction="/session/x-report/register-authorized">{#if print}{inject:i18n.get('sessionreport.imprimerRapportX')}{#else}{inject:i18n.get('sessionreport.rapportX')}{/if}</button>
+</form><a class="btn btn-muted" href="/session">{inject:i18n.get('common.back')}</a>
+</div>{#include keyboard-lib /}<script>SupAuth.focus();</script></body></html>

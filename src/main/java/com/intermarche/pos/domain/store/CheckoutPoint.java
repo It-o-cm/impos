@@ -11,26 +11,41 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The CHECKOUT POINT of a register, as the store node administers it (BO-03-09,
- * BO-03-10) and pulls it down through the {@code CHECKOUT_POINTS} referential.
+ * A CHECKOUT POINT: the point of contact d'encaissement as an administered
+ * object (BO-03-09), the register seen from the back office rather than from the
+ * shop floor. The store node administers it (BO-03-09, BO-03-10) and the
+ * registers pull it down through the {@code CHECKOUT_POINTS} referential.
  *
- * <p>A register knows its own {@code pos.terminal.id} and nothing else about
- * itself: not the island it belongs to, not whether it is a manned till or a
- * self-service point, not which displays it is supposed to have, not which
- * cash-menu model it should draw, not whether it is even in service. Those are
- * administered in the back office, and this entity is how they arrive here.
+ * <p>A register knows only its own {@code pos.terminal.id} and nothing else
+ * about itself: not the island it belongs to, not whether it is a manned till or
+ * a self-service point, not which displays it is supposed to have, not which
+ * cash-menu model it should draw, not whether it is even in service. This entity
+ * is that identifier promoted to a first-class object so the back office can
+ * activate it (BO-03-09-01), attach it to an island (BO-03-09-05), give it a
+ * type (BO-03-09-07), a technical hostess for the self-service families
+ * (BO-03-09-08), the type and resolution of its cashier and customer displays
+ * (BO-03-09-12/13), and a cash-menu model (BO-03-10-16). It is also the most
+ * specific echelon: a setting posed on this terminal wins over the island, the
+ * PDV, the enseigne and the country (see {@code EchelonLevel.CHECKOUT_POINT}).
  *
- * <p>MIRROR of the node's own {@code CheckoutPoint}: same table, same columns,
- * same names, so a change on either side is carried across by rewriting the
- * package line and the imports and nothing else. The register holds only the
- * finders it actually uses — the back-office screens that create, rename and
- * deactivate a point live on the node, and nothing here ever writes a point
- * except the referential apply.
+ * <p>The link to the PDV and to the island is held by CODE, the same shape the
+ * rest of the store model uses (a PDV references its enseigne by
+ * {@code enseigneCode}, an enseigne its country by {@code countryCode}); the
+ * technical hostess is referenced by her {@link com.intermarche.pos.domain.people.Employee#badgeId}.
+ * This entity is the truth of which register belongs to which island: it
+ * REPLACES the semicolon {@code terminalIds} string {@link CheckoutIsland} used
+ * to carry.
+ *
+ * <p>The store node and the registers hold the SAME class: same table, same
+ * columns, same names, so a change on either side is carried across by
+ * rewriting the package line and the imports and nothing else. The back-office
+ * screens that create, rename and deactivate a point live on the node; on a
+ * register nothing ever writes a point except the referential apply.
  *
  * <p>The register receives EVERY point of its store and not only its own: the
  * technical hostess of a self-service bank supervises the points beside her, a
  * remote close names another register, and the island's composition is read
- * here. One extra handful of rows buys all three.
+ * there. One extra handful of rows buys all three.
  */
 @Entity
 @Table(name = "checkout_point")
@@ -48,7 +63,7 @@ public class CheckoutPoint extends PanacheEntity {
     @Column(name = "island_code", length = 50)
     public String islandCode;
 
-    /** The human-readable label given in the back office. */
+    /** The human-readable label shown in the back office. */
     @Column(name = "label", length = 100)
     public String label;
 
@@ -125,8 +140,9 @@ public class CheckoutPoint extends PanacheEntity {
 
     /**
      * The code of the cash-menu model assigned to this register (BO-03-10-16),
-     * or null when none is assigned. The model LIBRARY is the template chantier
-     * 03-03/03-04; what descends here is only the assignment.
+     * or null when none is assigned. The model LIBRARY itself (the ninety-nine
+     * named models) belongs to the template chantier 03-03/03-04; this lot poses
+     * only the assignment.
      */
     @Column(name = "menu_template_code", length = 50)
     public String menuTemplateCode;
@@ -145,6 +161,32 @@ public class CheckoutPoint extends PanacheEntity {
     }
 
     /**
+     * Tells whether a register is OUT OF SERVICE by administration
+     * (BO-03-09-01): the reports, the closure controls and the connectivity
+     * supervision leave such a register out.
+     *
+     * @param terminalId the register identifier, or null
+     * @return true only when a point exists for it and is deactivated
+     */
+    public static boolean isDeactivated(String terminalId) {
+        CheckoutPoint point = findByTerminal(terminalId);
+        return point != null && !point.active;
+    }
+
+    /**
+     * Lists the identifiers of the deactivated registers (BO-03-09-01).
+     *
+     * @return the identifiers, in terminal order, empty when every point is in service
+     */
+    public static List<String> deactivatedTerminals() {
+        List<String> terminals = new ArrayList<>();
+        for (CheckoutPoint point : CheckoutPoint.<CheckoutPoint>list("active = false order by terminalId")) {
+            terminals.add(point.terminalId);
+        }
+        return terminals;
+    }
+
+    /**
      * Lists the ACTIVE checkout points of an island, ordered by terminal — what
      * a technical hostess screen needs to know which lanes it supervises.
      *
@@ -157,6 +199,29 @@ public class CheckoutPoint extends PanacheEntity {
             return new ArrayList<>();
         }
         return list("islandCode = ?1 and active = true order by terminalId", islandCode.trim());
+    }
+
+    /**
+     * Counts the checkout points still attached to an island, active or not —
+     * the guard the island screen uses before allowing a deletion (BO-03-10-02).
+     *
+     * @param islandCode the island code, or null
+     * @return the number of points attached to that island, zero when the code is null
+     */
+    public static long countByIsland(String islandCode) {
+        if (islandCode == null || islandCode.isBlank()) {
+            return 0L;
+        }
+        return count("islandCode = ?1", islandCode.trim());
+    }
+
+    /**
+     * Lists every checkout point ordered by terminal, for the back-office screen.
+     *
+     * @return the checkout points, never null
+     */
+    public static List<CheckoutPoint> listAllOrdered() {
+        return list("order by terminalId");
     }
 
     /**

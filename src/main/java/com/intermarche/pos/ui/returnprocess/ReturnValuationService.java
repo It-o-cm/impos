@@ -91,6 +91,16 @@ public class ReturnValuationService {
         public final List<String> keptAdvantages;
 
         /**
+         * The engine request priced for the kept basket, verbatim, or null on any
+         * status other than {@code RECOMPUTED}: the loyalty programme projects the
+         * kept basket's earn from this couple (LC-05-07-02).
+         */
+        public final String requestJson;
+
+        /** The engine's answer on the kept basket, verbatim, or null. */
+        public final String responseJson;
+
+        /**
          * Builds a recalculation outcome.
          *
          * @param status how far the recalculation got
@@ -99,9 +109,25 @@ public class ReturnValuationService {
          */
         public Recalculation(RecalculationStatus status, BigDecimal withdrawnGenerosity,
                              List<String> keptAdvantages) {
+            this(status, withdrawnGenerosity, keptAdvantages, null, null);
+        }
+
+        /**
+         * Builds a recalculation outcome carrying the priced couple.
+         *
+         * @param status how far the recalculation got
+         * @param withdrawnGenerosity the generosity to take back, never null
+         * @param keptAdvantages the labels of the surviving advantages, never null
+         * @param requestJson the engine request for the kept basket, or null
+         * @param responseJson the engine's answer, or null
+         */
+        public Recalculation(RecalculationStatus status, BigDecimal withdrawnGenerosity,
+                             List<String> keptAdvantages, String requestJson, String responseJson) {
             this.status = status;
             this.withdrawnGenerosity = withdrawnGenerosity;
             this.keptAdvantages = keptAdvantages;
+            this.requestJson = requestJson;
+            this.responseJson = responseJson;
         }
 
         /**
@@ -118,6 +144,10 @@ public class ReturnValuationService {
     /** The transport toward the promotion engine, shared with the sale valuation. */
     @Inject
     ValuationClient valuationClient;
+
+    /** Writes the kept basket's request verbatim for the loyalty programme (LC-05-07-02). */
+    @Inject
+    com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     /**
      * Re-prices what the customer keeps and says what generosity the return
@@ -168,7 +198,7 @@ public class ReturnValuationService {
                     paid, worth, withdrawn);
             LOGGER.info("Exiting method recompute");
             return new Recalculation(RecalculationStatus.RECOMPUTED, withdrawn,
-                    advantageLabels(response));
+                    advantageLabels(response), objectMapper.writeValueAsString(basket), result.rawJson());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.warn("Recalcul retour interrompu : remboursement sans recalcul");

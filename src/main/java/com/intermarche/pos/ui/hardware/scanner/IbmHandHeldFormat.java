@@ -90,7 +90,7 @@ public class IbmHandHeldFormat implements HidFrameFormat {
         byte[] data = new byte[end - PAYLOAD_START];
         System.arraycopy(report, PAYLOAD_START, data, 0, data.length);
         String code = allBinaryDigits(data) ? digitsToText(data) : asciiOrNull(data);
-        if (code == null || code.isEmpty()) {
+        if (code == null) {
             return null;
         }
         return code;

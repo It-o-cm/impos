@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('customerdocs.title')}</title>
+    <style>
+        {#include theme /}
+        body { background: var(--bg-page); color: var(--text-main); }
+        .pos-terminal { grid-template-rows: 3.5rem minmax(0,1fr) 4rem; }
+        header, footer { padding: .7rem 1rem; display: flex; align-items: center; gap: 1rem; }
+        header { border-bottom: 1px solid var(--border-color); font-size: var(--fs-title); }
+        form { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1rem; padding: 1rem; }
+        .history, .entry { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: .5rem; }
+        .documents { overflow-y: auto; min-height: 0; flex: 1; }
+        .document { padding: .7rem; border-bottom: 1px solid var(--border-color); }
+        .document label { display: flex; gap: .6rem; align-items: center; min-height: 3rem; overflow-wrap: anywhere; }
+        input[type=radio] { width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
+        details { padding-top: .5rem; }
+        summary { cursor: pointer; min-height: 2rem; }
+        pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-doc); font-size: .85rem; }
+        .display { padding: .6rem; border: 2px solid var(--border-strong); min-height: 3rem; overflow-wrap: anywhere; font-size: var(--fs-field); }
+        .keyboard { min-height: 0; overflow-y: auto; flex: 1; }
+        .error, .outcome { padding: .5rem; }
+        .error { background: var(--danger); }
+        .outcome { background: var(--bg-panel); }
+        nav { display: flex; gap: .5rem; flex-shrink: 0; }
+        .entry .btn { flex-shrink: 0; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+    <header>{inject:i18n.get('customerdocs.title')}</header>
+    <form method="post" action="/customer-documents">
+        <div class="history">
+            <p>{inject:i18n.get('customerdocs.choose')}</p>
+            <div class="documents">
+                {#for document in documents}
+                <div class="document">
+                    <label><input type="radio" name="documentId" value="{document.id}" required>
+                        <span>{document.label} — {document.reference}<br><small>{document.date}</small></span></label>
+                    <details><summary>{inject:i18n.get('customerdocs.preview')}</summary><div class="receipt-preview">{document.content}</div></details>
+                </div>
+                {#else}<p>{inject:i18n.get('customerdocs.empty')}</p>{/for}
+            </div>
+            <nav>
+                {#if hasPrevious}<a class="btn btn-muted" href="/customer-documents?page={previous}">{inject:i18n.get('customerdocs.previous')}</a>{/if}
+                {#if hasNext}<a class="btn btn-muted" href="/customer-documents?page={next}">{inject:i18n.get('customerdocs.next')}</a>{/if}
+            </nav>
+        </div>
+        <div class="entry">
+            {#if error}<div class="error">{error}</div>{/if}
+            {#if outcome}<div class="outcome">{outcome}</div>{/if}
+            <label>{inject:i18n.get('ticketemail.adresseEmail')}</label>
+            <div class="display pad-display" id="documentEmailDisplay"></div>
+            <input type="hidden" name="email" id="documentEmail" value="{address}">
+            <input type="hidden" name="page" value="{page}">
+            <div class="keyboard pos-kb-compact" id="documentKeyboard"></div>
+            <button class="btn btn-success" type="submit">{inject:i18n.get('ticketemail.envoyer')}</button>
+        </div>
+    </form>
+    <footer><a class="btn btn-muted" href="/">{inject:i18n.get('common.back')}</a></footer>
+</div>
+{#include keyboard-lib /}
+<script>
+    PosInput.setup({ displayId: 'documentEmailDisplay', hiddenId: 'documentEmail',
+        containerId: 'documentKeyboard', keyboardType: 'email', mode: 'text', uppercase: false,
+        maxLength: 120, initialValue: document.getElementById('documentEmail').value });
+</script>
+</body>
+</html>

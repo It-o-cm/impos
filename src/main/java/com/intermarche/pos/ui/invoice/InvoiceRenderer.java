@@ -56,13 +56,21 @@ public final class InvoiceRenderer {
         // BO-02-04-08: l'échéance figure obligatoirement sur le document, et
         // seulement quand le client en porte une — une ligne « Échéance » vide
         // se lirait comme un paiement immédiat.
-        if (document.hasDueDate()) {
+        if (document.statesDueDate()) {
             out.add(pair(i18n.get("doc.echeanceCourt"), document.dueDate));
+        } else {
+            // BO-03-03-02: without terms, the document says it is due on receipt.
+            out.add(i18n.get("doc.paiementReception"));
         }
         out.add(pair(i18n.get("doc.ticketCourt"), document.ticketNumber));
+        // BO-03-03-02: the customer's order number, and no line at all when the
+        // operator typed none.
+        if (document.statesOrderNumber()) {
+            out.add(pair(i18n.get("doc.commandeCourt"), document.orderNumber));
+        }
         out.add(RULE);
         customer(out, document.customer,
-                document.hasCustomerTaxId() ? document.customerTaxId : "", i18n);
+                document.statesCustomerTaxId() ? document.customerTaxId : "", i18n);
         out.add(RULE);
         articles(out, document.lines, i18n);
         out.add(RULE);
@@ -72,7 +80,64 @@ public final class InvoiceRenderer {
         out.add(pair(i18n.get("doc.totalTvaPapier"), document.totalVat + " E"));
         out.add(pair(i18n.get("doc.totalTtcPapier"), document.totalIncludingTax + " E"));
         tenders(out, document.tenders, i18n);
+        footerUrl(out, document);
         return out;
+    }
+
+    /**
+     * Appends the address the shop prints at the foot of its documents
+     * ({@code BO-03-05-08}), as the roll prints it: a QR code by default, a
+     * barcode, or the address written out.
+     *
+     * @param out the lines so far
+     * @param document the laid-out document
+     */
+    private static void footerUrl(List<String> out, InvoiceDocument document) {
+        if (!document.statesFooterUrl()) {
+            return;
+        }
+        out.add(RULE);
+        if ("TEXTE".equals(document.footerUrlFormat)) {
+            for (int from = 0; from < document.footerUrl.length(); from += WIDTH) {
+                out.add(center(document.footerUrl.substring(from,
+                        Math.min(from + WIDTH, document.footerUrl.length()))));
+            }
+            return;
+        }
+        out.add(("BARCODE".equals(document.footerUrlFormat) ? "[[BARCODE " : "[[QR ")
+                + document.footerUrl + "]]");
+    }
+
+    /**
+     * Cuts a document into the sheets of the slip station, each sheet headed by
+     * its page number out of the whole ({@code BO-03-03-02}, « page X / Y »).
+     *
+     * @param lines the document, line by line
+     * @param linesPerPage how many lines one sheet takes, zero or less for one
+     *        sheet
+     * @param i18n the operator wordings
+     * @return the sheets, each opening with its « page X / Y » line
+     */
+    public static List<List<String>> paginateNumbered(List<String> lines, int linesPerPage,
+            com.intermarche.pos.ui.Messages i18n) {
+        List<List<String>> pages = paginate(lines, linesPerPage);
+        for (int index = 0; index < pages.size(); index++) {
+            pages.get(index).add(0, pageLine(index + 1, pages.size(), i18n));
+        }
+        return pages;
+    }
+
+    /**
+     * The « page X / Y » line of a sheet, right-aligned.
+     *
+     * @param page the sheet's rank, one-based
+     * @param pageCount how many sheets the document takes
+     * @param i18n the operator wordings
+     * @return the line
+     */
+    static String pageLine(int page, int pageCount, com.intermarche.pos.ui.Messages i18n) {
+        String text = i18n.format("doc.pageSur", page, pageCount);
+        return " ".repeat(Math.max(WIDTH - text.length(), 0)) + text;
     }
 
     /**
@@ -172,6 +237,8 @@ public final class InvoiceRenderer {
      * including tax and the line total its own column. Forty-two characters cannot,
      * so the tax-excluded unit price rides in parentheses beside the tax-included
      * one and the rate moves to the VAT table, where it is stated anyway.
+     * The line total excluding tax takes a line of its own beneath, its
+     * figure aligned with the tax-included total above it (BO-10-02-19).
      *
      * @param out   the lines being built
      * @param lines the article rows
@@ -181,7 +248,7 @@ public final class InvoiceRenderer {
         for (InvoiceDocument.Line line : lines) {
             out.add(truncate(line.label()));
             if (!line.attributes().isEmpty()) {
-                out.add(indented(line.attributes()));
+                out.addAll(wrapped(line.attributes()));
             }
             if (!line.ean().isEmpty()) {
                 out.add(indented(line.ean()));
@@ -189,6 +256,9 @@ public final class InvoiceRenderer {
             out.add(pair("  " + line.quantity() + " x " + line.unitIncludingTax()
                             + i18n.format("doc.htEntreParentheses", line.unitExcludingTax()),
                     line.totalIncludingTax()));
+            // BO-10-02-19: the line total excluding tax the A4 page gives its
+            // own column, on a line of its own under the tax-included one.
+            out.add(pair("  " + i18n.get("doc.totalHt"), line.totalExcludingTax()));
         }
     }
 
@@ -203,7 +273,9 @@ public final class InvoiceRenderer {
         out.add(pair(i18n.get("doc.tvaCourt"), amounts(i18n.get("doc.baseHt"),
                 i18n.get("doc.tvaCourt"), i18n.get("doc.ttc"))));
         for (InvoiceDocument.VatRow row : rows) {
-            out.add(pair(INDENT + row.rate(),
+            // BO-03-03-04: the regime's code before its rate, as the receipt.
+            String code = row.code() == null || row.code().isEmpty() ? "" : row.code() + " ";
+            out.add(pair(INDENT + code + row.rate(),
                     amounts(row.excludingTax(), row.vat(), row.includingTax())));
         }
     }
@@ -276,6 +348,34 @@ public final class InvoiceRenderer {
      */
     private static String indented(String text) {
         return INDENT + truncate(text, WIDTH - INDENT.length());
+    }
+
+    /**
+     * Lays an attributes line out on as many indented lines as it needs, cut
+     * between words: the attributes the shop prints on its invoices
+     * ({@code BO-03-03-21}) must reach the paper whole, where a cut at the
+     * width printed « ORIGINE : FR » for « ORIGINE : FRANCE ». A single word
+     * wider than a line is still cut to the width.
+     *
+     * @param text the attributes line, never empty
+     * @return the indented lines, none wider than the paper
+     */
+    private static List<String> wrapped(String text) {
+        int room = WIDTH - INDENT.length();
+        List<String> rows = new ArrayList<>();
+        StringBuilder row = new StringBuilder();
+        for (String word : text.split(" ")) {
+            if (row.length() > 0 && row.length() + 1 + word.length() > room) {
+                rows.add(indented(row.toString()));
+                row.setLength(0);
+            }
+            if (row.length() > 0) {
+                row.append(' ');
+            }
+            row.append(word);
+        }
+        rows.add(indented(row.toString()));
+        return rows;
     }
 
     /**

@@ -1,7 +1,14 @@
 package com.intermarche.pos.domain.store;
 
 import com.intermarche.pos.domain.BaseEntity;
-import jakarta.persistence.*;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.Cacheable;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.Objects;

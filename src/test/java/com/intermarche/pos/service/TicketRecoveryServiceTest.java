@@ -224,6 +224,28 @@ class TicketRecoveryServiceTest {
     }
 
     /**
+     * The service nature (BO-05-01-03) is read back from the draft on
+     * recovery, on both arms, so a restart never turns a service into goods
+     * for the e-reporting.
+     */
+    @Test
+    void recoverRestoresTheServiceNatureOfEachLine() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(7L, Ticket.TicketStatus.OPEN);
+        TicketLine serviced = line(1, "U1", "4.00", null, null);
+        serviced.service = true;
+        TicketLine goods = line(2, "U2", "3.00", null, null);
+        draft.lines = new ArrayList<>(List.of(serviced, goods));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(QUERY, Ticket.TicketStatus.OPEN, TERMINAL))
+                    .thenReturn(new ArrayList<>(List.of(draft)));
+            service.recover();
+            assertTrue(service.state.ticket.items.get(0).service);
+            assertFalse(service.state.ticket.items.get(1).service);
+        }
+    }
+
+    /**
      * Covers the leftover-cancel loop of {@code recover}: the most recent draft
      * is restored while the two older OPEN leftovers of the same terminal are
      * flipped to CANCELLED and persisted.
@@ -302,6 +324,7 @@ class TicketRecoveryServiceTest {
         TicketLine modifiedNoOriginal = line(3, "L3", "7.00", "FORCE", null);
         draft.lines = new ArrayList<>(Arrays.asList(modified, legacy, modifiedNoOriginal));
         draft.fidelityCard = "CARD-9999";
+        draft.customerTaxId = "123456789";
         service.restoreDraft(draft);
         List<TicketState.TicketItem> items = service.state.ticket.items;
         assertEquals(3, items.size());
@@ -320,6 +343,7 @@ class TicketRecoveryServiceTest {
         assertEquals(0, new BigDecimal("7.00").compareTo(third.originalUnitPrice));
         assertTrue(service.state.fidelity.active);
         assertEquals("CARD-9999", service.state.fidelity.label);
+        assertEquals("123456789", service.state.ticket.customerTaxId);
         assertEquals(11L, service.state.payment.ticketDbId);
         assertFalse(service.state.payment.transactionComplete);
     }
@@ -595,6 +619,48 @@ class TicketRecoveryServiceTest {
         assertEquals(2, service.state.payment.payments.size());
         assertEquals("   ", service.state.payment.payments.get(1).depositOrderCode);
         assertNull(service.state.recalledOrderCode);
+    }
+
+
+    /** LC-06-03-07: a recovered deposit without an order code does not invent an order to settle. */
+    @Test
+    void unnamedRecoveredDepositDoesNotInventAnOrder() {
+        var service = newService();
+        var ticket = draft(18L, Ticket.TicketStatus.OPEN);
+        ticket.lines = new ArrayList<>(List.of(line(1, "L1", "100.00", null, null)));
+        var deposit = new com.intermarche.pos.domain.payment.DepositPayment(new BigDecimal("10.00"));
+        deposit.orderCode = null;
+        ticket.payments = new ArrayList<>(List.of(deposit));
+        service.restoreDraft(ticket);
+        assertNull(service.state.recalledOrderCode);
+        assertNull(service.state.payment.payments.getFirst().depositOrderCode);
+    }
+
+
+    /** LC-02-03-04: recovered/parked families keep their identity and never add a second deposit. */
+    @Test
+    void recoveredBottleRetainsItsDepositRelationship() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(4L, Ticket.TicketStatus.OPEN);
+        TicketLine bottle = line(1, "bottle", "2.00", null, null);
+        TicketLine deposit = line(2, "deposit", "0.10", null, null);
+        bottle.quantity = new BigDecimal("3");
+        deposit.quantity = new BigDecimal("3");
+        bottle.ean = "A";
+        bottle.linkedArticleEan = "B";
+        bottle.linkedRecordedQuantity = new BigDecimal("3");
+        deposit.ean = "B";
+        deposit.linkedParentUid = "bottle";
+        deposit.linkedArticleEan = "";
+        draft.lines.addAll(List.of(bottle, deposit));
+        service.restoreDraft(draft);
+        var restored = service.state.ticket.items.get(0);
+        assertEquals("B", restored.linkedArticleEan);
+        assertEquals(new BigDecimal("3"), restored.linkedRecordedQuantity);
+        assertEquals("bottle", service.state.ticket.items.get(1).linkedParentUid);
+        com.intermarche.pos.ui.ticket.LinkedArticleService.synchronize(service.state,
+                (ean, quantity) -> fail("Deposit already restored"), com.intermarche.pos.ui.TestMessages.french());
+        assertEquals(2, service.state.ticket.items.size());
     }
 
 }

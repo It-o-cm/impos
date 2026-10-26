@@ -6,6 +6,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('reprintticket.reimpression')}</title>
     <style>
         {#include theme /}
@@ -34,7 +35,8 @@
         }
         .receipt-item:hover { background-color: rgba(255, 255, 255, 0.05); }
 
-        .item-left { display: flex; align-items: baseline; gap: 15px; }
+        .item-left { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 15px; min-width: 0; }
+        .item-terminal { font-size: var(--fs-row-sub); color: var(--text-muted); }
 
         .item-datetime { font-size: var(--fs-row); font-weight: bold; color: var(--text-main); }
         .item-number { font-size: var(--fs-row-sub); color: var(--text-muted); }
@@ -89,6 +91,7 @@
         </div>
         <!-- EXP-47 : recherche par numéro, date (jj/mm/aaaa) ou montant (0,00) —
              le moteur de recherche partagé avec le retour. -->
+        {#include ticket-search-criteria criteria=state.reprint.searchCriteria searchAction='/reprint/search/criteria' /}
         <form method="post" action="/reprint/search" style="display:flex; gap:8px; padding:8px 12px;">
             <div id="patternDisplay" class="search-display pad-display" data-placeholder="{inject:i18n.get('reprintticket.nTicketDateJj')}" onclick="openSearchPad()"></div>
             <input type="hidden" name="pattern" id="patternHidden" value="">
@@ -105,6 +108,7 @@
                             <div class="item-left">
                                 <span class="item-datetime">{t.creationDate.format('dd/MM HH:mm')}</span>
                                 <span class="item-number">{t.ticketNumber}</span>
+                                <span class="item-terminal">{inject:i18n.get('menu.caisse')} {t.terminalId ?: '—'}</span>
                             </div>
                             <span class="item-price">{t.totalFormatted} €</span>
                         </div>
@@ -176,5 +180,6 @@
         document.getElementById('patternDisplay').classList.remove('pad-active');
     }
 </script>
+  <script src="/pos/ticket-criteria.js"></script>
 </body>
 </html>

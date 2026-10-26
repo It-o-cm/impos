@@ -113,6 +113,10 @@ public class OrderCreationService {
     @Inject
     TicketPersistenceService ticketPersistenceService;
 
+    /** Whether the store prints the deposit invoice (LC-08-04-15). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /**
      * Creates an order from the articles currently registered and collects
      * the deposit the cashier keyed (LC-06-03-01..-06).
@@ -173,8 +177,14 @@ public class OrderCreationService {
         documentClient.pushOrder(order);
         // LC-06-03-06: the slip the customer comes back with — articles,
         // deposit, VAT recap and the barcode of the order code.
-        ticketPrinterService.printOrderDepositTicket(orderCode, order.lines,
-                depositAmount, vatDetail);
+        // BO-03-03-09: and the customer, when the attached card named one.
+        ticketPrinterService.printOrderDepositTicket(RecalledDocument.Kind.COMMANDE, orderCode,
+                order.lines, depositAmount, vatDetail, holderName(state));
+        // LC-08-04-15: and the deposit invoice, where the store asks for one.
+        if (posSettingsService.orderDepositInvoice()) {
+            ticketPrinterService.printDepositInvoice(order.kind, ticketNumberService.nextDepositInvoiceNumber(),
+                    orderCode, order.lines, total, depositAmount, BigDecimal.ZERO);
+        }
         // The basket became an order: its draft is nobody's pending sale.
         if (state.payment.ticketDbId != null) {
             ticketPersistenceService.cancelDraft(state.payment.ticketDbId);
@@ -184,6 +194,23 @@ public class OrderCreationService {
         state.touch();
         LOGGER.info("Exiting method create (order " + orderCode + " created)");
         return new Result(Outcome.CREATED, orderCode);
+    }
+
+    /**
+     * The customer an order created at the till is printed for (BO-03-03-09):
+     * the holder of the attached loyalty card, when the identity lookup named
+     * them.
+     *
+     * @param state the current POS state
+     * @return the holder's name, or null when the sale names nobody
+     */
+    private static String holderName(PosState state) {
+        String last = state.fidelity.holderLastName;
+        if (last == null || last.isBlank()) {
+            return null;
+        }
+        String first = state.fidelity.holderFirstName;
+        return first == null || first.isBlank() ? last.trim() : last.trim() + " " + first.trim();
     }
 
     /**

@@ -66,7 +66,30 @@ public class NetworkDocumentPrinter {
      * @return true when a print service is configured
      */
     public boolean isAvailable() {
-        return printUrl.isPresent() && !printUrl.get().isBlank();
+        return secondPrinterConfigured() || (printUrl.isPresent() && !printUrl.get().isBlank());
+    }
+
+    /**
+     * The register's administered parameters (BO-03-09-22), null on an
+     * instance built by hand: the second printer is then simply not there.
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The hardware module, which drives a second printer plugged locally (BO-03-09-22). */
+    @jakarta.inject.Inject
+    @org.eclipse.microprofile.rest.client.inject.RestClient
+    com.intermarche.pos.ui.hardware.HardwareClient hardwareClient;
+
+    /**
+     * Whether the back office gave this register a SECOND PRINTER, active and
+     * addressed (BO-03-09-22). It then replaces the deployment's print service.
+     *
+     * @return true when the second printer is to be used
+     */
+    boolean secondPrinterConfigured() {
+        return posSettingsService != null && posSettingsService.secondPrinterEnabled()
+                && !posSettingsService.secondPrinterAddress().isEmpty();
     }
 
     /**
@@ -88,10 +111,33 @@ public class NetworkDocumentPrinter {
      */
     String page(InvoiceDocument document) {
         String administered = documentTemplateService == null ? null
-                : documentTemplateService.render(
-                        com.intermarche.pos.domain.setting.DocumentTemplate
-                                .DocumentType.INVOICE_A4, document.asDocumentData());
+                : administeredPage(document);
         return administered != null ? administered : html(document, i18n);
+    }
+
+    /**
+     * The administered A4 page: the template of the administered document the
+     * paper is drawn as when it lays out an A4 page ({@code BO-03-04-09}), the
+     * shop's A4 invoice template otherwise.
+     *
+     * @param document the laid-out document
+     * @return the page, or null when the register lays it out itself
+     */
+    private String administeredPage(InvoiceDocument document) {
+        java.util.Map<String, Object> data = document.asDocumentData();
+        if (!document.templateCode.isEmpty()) {
+            com.intermarche.pos.domain.setting.DocumentTemplate template =
+                    com.intermarche.pos.domain.setting.DocumentTemplate.findByCode(document.templateCode);
+            if (template != null && template.documentType
+                    == com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_A4) {
+                String own = documentTemplateService.renderTemplate(template, data);
+                if (own != null) {
+                    return own;
+                }
+            }
+        }
+        return documentTemplateService.render(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE_A4, data);
     }
 
     /**
@@ -107,15 +153,61 @@ public class NetworkDocumentPrinter {
         if (!isAvailable() || document == null) {
             return false;
         }
+        if (secondPrinterConfigured()) {
+            return printOnSecondPrinter(document, fallbackLines);
+        }
+        return post(printUrl.get(), "text/html; charset=utf-8", page(document), document, fallbackLines);
+    }
+
+    /**
+     * Prints on the administered SECOND PRINTER (BO-03-09-22): an A4 page or
+     * the roll's text, according to its format, through the hardware module
+     * when it is plugged on the register, posted to its address when it is on
+     * the network.
+     *
+     * @param document the laid-out document
+     * @param fallbackLines the same document rendered for the roll
+     * @return true when the printer accepted the document
+     */
+    boolean printOnSecondPrinter(InvoiceDocument document, List<String> fallbackLines) {
+        boolean a4 = "A4".equals(posSettingsService.secondPrinterFormat());
+        String body = a4 ? page(document) : String.join("\n", fallbackLines == null ? List.of() : fallbackLines);
+        String address = posSettingsService.secondPrinterAddress();
+        if (!"LOCAL".equals(posSettingsService.secondPrinterConnection())) {
+            return post(address, a4 ? "text/html; charset=utf-8" : "text/plain; charset=utf-8", body,
+                    document, fallbackLines);
+        }
+        try {
+            hardwareClient.printOnSecondPrinter(address, body);
+            return true;
+        } catch (Exception e) {
+            LOGGER.warnf("Seconde imprimante locale injoignable pour le document %s : %s",
+                    document.number, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Posts a document to a print service.
+     *
+     * @param url the service's address
+     * @param contentType the media type of the body
+     * @param body the page or the text
+     * @param document the laid-out document
+     * @param fallbackLines the same document rendered for the roll
+     * @return true when the service accepted it
+     */
+    private boolean post(String url, String contentType, String body, InvoiceDocument document,
+                         List<String> fallbackLines) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(printUrl.get()))
+                    .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(10))
-                    .header("Content-Type", "text/html; charset=utf-8")
+                    .header("Content-Type", contentType)
                     .header("X-Document-Number", document.number == null ? "" : document.number)
                     .header("X-Document-Text-Length",
                             String.valueOf(fallbackLines == null ? 0 : fallbackLines.size()))
-                    .POST(HttpRequest.BodyPublishers.ofString(page(document), StandardCharsets.UTF_8))
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -167,7 +259,51 @@ public class NetworkDocumentPrinter {
                 .append(".attr { color: #444; font-size: 8pt; }")
                 .append(".totals { width: 60mm; margin-left: auto; }")
                 .append("footer { margin-top: 6mm; font-size: 8pt; color: #333; }")
+                .append(".pageno { text-align: right; font-size: 8pt; margin: 0; }")
+                .append(".sheet { page-break-after: always; }")
                 .append("</style></head><body>");
+        // BO-03-03-02: the articles are cut into pages, each page restating
+        // the head of the document and its « page X / Y »; the tables of the
+        // totals close the last one.
+        List<List<InvoiceDocument.Line>> sheets = sheets(document.lines, document.linesPerPage);
+        for (int index = 0; index < sheets.size(); index++) {
+            boolean last = index == sheets.size() - 1;
+            page.append(last ? "<div>" : "<div class=\"sheet\">");
+            head(page, document, i18n, index + 1, sheets.size());
+            articles(page, sheets.get(index), i18n);
+            if (last) {
+                vat(page, document.vatRows, i18n);
+                totals(page, document, i18n);
+                tenders(page, document.tenders, i18n);
+                // BO-03-05-08: the address the shop prints at the foot of its
+                // documents, written out on a page.
+                if (document.statesFooterUrl()) {
+                    page.append("<p>").append(escape(document.footerUrl)).append("</p>");
+                }
+                page.append("<footer>").append(escape(document.legalFooter)).append("<br>")
+                        .append(escape(document.getLegalMentions())).append("</footer>");
+            }
+            page.append("</div>");
+        }
+        page.append("</body></html>");
+        return page.toString();
+    }
+
+    /**
+     * Writes the HEAD of one page: the title and number, the duplicate mark,
+     * the dates, the order number, the parties and « page X / Y »
+     * ({@code BO-03-03-02}).
+     *
+     * @param page the page being written
+     * @param document the laid-out document
+     * @param i18n the operator wordings
+     * @param number the page's rank, one-based
+     * @param count how many pages the document takes
+     */
+    private static void head(StringBuilder page, InvoiceDocument document,
+            com.intermarche.pos.ui.Messages i18n, int number, int count) {
+        page.append("<p class=\"pageno\">").append(escape(i18n.format("doc.pageSur", number, count)))
+                .append("</p>");
         page.append("<h1>").append(escape(document.title)).append(' ')
                 .append(escape(document.number)).append("</h1>");
         if (document.isDuplicate()) {
@@ -178,22 +314,41 @@ public class NetworkDocumentPrinter {
                 .append(escape(i18n.get("doc.ticket"))).append(escape(document.ticketNumber))
                 .append(escape(i18n.get("doc.caisse"))).append(escape(document.terminal));
         // BO-02-04-08: l'échéance figure obligatoirement sur le document.
-        if (document.hasDueDate()) {
+        if (document.statesDueDate()) {
             page.append(escape(i18n.get("doc.echeance"))).append(escape(document.dueDate));
+        } else {
+            // BO-03-03-02: without terms, the document is due on receipt.
+            page.append(" — ").append(escape(i18n.get("doc.paiementReception")));
+        }
+        if (document.statesOrderNumber()) {
+            page.append(" — ").append(escape(i18n.get("doc.commandeCourt"))).append(" : ")
+                    .append(escape(document.orderNumber));
         }
         page.append("</p>");
         page.append("<div class=\"parties\">");
         party(page, i18n.get("doc.vendeur"), document.seller, i18n);
         party(page, i18n.get("doc.client"), document.customer, i18n);
         page.append("</div>");
-        articles(page, document.lines, i18n);
-        vat(page, document.vatRows, i18n);
-        totals(page, document, i18n);
-        tenders(page, document.tenders, i18n);
-        page.append("<footer>").append(escape(document.legalFooter)).append("<br>")
-                .append(escape(document.getLegalMentions())).append("</footer>");
-        page.append("</body></html>");
-        return page.toString();
+    }
+
+    /**
+     * Cuts the article rows into the pages of the document; a document without
+     * rows, or without a page size, is one page.
+     *
+     * @param lines the article rows
+     * @param perPage the rows of one page, zero or less for a single page
+     * @return the pages, never empty
+     */
+    static List<List<InvoiceDocument.Line>> sheets(List<InvoiceDocument.Line> lines, int perPage) {
+        List<List<InvoiceDocument.Line>> sheets = new java.util.ArrayList<>();
+        if (perPage <= 0 || lines.size() <= perPage) {
+            sheets.add(lines);
+            return sheets;
+        }
+        for (int from = 0; from < lines.size(); from += perPage) {
+            sheets.add(lines.subList(from, Math.min(from + perPage, lines.size())));
+        }
+        return sheets;
     }
 
     /**
@@ -247,6 +402,7 @@ public class NetworkDocumentPrinter {
                 .append("</th><th class=\"num\">").append(escape(i18n.get("doc.tvaCourt")))
                 .append("</th><th class=\"num\">").append(escape(i18n.get("doc.puHt")))
                 .append("</th><th class=\"num\">").append(escape(i18n.get("doc.puTtc")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.totalHt")))
                 .append("</th><th class=\"num\">").append(escape(i18n.get("doc.totalTtc")))
                 .append("</th></tr></thead><tbody>");
         for (InvoiceDocument.Line line : lines) {
@@ -263,6 +419,7 @@ public class NetworkDocumentPrinter {
                     .append("</td><td class=\"num\">").append(escape(line.vatRate()))
                     .append("</td><td class=\"num\">").append(escape(line.unitExcludingTax()))
                     .append("</td><td class=\"num\">").append(escape(line.unitIncludingTax()))
+                    .append("</td><td class=\"num\">").append(escape(line.totalExcludingTax()))
                     .append("</td><td class=\"num\">").append(escape(line.totalIncludingTax()))
                     .append("</td></tr>");
         }
@@ -283,7 +440,9 @@ public class NetworkDocumentPrinter {
                 .append("</th><th class=\"num\">").append(escape(i18n.get("doc.totalTtc")))
                 .append("</th></tr></thead><tbody>");
         for (InvoiceDocument.VatRow row : rows) {
-            page.append("<tr><td>").append(escape(row.rate()))
+            // BO-03-03-04: the regime's code before its rate.
+            String code = row.code() == null || row.code().isEmpty() ? "" : row.code() + " ";
+            page.append("<tr><td>").append(escape(code + row.rate()))
                     .append("</td><td class=\"num\">").append(escape(row.excludingTax()))
                     .append("</td><td class=\"num\">").append(escape(row.vat()))
                     .append("</td><td class=\"num\">").append(escape(row.includingTax()))

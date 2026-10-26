@@ -72,9 +72,7 @@ public class HidBarcodeDecoder {
         for (HidFrameFormat format : FORMATS) {
             String code = format.decode(report, length);
             if (code != null) {
-                if (!code.isEmpty()) {
-                    onCode.accept(code);
-                }
+                onCode.accept(code);
                 return;
             }
         }

@@ -137,6 +137,23 @@ public class RealHardwareResource {
     }
 
     /**
+     * Sends one sheet to the slip station (BO-03-04-14).
+     * <p>
+     * STUB for the micr slip station: accepts and drops the sheet. The real
+     * driver prints it on the inserted form.
+     *
+     * @param content the sheet, as formatted text
+     */
+    @POST
+    @Path("/slip/print")
+    @Consumes(MediaType.TEXT_PLAIN)
+    public void printSlip(String content) {
+        LOGGER.info("Entering method printSlip");
+        LOGGER.debugf("Impression facturette (stub): %d caractere(s)", content == null ? 0 : content.length());
+        LOGGER.info("Exiting method printSlip");
+    }
+
+    /**
      * Cuts the printer paper.
      * <p>
      * STUB: the real driver sends the ESC/POS cut command to the UB-U05.

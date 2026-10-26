@@ -260,4 +260,14 @@ class ConsumptionDeliveryServiceTest {
         when(service.consumptionService.pending()).thenThrow(new RuntimeException("boom"));
         assertTrue(service.triggerDelivery().contains("boom"));
     }
+    /** BO-08-04: a temporary pending-read failure is swallowed and a following delivery cycle retries the keeper. */
+    @Test
+    void backgroundDeliveryRetriesAfterAKeeperFailure() throws Exception {
+        var delivery = serviceWith(mock(java.net.http.HttpClient.class));
+        when(delivery.consumptionService.pending()).thenThrow(new IllegalStateException("database unavailable")).thenReturn(List.of());
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(delivery::deliverSafely);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(delivery::deliverSafely);
+        verify(delivery.consumptionService, org.mockito.Mockito.times(2)).pending();
+    }
+
 }

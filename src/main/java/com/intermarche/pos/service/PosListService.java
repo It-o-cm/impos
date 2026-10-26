@@ -37,6 +37,8 @@ public class PosListService {
 
     /** The register function the line-cancellation justifications are bound to. */
     public static final String FUNCTION_CANCEL_LINE = "CANCEL_LINE";
+    /** The register function the forced drawer-opening justifications are bound to (LC-12-01-02). */
+    public static final String FUNCTION_DRAWER_OPEN = "DRAWER_OPEN";
 
     /** The administered parameters, read when no list has been distributed. */
     @Inject
@@ -208,6 +210,261 @@ public class PosListService {
     }
 
     /**
+     * ONE administered EXPENSE (BO-03-02-45/-46/-47): an entry of a
+     * justification list serving the {@code EXPENSE} function, with what the
+     * back office states about it beside its label.
+     *
+     * @param code the entry's code
+     * @param label what the key is called in front of the cashier
+     * @param tenderCode the tender the expense is paid in (option
+     *        {@code TENDER:code}), or null for cash
+     * @param maxAmount the largest amount one expense may carry (the entry's
+     *        value), or null when unbounded
+     * @param control what the register does above that amount (option
+     *        {@code CONTROL:level}), never null
+     */
+    public record Expense(String code, String label, String tenderCode, BigDecimal maxAmount,
+                          com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel control) {
+
+        /**
+         * What the register does about one amount of this expense
+         * (BO-03-02-47).
+         *
+         * @param amount the amount the cashier keyed, or null
+         * @return the control level when the amount goes over the maximum, NONE otherwise
+         */
+        public com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel levelFor(BigDecimal amount) {
+            if (maxAmount == null || amount == null || amount.compareTo(maxAmount) <= 0) {
+                return com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE;
+            }
+            return control;
+        }
+    }
+
+    /**
+     * The ACTIVE expenses the cash-movement screen offers (BO-03-02-45/-46):
+     * the entries of the justification lists serving the {@code EXPENSE}
+     * function, each with its tender, its maximum and its control.
+     *
+     * <p>Activating an entry on the back office is what makes the expense
+     * available at the register as soon as the lists reach it; deactivating
+     * or deleting it takes it away the same way. Without any list, the
+     * semicolon-separated {@code cash.movement-reasons} still answers, each
+     * reason then being a cash expense with no maximum.
+     *
+     * @return the expenses, in display order, possibly empty
+     */
+    public List<Expense> expenses() {
+        LOGGER.info("Entering method expenses");
+        List<Expense> expenses = new ArrayList<>();
+        List<PosListItem> items = itemsOf(PosList.Kind.JUSTIFICATION, FUNCTION_EXPENSE);
+        if (items == null) {
+            for (String reason : posSettingsService.cashMovementReasons()) {
+                expenses.add(new Expense(reason, reason, null, null,
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE));
+            }
+            LOGGER.info("Exiting method expenses");
+            return expenses;
+        }
+        for (PosListItem item : items) {
+            String tender = option(item.options, "TENDER");
+            expenses.add(new Expense(item.code, item.label,
+                    tender == null || "CASH".equalsIgnoreCase(tender) ? null : tender.toUpperCase(java.util.Locale.ROOT),
+                    item.numericValue, controlLevel(option(item.options, "CONTROL"))));
+        }
+        LOGGER.info("Exiting method expenses");
+        return expenses;
+    }
+
+    /**
+     * The active expense carrying a label or a code, or null when none does
+     * (BO-03-02-45/-46/-47).
+     *
+     * @param reason the label or code the screen posted, possibly null
+     * @return the expense, or null
+     */
+    public Expense expense(String reason) {
+        LOGGER.info("Entering method expense with reason: " + reason);
+        if (reason == null || reason.isBlank()) {
+            LOGGER.info("Exiting method expense");
+            return null;
+        }
+        String typed = reason.trim();
+        for (Expense candidate : expenses()) {
+            if (candidate.label().equalsIgnoreCase(typed) || candidate.code().equalsIgnoreCase(typed)) {
+                LOGGER.info("Exiting method expense");
+                return candidate;
+            }
+        }
+        LOGGER.info("Exiting method expense");
+        return null;
+    }
+
+    /**
+     * ONE ready-made discount or rebate KEY of the register
+     * (BO-03-07-03/-04/-06/-09).
+     *
+     * @param label what the key is called on the screen
+     * @param percent true for a percentage, false for an amount in euros
+     * @param value the figure the key applies, or null for a key whose figure
+     *        the cashier types
+     * @param cumulative whether the key may pile on an already-reduced line
+     * @param ticketLevel true for a key on the ticket total, false for a line key
+     * @param maximum the ceiling of a typed figure (option {@code MAX:n}), or null
+     */
+    public record DiscountKey(String label, boolean percent, BigDecimal value, boolean cumulative,
+                              boolean ticketLevel, BigDecimal maximum) {
+
+        /**
+         * Tells whether the cashier types this key's figure.
+         *
+         * @return true when the key carries no figure of its own
+         */
+        public boolean open() {
+            return value == null;
+        }
+    }
+
+    /**
+     * The ACTIVE discount and rebate keys (BO-03-07-03/-04/-06/-09): the
+     * entries of the distributed {@code DISCOUNT} lists, or, without any, the
+     * keys of the {@code discount.presets} parameter.
+     *
+     * <p>An entry names its nature ({@code PERCENT} or {@code AMOUNT}) or it is
+     * dropped: a key that takes off a figure in a unit nobody stated is worse
+     * than a key that is not offered. Deleting or deactivating an entry on the
+     * back office removes the key from the register with the next lists it
+     * receives.
+     *
+     * @return the keys, in display order, possibly empty
+     */
+    public List<DiscountKey> discountKeys() {
+        LOGGER.info("Entering method discountKeys");
+        List<DiscountKey> keys = new ArrayList<>();
+        List<PosListItem> items = itemsOf(PosList.Kind.DISCOUNT, null);
+        if (items == null) {
+            for (PosSettingsService.DiscountPreset preset : posSettingsService.discountPresets()) {
+                keys.add(new DiscountKey(preset.label(), preset.percent(), preset.value(),
+                        preset.cumulative(), false, null));
+            }
+            LOGGER.info("Exiting method discountKeys");
+            return keys;
+        }
+        for (PosListItem item : items) {
+            boolean percent = marked(item.options, "PERCENT");
+            boolean amount = marked(item.options, "AMOUNT");
+            if (percent == amount || item.numericValue != null && item.numericValue.signum() <= 0) {
+                continue;
+            }
+            keys.add(new DiscountKey(item.label, percent, item.numericValue,
+                    marked(item.options, "CUMUL"), marked(item.options, "TICKET"),
+                    decimal(option(item.options, "MAX"))));
+        }
+        LOGGER.info("Exiting method discountKeys");
+        return keys;
+    }
+
+    /**
+     * The active discount key carrying a label, or null when none does
+     * (BO-03-07-03/-06/-09).
+     *
+     * @param label the label the screen posted, possibly null
+     * @return the key, or null
+     */
+    public DiscountKey discountKey(String label) {
+        LOGGER.info("Entering method discountKey with label: " + label);
+        if (label == null || label.isBlank()) {
+            LOGGER.info("Exiting method discountKey");
+            return null;
+        }
+        for (DiscountKey candidate : discountKeys()) {
+            if (candidate.label().equalsIgnoreCase(label.trim())) {
+                LOGGER.info("Exiting method discountKey");
+                return candidate;
+            }
+        }
+        LOGGER.info("Exiting method discountKey");
+        return null;
+    }
+
+    /**
+     * Tells whether an entry's option markers carry a bare marker.
+     *
+     * @param options the comma-separated markers, possibly null
+     * @param name the marker, upper case
+     * @return true when the marker is present
+     */
+    static boolean marked(String options, String name) {
+        if (options == null) {
+            return false;
+        }
+        for (String part : options.split(",")) {
+            if (part.trim().equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reads a decimal written with a point or a comma, an unreadable or
+     * non-positive one meaning none.
+     *
+     * @param raw the written figure, possibly null
+     * @return the figure, or null
+     */
+    static BigDecimal decimal(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            BigDecimal value = new BigDecimal(raw.replace(',', '.'));
+            return value.signum() > 0 ? value : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Reads one {@code NAME:value} option of an entry's option markers.
+     *
+     * @param options the comma-separated markers, possibly null
+     * @param name the option name, upper case
+     * @return the trimmed value, or null when the option is absent or empty
+     */
+    static String option(String options, String name) {
+        if (options == null) {
+            return null;
+        }
+        for (String part : options.split(",")) {
+            String marker = part.trim();
+            int colon = marker.indexOf(':');
+            if (colon > 0 && marker.substring(0, colon).trim().equalsIgnoreCase(name)) {
+                String value = marker.substring(colon + 1).trim();
+                return value.isEmpty() ? null : value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reads an administered control level, an unknown or absent one meaning
+     * none.
+     *
+     * @param raw the written level, possibly null
+     * @return the level, never null
+     */
+    static com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel controlLevel(String raw) {
+        for (com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel level
+                : com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.values()) {
+            if (level.name().equalsIgnoreCase(raw == null ? "" : raw.trim())) {
+                return level;
+            }
+        }
+        return com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE;
+    }
+
+    /**
      * The justification carrying a code, for one register function, or null
      * when the function offers none under that code ({@code BO-06-06-04}).
      *
@@ -247,6 +504,19 @@ public class PosListService {
      */
     public List<PosSettingsService.ReturnType> returnTypes() {
         LOGGER.info("Entering method returnTypes");
+        // BO-03-13-01/-03: the dedicated referential wins the moment one type
+        // exists; its active types are what the register offers.
+        List<com.intermarche.pos.domain.setting.ReturnTypeDefinition> definitions = definitions();
+        if (definitions != null) {
+            List<PosSettingsService.ReturnType> offered = new ArrayList<>();
+            for (com.intermarche.pos.domain.setting.ReturnTypeDefinition definition : definitions) {
+                if (definition.active) {
+                    offered.add(returnTypeOf(definition));
+                }
+            }
+            LOGGER.info("Exiting method returnTypes");
+            return offered;
+        }
         List<PosListItem> items = itemsOf(PosList.Kind.RETURN_TYPE, null);
         if (items == null) {
             LOGGER.info("Exiting method returnTypes");
@@ -254,29 +524,84 @@ public class PosListService {
         }
         List<PosSettingsService.ReturnType> types = new ArrayList<>();
         for (PosListItem item : items) {
-            boolean dedicated = false;
-            boolean exempt = false;
-            boolean originOptional = false;
-            boolean priceConfirmed = false;
-            if (item.options != null) {
-                for (String option : item.options.split(",")) {
-                    String name = option.trim();
-                    if ("TICKET".equalsIgnoreCase(name)) {
-                        dedicated = true;
-                    } else if ("NOENDORSE".equalsIgnoreCase(name)) {
-                        exempt = true;
-                    } else if ("NOORIGIN".equalsIgnoreCase(name)) {
-                        originOptional = true;
-                    } else if ("PRICE".equalsIgnoreCase(name)) {
-                        priceConfirmed = true;
-                    }
-                }
-            }
-            types.add(new PosSettingsService.ReturnType(item.label, dedicated, exempt,
-                    originOptional, priceConfirmed));
+            types.add(returnTypeOf(item));
         }
         LOGGER.info("Exiting method returnTypes");
         return types;
+    }
+
+    /**
+     * The active return type an administered RETURN barcode range is attached
+     * to (BO-03-13-12): the entry whose option {@code RANGE:code} names the
+     * range, or null when none does.
+     *
+     * @param rangeCode the code of the barcode range scanned, possibly null
+     * @return the attached type, or null
+     */
+    public PosSettingsService.ReturnType returnTypeOfRange(String rangeCode) {
+        LOGGER.info("Entering method returnTypeOfRange with rangeCode: " + rangeCode);
+        List<com.intermarche.pos.domain.setting.ReturnTypeDefinition> definitions =
+                rangeCode == null ? null : definitions();
+        if (definitions != null) {
+            for (com.intermarche.pos.domain.setting.ReturnTypeDefinition definition : definitions) {
+                if (definition.active && rangeCode.equalsIgnoreCase(definition.rangeCode)) {
+                    LOGGER.info("Exiting method returnTypeOfRange");
+                    return returnTypeOf(definition);
+                }
+            }
+            LOGGER.info("Exiting method returnTypeOfRange");
+            return null;
+        }
+        List<PosListItem> items = rangeCode == null ? null : itemsOf(PosList.Kind.RETURN_TYPE, null);
+        if (items != null) {
+            for (PosListItem item : items) {
+                if (rangeCode.equalsIgnoreCase(option(item.options, "RANGE"))) {
+                    LOGGER.info("Exiting method returnTypeOfRange");
+                    return returnTypeOf(item);
+                }
+            }
+        }
+        LOGGER.info("Exiting method returnTypeOfRange");
+        return null;
+    }
+
+    /**
+     * Reads an administered return type off its list entry, its four option
+     * markers included.
+     *
+     * @param item the entry
+     * @return the return type
+     */
+    private PosSettingsService.ReturnType returnTypeOf(PosListItem item) {
+        return new PosSettingsService.ReturnType(item.label, marked(item.options, "TICKET"),
+                marked(item.options, "NOENDORSE"), marked(item.options, "NOORIGIN"),
+                marked(item.options, "PRICE"));
+    }
+
+    /**
+     * Reads an administered return type off its dedicated referential row
+     * (BO-03-13-01).
+     *
+     * @param definition the referential row
+     * @return the return type
+     */
+    private PosSettingsService.ReturnType returnTypeOf(
+            com.intermarche.pos.domain.setting.ReturnTypeDefinition definition) {
+        return new PosSettingsService.ReturnType(definition.label, definition.ticketMode,
+                definition.endorsementExempt, definition.originOptional, definition.priceConfirmed);
+    }
+
+    /**
+     * The dedicated return-type referential (BO-03-13-01), or null when the
+     * node distributed no type — which is what sends the caller back to the
+     * administered list, then to the setting.
+     *
+     * @return every distributed type, active or not, or null when there is none
+     */
+    private List<com.intermarche.pos.domain.setting.ReturnTypeDefinition> definitions() {
+        List<com.intermarche.pos.domain.setting.ReturnTypeDefinition> all =
+                com.intermarche.pos.domain.setting.ReturnTypeDefinition.findAllOrdered();
+        return all == null || all.isEmpty() ? null : all;
     }
 
     /**
@@ -301,6 +626,17 @@ public class PosListService {
             return null;
         }
         String typed = label.trim();
+        List<com.intermarche.pos.domain.setting.ReturnTypeDefinition> definitions = definitions();
+        if (definitions != null) {
+            for (com.intermarche.pos.domain.setting.ReturnTypeDefinition definition : definitions) {
+                if (definition.label != null && definition.label.equalsIgnoreCase(typed)) {
+                    LOGGER.info("Exiting method returnTypeCode");
+                    return definition.code;
+                }
+            }
+            LOGGER.info("Exiting method returnTypeCode");
+            return typed;
+        }
         List<PosListItem> items = itemsOf(PosList.Kind.RETURN_TYPE, null);
         if (items != null) {
             for (PosListItem item : items) {

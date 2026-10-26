@@ -46,7 +46,7 @@
             <h2>{inject:i18n.get('manualweight.poidsBrutKg')}</h2>
             <div class="hint">{inject:i18n.get('manualweight.consigne')}</div>
             {#if containerLabel}
-            <div class="container-box">{inject:i18n.get('manualweight.tareContenant')} {containerLabel} ({containerTare} kg)</div>
+            <div class="container-box">{inject:i18n.get('manualweight.tareContenant')} {containerLabel} ({containerTare} {inject:units.weightSymbol})</div>
             {/if}
             <form action="/action/manual-weight" method="POST" id="weightForm">
                 <input type="hidden" name="rawValue" id="weightHidden" value="0">

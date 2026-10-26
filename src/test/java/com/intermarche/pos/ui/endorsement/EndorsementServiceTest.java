@@ -251,6 +251,20 @@ class EndorsementServiceTest {
     }
 
     /**
+     * {@code authorizeOutcome()} answers GRANTED for the holder of a supervisor
+     * card, whatever their role (BO-03-06-51).
+     */
+    @Test
+    void authorizeOutcomeGrantsASupervisorCardHolder() {
+        EndorsementService service = newService();
+        Employee holder = employee(Employee.EmployeeRole.CASHIER);
+        holder.supervisorCard = true;
+        when(service.authService.checkCredentials("sup", "1234")).thenReturn(status(holder));
+        assertEquals(AuthService.CheckOutcome.GRANTED,
+                service.authorizeOutcome("sup", "1234", "GS1_EXPIRY_FORCE"));
+    }
+
+    /**
      * {@code authorizeOutcome()} answers LOCKED when the account is under PIN
      * lockout (isSuccess false, locked true) — the refusal retyping cannot fix,
      * and the one the screens must name.
@@ -356,7 +370,14 @@ class EndorsementServiceTest {
         EndorsementService service = newService();
         PosState state = mock(PosState.class);
         state.endorsement = mock(EndorsementState.class);
+        state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        state.ticket.pendingCancelUid = "A";
+        state.ticket.pendingCancelReasonCode = "ERROR";
+        state.ticket.pendingCancelReasonLabel = "Erreur";
         service.clearRequest(state);
+        assertNull(state.ticket.pendingCancelUid);
+        assertNull(state.ticket.pendingCancelReasonCode);
+        assertNull(state.ticket.pendingCancelReasonLabel);
         verify(state.endorsement).clear();
         verify(state).touch();
     }
@@ -818,5 +839,364 @@ class EndorsementServiceTest {
         state.endorsement.remoteGrant = "   ";
         assertNull(service.remotelyGranted(state));
         assertNull(service.remotelyGranted(null));
+    }
+    /** LC-01-05-08: consuming the back office's authorisation settles the lane's other open requests. */
+    @Test
+    void aConsumedRemoteAuthorisationSettlesTheLane() {
+        EndorsementService service = newService();
+        service.supervisorSettleService = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        PosState state = controlState();
+        state.endorsement = new EndorsementState();
+        state.endorsement.remoteGrant = "Le Manager";
+        assertEquals("Le Manager", service.remotelyGranted(state));
+        verify(service.supervisorSettleService).settledAtTill();
+    }
+
+    /** LC-01-05: an empty administered role list falls back for every role and missing approval mailboxes grant nothing. */
+    @Test
+    void blankRoleListAndMissingRemoteMailboxKeepTheirFallbacks() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.endorsementRoles()).thenReturn("; ;");
+        for (var role : Employee.EmployeeRole.values()) assertEquals(role == Employee.EmployeeRole.MANAGER || role == Employee.EmployeeRole.ADMIN, service.endorses(role));
+        assertNull(service.remotelyGranted(null));
+        PosState state = mock(PosState.class);
+        state.endorsement = null;
+        assertNull(service.remotelyGranted(state));
+    }
+
+    /** LC-01-05-08: every way of opening a request sends it to the back office and records whether it went. */
+    @Test
+    void openedRequestsAreSentToTheBackOffice() {
+        EndorsementService service = newService();
+        service.supervisorSettleService = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        PosState state = mock(PosState.class);
+        state.endorsement = new EndorsementState();
+        when(state.getOperatorName()).thenReturn("Jean Dupont");
+        when(service.supervisorSettleService.authorizationRequested("CANCEL_LINE", "Jean Dupont")).thenReturn(true);
+        service.requestAuthorization(state, "CANCEL_LINE_123e4567-e89b-12d3-a456-426614174000");
+        assertTrue(state.endorsement.remoteRequested);
+        when(service.supervisorSettleService.authorizationRequested("DRAWER_FORCE_OPEN", "Jean Dupont")).thenReturn(false);
+        service.requestAuthorization(state, "DRAWER_FORCE_OPEN", java.util.Map.of("code", "ERR"), "/");
+        assertFalse(state.endorsement.remoteRequested);
+        when(service.supervisorSettleService.authorizationRequested("DISCOUNT 10", "Jean Dupont")).thenReturn(true);
+        service.requestPriceModification(state, PriceModType.DISCOUNT, "L1", new BigDecimal("10.00"));
+        assertTrue(state.endorsement.remoteRequested);
+        verify(state, times(3)).touch();
+    }
+
+    /** LC-01-05-08: a register without the notice service opens its request locally and marks nothing as sent. */
+    @Test
+    void requestWithoutNoticeServiceStaysLocal() {
+        EndorsementService service = newService();
+        PosState state = mock(PosState.class);
+        state.endorsement = new EndorsementState();
+        service.requestAuthorization(state, "CANCEL_TICKET");
+        assertTrue(state.endorsement.active);
+        assertFalse(state.endorsement.remoteRequested);
+    }
+
+    /** LC-01-05-08: a gesture is named by its action code, a line cancellation without its uid, a price change by type and value. */
+    @Test
+    void describeNamesTheGestureForTheBoard() {
+        EndorsementState endorsement = new EndorsementState();
+        endorsement.request("PRINT_BADGE_12341234");
+        assertEquals("PRINT_BADGE_12341234", EndorsementService.describe(endorsement));
+        endorsement.request("CANCEL_LINE_123e4567-e89b-12d3-a456-426614174000");
+        assertEquals("CANCEL_LINE", EndorsementService.describe(endorsement));
+        endorsement.requestPriceModification(PriceModType.FORCE_PRICE, "L1", new BigDecimal("2.50"));
+        assertEquals("FORCE_PRICE 2.5", EndorsementService.describe(endorsement));
+    }
+
+    /** LC-01-05-08: abandoning withdraws a sent request, keeps the board when a service request is pending, and never posts an unsent one. */
+    @Test
+    void abandonRequestWithdrawsOnlyARequestThatWentUp() {
+        EndorsementService service = newService();
+        service.supervisorSettleService = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        PosState state = mock(PosState.class);
+        state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        state.endorsement = new EndorsementState();
+        state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        state.endorsement.request("CANCEL_TICKET");
+        service.abandonRequest(state);
+        verify(service.supervisorSettleService, never()).authorizationWithdrawn();
+        state.endorsement.request("CANCEL_TICKET");
+        state.endorsement.remoteRequested = true;
+        state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.abandonRequest(state);
+        verify(service.supervisorSettleService, never()).authorizationWithdrawn();
+        assertFalse(state.endorsement.active);
+        state.endorsement.request("CANCEL_TICKET");
+        state.endorsement.remoteRequested = true;
+        state.serviceRequest = PosState.ServiceRequestStatus.NONE;
+        service.abandonRequest(state);
+        verify(service.supervisorSettleService).authorizationWithdrawn();
+        assertFalse(state.endorsement.active);
+        assertFalse(state.endorsement.remoteRequested);
+    }
+
+    /** BO-04-02-03: an approved local supervisor gesture clears the outstanding store-node request. */
+    @Test
+    void localApprovalNotifiesTheStoreNode() {
+        EndorsementService service = newService();
+        service.supervisorSettleService = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        Employee manager = new Employee();
+        manager.role = Employee.EmployeeRole.MANAGER;
+        var granted = status(manager);
+        when(service.authService.checkCredentials("M", "PIN")).thenReturn(granted);
+        assertEquals(AuthService.CheckOutcome.GRANTED, service.authorizeOutcome("M", "PIN", "ACTION"));
+        verify(service.supervisorSettleService).settledAtTill();
+    }
+
+    /** LC-01-05-01: a function decision applies only to this request and never invents a manager role. */
+    @Test
+    void exactFunctionDecisionAndRealApproval() {
+        EndorsementService service = newService();
+        PosState state = new PosState();
+        service.functionApproval.exempt();
+        assertTrue(service.selfAuthorized(state));
+        assertTrue(service.gestureAuthorized(state, "refund"));
+        assertFalse(service.functionApproved());
+        service.functionApproval.approve();
+        assertTrue(service.functionApproved());
+        assertFalse(service.operatorIsSupervisor(state));
+    }
+
+    // --- BO-10-02-31: the supervisor validation modes ---
+
+    /**
+     * Builds a register state whose endorsement request carries the given
+     * physical proofs.
+     *
+     * @param badge the barcode the scanner read, or null
+     * @param dallas the Dallas key the reader delivered, or null
+     * @return the state
+     */
+    private PosState panelState(String badge, String dallas) {
+        PosState state = mock(PosState.class);
+        state.endorsement = new EndorsementState();
+        state.endorsement.presentedBadge = badge;
+        state.endorsement.presentedDallasKey = dallas;
+        return state;
+    }
+
+    /**
+     * Builds an active employee with an id, a role and a lock state.
+     *
+     * @param id the employee id
+     * @param role the role
+     * @param locked whether the account is under lockout
+     * @return the employee mock
+     */
+    private Employee holder(long id, Employee.EmployeeRole role, boolean locked) {
+        Employee employee = mock(Employee.class);
+        employee.id = id;
+        employee.role = role;
+        when(employee.isCurrentlyLocked()).thenReturn(locked);
+        return employee;
+    }
+
+    /**
+     * The administered mode is read tolerantly; a service without its
+     * parameters asks code and password.
+     */
+    @Test
+    void validationModeReadsTheAdministeredMode() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.supervisorValidationMode()).thenReturn(" dallas ");
+        assertEquals(SupervisorValidationMode.DALLAS, service.validationMode());
+        service.posSettingsService = null;
+        assertEquals(SupervisorValidationMode.CODE_PASSWORD, service.validationMode());
+    }
+
+    /**
+     * DALLAS: the key the reader delivered endorses alone for a supervisor; no
+     * key, or a key nobody holds, endorses nothing.
+     */
+    @Test
+    void theDallasKeyEndorsesAlone() {
+        EndorsementService service = newService();
+        service.supervisorSettleService = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        Employee manager = holder(1L, Employee.EmployeeRole.MANAGER, false);
+        try (MockedStatic<Employee> employees = mockStatic(Employee.class)) {
+            employees.when(() -> Employee.findActiveDallasKey("KEY")).thenReturn(manager);
+            assertFalse(service.authorizePanel(panelState(null, null), SupervisorValidationMode.DALLAS,
+                    null, null, "CANCEL_TICKET"));
+            assertTrue(service.authorizePanel(panelState(null, "KEY"), SupervisorValidationMode.DALLAS,
+                    null, null, "CANCEL_TICKET"));
+            assertFalse(service.authorizePanel(panelState(null, "OTHER"), SupervisorValidationMode.DALLAS,
+                    null, null, "CANCEL_TICKET"));
+        }
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.ENDORSEMENT_GRANTED,
+                "CANCEL_TICKET par KEY", "KEY");
+        verify(service.supervisorSettleService).settledAtTill();
+    }
+
+    /**
+     * BARCODE: no barcode read refuses; a read barcode endorses alone for a
+     * holder who may endorse — by role or by supervisor card — and is not
+     * locked out.
+     */
+    @Test
+    void theBarcodeEndorsesAloneWhenRead() {
+        EndorsementService service = newService();
+        Employee carded = holder(2L, Employee.EmployeeRole.CASHIER, false);
+        carded.supervisorCard = true;
+        Employee cashier = holder(3L, Employee.EmployeeRole.CASHIER, false);
+        Employee locked = holder(4L, Employee.EmployeeRole.MANAGER, true);
+        try (MockedStatic<Employee> employees = mockStatic(Employee.class)) {
+            employees.when(() -> Employee.findActiveLogin("CARD")).thenReturn(carded);
+            employees.when(() -> Employee.findActiveLogin("CASH")).thenReturn(cashier);
+            employees.when(() -> Employee.findActiveLogin("LOCK")).thenReturn(locked);
+            assertFalse(service.authorizePanel(panelState(null, null), SupervisorValidationMode.BARCODE,
+                    null, null, "CANCEL_TICKET"));
+            assertTrue(service.authorizePanel(panelState("CARD", null), SupervisorValidationMode.BARCODE,
+                    null, null, "CANCEL_TICKET"));
+            assertFalse(service.authorizePanel(panelState("CASH", null), SupervisorValidationMode.BARCODE,
+                    null, null, "CANCEL_TICKET"));
+            assertFalse(service.authorizePanel(panelState("LOCK", null), SupervisorValidationMode.BARCODE,
+                    null, null, "CANCEL_TICKET"));
+            assertFalse(service.authorizePanel(panelState("NOBODY", null), SupervisorValidationMode.BARCODE,
+                    null, null, "CANCEL_TICKET"));
+        }
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.ENDORSEMENT_DENIED,
+                "CANCEL_TICKET par ? (code-barres superviseur non lu)", null);
+    }
+
+    /**
+     * BARCODE_PASSWORD: the read barcode and the typed password go through
+     * the credential check, the posted login playing no part.
+     */
+    @Test
+    void theBarcodeAndPasswordGoThroughTheCredentialCheck() {
+        EndorsementService service = newService();
+        Employee manager = holder(1L, Employee.EmployeeRole.MANAGER, false);
+        when(service.authService.checkCredentials("11111111", "1111")).thenReturn(status(manager));
+        PosState state = panelState("11111111", "KEY");
+        assertTrue(service.authorizePanel(state,
+                SupervisorValidationMode.BARCODE_PASSWORD, null, "1111", "CANCEL_TICKET"));
+        // A proof serves one validation: both are consumed.
+        assertNull(state.endorsement.presentedBadge);
+        assertNull(state.endorsement.presentedDallasKey);
+    }
+
+    /**
+     * BARCODE_CODE_PASSWORD: the typed code must designate the holder of the
+     * read barcode — absent, blank, unknown or someone else's code refuses —
+     * and the password then goes through the credential check.
+     */
+    @Test
+    void theBarcodeCodeAndPasswordMustNameOneHolder() {
+        EndorsementService service = newService();
+        Employee manager = holder(1L, Employee.EmployeeRole.MANAGER, false);
+        Employee other = holder(9L, Employee.EmployeeRole.MANAGER, false);
+        when(service.authService.checkCredentials("11111111", "1111")).thenReturn(status(manager));
+        SupervisorValidationMode mode = SupervisorValidationMode.BARCODE_CODE_PASSWORD;
+        try (MockedStatic<Employee> employees = mockStatic(Employee.class)) {
+            employees.when(() -> Employee.findActiveLogin("11111111")).thenReturn(manager);
+            employees.when(() -> Employee.findActiveLogin("mcurie")).thenReturn(manager);
+            employees.when(() -> Employee.findActiveLogin("other")).thenReturn(other);
+            assertFalse(service.authorizePanel(panelState("11111111", null), mode, null, "1111", "A"));
+            assertFalse(service.authorizePanel(panelState("11111111", null), mode, " ", "1111", "A"));
+            assertFalse(service.authorizePanel(panelState("11111111", null), mode, "nobody", "1111", "A"));
+            assertFalse(service.authorizePanel(panelState("11111111", null), mode, "other", "1111", "A"));
+            assertFalse(service.authorizePanel(panelState("22222222", null), mode, "mcurie", "1111", "A"));
+            assertTrue(service.authorizePanel(panelState("11111111", null), mode, " MCURIE ", "1111", "A"));
+        }
+        verify(service.technicalEventService, times(4)).log(TechnicalEvent.EventType.ENDORSEMENT_DENIED,
+                "A par 11111111 (code superviseur différent)", "11111111");
+    }
+
+    /**
+     * Builds the checkout point service of a register.
+     *
+     * @param type the type of the point, null for no point at all
+     * @param hostessBadge the technical hostess attached to it
+     * @return the mocked service
+     */
+    private com.intermarche.pos.service.CheckoutPointService lane(com.intermarche.pos.domain.store.TpvType type,
+            String hostessBadge) {
+        com.intermarche.pos.service.CheckoutPointService points =
+                mock(com.intermarche.pos.service.CheckoutPointService.class);
+        if (type != null) {
+            com.intermarche.pos.domain.store.CheckoutPoint point = new com.intermarche.pos.domain.store.CheckoutPoint();
+            point.tpvType = type;
+            point.technicalHostessBadge = hostessBadge;
+            when(points.own()).thenReturn(point);
+        }
+        return points;
+    }
+
+    /**
+     * BO-03-09-08: only the technical hostess attached to this self-service
+     * lane is its hostess — every other leg of the check refuses.
+     */
+    @Test
+    void theLaneHostessIsTheOneAttachedToThisSelfServicePoint() {
+        EndorsementService service = newService();
+        Employee hostess = employee(Employee.EmployeeRole.TECHNICAL_HOSTESS);
+        hostess.badgeId = "H1";
+        assertFalse(service.isLaneHostess(hostess));
+        service.checkoutPointService = lane(com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_NCR, "H1");
+        assertTrue(service.isLaneHostess(hostess));
+        Employee noBadge = employee(Employee.EmployeeRole.TECHNICAL_HOSTESS);
+        assertFalse(service.isLaneHostess(noBadge));
+        Employee cashier = employee(Employee.EmployeeRole.CASHIER);
+        cashier.badgeId = "H1";
+        assertFalse(service.isLaneHostess(cashier));
+        Employee other = employee(Employee.EmployeeRole.TECHNICAL_HOSTESS);
+        other.badgeId = "H2";
+        assertFalse(service.isLaneHostess(other));
+        service.checkoutPointService = lane(com.intermarche.pos.domain.store.TpvType.CASH_REGISTER, "H1");
+        assertFalse(service.isLaneHostess(hostess));
+        service.checkoutPointService = lane(null, null);
+        assertFalse(service.isLaneHostess(hostess));
+    }
+
+    /**
+     * BO-03-09-08: the hostess of the lane endorses by her code and password
+     * as well as by her badge alone.
+     */
+    @Test
+    void theLaneHostessEndorsesOnHerLane() {
+        EndorsementService service = newService();
+        service.checkoutPointService = lane(com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_NCR, "H1");
+        Employee hostess = holder(9L, Employee.EmployeeRole.TECHNICAL_HOSTESS, false);
+        hostess.badgeId = "H1";
+        when(service.authService.checkCredentials("H1", "1234")).thenReturn(status(hostess));
+        assertEquals(AuthService.CheckOutcome.GRANTED, service.authorizeOutcome("H1", "1234", "CANCEL_TICKET"));
+        try (MockedStatic<Employee> employees = mockStatic(Employee.class)) {
+            employees.when(() -> Employee.findActiveLogin("H1")).thenReturn(hostess);
+            assertTrue(service.authorizePanel(panelState("H1", null), SupervisorValidationMode.BARCODE,
+                    null, null, "CANCEL_TICKET"));
+        }
+    }
+
+    /**
+     * BO-04-02-01: a holder of an administered endorsing profile endorses
+     * whatever the role; a gesture whose rule names its profiles is endorsed
+     * by their holders alone, the endorsing roles included.
+     */
+    @Test
+    void profilesEndorse() {
+        EndorsementService service = newService();
+        Employee cashier = new Employee();
+        cashier.role = Employee.EmployeeRole.CASHIER;
+        cashier.profileNames = "Chef de caisse; Gérant";
+        Employee manager = new Employee();
+        manager.role = Employee.EmployeeRole.MANAGER;
+        assertFalse(service.mayEndorse(cashier));
+        when(service.posSettingsService.endorsementProfiles()).thenReturn("gérant, ");
+        assertTrue(service.mayEndorse(cashier));
+        assertTrue(service.mayEndorse(manager));
+        service.posState = new PosState();
+        assertTrue(service.mayEndorse(manager));
+        service.posState.endorsement.requiredProfiles = java.util.List.of("Chef de caisse");
+        assertTrue(service.mayEndorse(cashier));
+        assertFalse(service.mayEndorse(manager));
+        service.posState.endorsement = null;
+        assertTrue(service.mayEndorse(manager));
+        service.posSettingsService = null;
+        assertTrue(service.administeredProfiles().isEmpty());
+        assertTrue(EndorsementService.names(null).isEmpty());
     }
 }

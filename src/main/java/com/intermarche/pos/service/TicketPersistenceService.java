@@ -84,8 +84,16 @@ public class TicketPersistenceService {
     @Inject
     TechnicalEventService technicalEventService;
 
+    /** Whether the store node is reachable, for the « déconnecté » sale (BO-04-01-14). */
+    @Inject
+    com.intermarche.pos.service.sync.RefPullService refPullService;
+
     @Inject
     SyncOutboxService syncOutboxService;
+
+    /** Numbers the issued instruments from their administered range (BO-03-06-30 to -38). */
+    @Inject
+    StoredValueNumberService storedValueNumberService;
 
     /**
      * Reverses a ticket's campaign consumption when it is cancelled (campaigns
@@ -93,6 +101,14 @@ public class TicketPersistenceService {
      */
     @Inject
     com.intermarche.pos.service.sync.ConsumptionService consumptionService;
+
+    /** The shop's rounding rule of the amounts computed at the till (BO-10-02-18). */
+    @Inject
+    PosSettingsService posSettingsService;
+
+    /** Resolves the code of a return line's type (BO-03-13-12). */
+    @Inject
+    PosListService posListService;
 
     /** Payment factories indexed by their method key. */
     private final Map<String, TicketPayment.Factory> paymentFactories = new HashMap<>();
@@ -166,8 +182,25 @@ public class TicketPersistenceService {
         reconcileLines(ticket, state);
         applyHeaderAndTotals(ticket, state);
         ticket.persist();
+        nameAwaitingEvents(state, ticket);
         LOGGER.info("Exiting method syncDraft");
         return ticket.id;
+    }
+
+    /**
+     * Names the journal events recorded while the sale had no draft, or
+     * before this synchronisation, with the draft's number (BO-04-01-34):
+     * unknown codes scanned before the first article, alerts and self-scan
+     * controls of the articles that opened it.
+     *
+     * @param state the register state
+     * @param ticket the draft
+     */
+    private void nameAwaitingEvents(PosState state, Ticket ticket) {
+        for (Long eventId : state.ticket.eventsAwaitingTicket) {
+            technicalEventService.attachTicket(eventId, ticket.ticketNumber);
+        }
+        state.ticket.eventsAwaitingTicket.clear();
     }
 
     /**
@@ -206,6 +239,7 @@ public class TicketPersistenceService {
         }
         applyHeaderAndTotals(ticket, state);
         ticket.persist();
+        nameAwaitingEvents(state, ticket);
         LOGGER.infof("Ticket créé en BDD (Draft) ID: %d (%s)", ticket.id, ticket.ticketNumber);
         return ticket.id;
     }
@@ -246,24 +280,46 @@ public class TicketPersistenceService {
             } else {
                 line.lineNumber = lineNumber;
                 line.productLabel = item.label;
+                line.linkedParentUid = item.linkedParentUid;
+                line.linkedArticleEan = item.linkedArticleEan;
+                line.linkedRecordedQuantity = item.linkedRecordedQuantity;
+                line.linkedArticleMultiplier = item.linkedArticleMultiplier;
                 line.quantity = item.quantity;
                 line.unitPrice = item.unitPrice;
         line.modifierLabel = item.modifierLabel;
         line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
         line.modifierType = item.modifierType;
         line.modifierValue = item.modifierValue;
+                // BO-02-02-01: the regime is read again only when the rate moved,
+                // so a sync per scan does not cost a lookup per line.
+                line.vatNumber = sameRate(line.vatRate, item.vatRate) ? line.vatNumber
+                        : com.intermarche.pos.domain.catalog.VatRate.numberFor(item.ean, item.vatRate);
                 line.vatRate = item.vatRate;
                 line.modifierLabel = item.modifierLabel;
                 line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
                 line.modifierType = item.modifierType;
                 line.modifierValue = item.modifierValue;
-                line.totalPrice = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
+                line.totalPrice = item.getTotalPrice().setScale(2, roundingMode());
                 // EXP-43: the SOUS-TOTAL marker is placed AFTER a line already exists,
                 // so it is refreshed on update, not only at line creation.
                 line.subtotalBoundary = item.subtotalBoundary;
                 line.returnLine = item.returnLine;
                 line.embeddedWeight = item.embeddedWeight;
                 line.embeddedUnitPrice = item.embeddedUnitPrice;
+                // LC-02-09-01: the activation code is scanned AFTER the line was
+                // first persisted, and the hub's answer comes with it — both are
+                // refreshed here, or the sold line would keep neither.
+                line.activationCode = item.activationCode;
+                line.activationProvider = item.activationProvider;
+                line.activationReference = item.activationReference;
+                line.activationApproval = item.activationApproval;
+                line.activationBalanceBefore = item.activationBalanceBefore;
+                line.activationBalanceAfter = item.activationBalanceAfter;
+                // BO-04-01-14: the scan is known once the scan chain has run,
+                // after the line was first persisted.
+                line.scanned = item.scanned;
+                line.priceEntered = item.priceEntered;
+                line.carriedOut = item.bulky;
             }
             lineNumber++;
         }
@@ -281,6 +337,28 @@ public class TicketPersistenceService {
     }
 
     /**
+     * Tells whether a line still carries the rate of its cart item
+     * (BO-02-02-01): then its regime number stands.
+     *
+     * @param kept the rate the line holds, possibly null
+     * @param current the rate of the cart item, possibly null
+     * @return true when both are present and equal
+     */
+    static boolean sameRate(BigDecimal kept, BigDecimal current) {
+        return kept != null && current != null && kept.compareTo(current) == 0;
+    }
+
+    /**
+     * The rule the line totals and the VAT ventilation are rounded with
+     * (BO-10-02-18), half up on a service built without its parameters.
+     *
+     * @return the administered rounding rule
+     */
+    private RoundingMode roundingMode() {
+        return posSettingsService == null ? RoundingMode.HALF_UP : posSettingsService.calcRoundingMode();
+    }
+
+    /**
      * Refreshes the header fields and financial totals of the draft from the
      * in-memory state (fidelity card included, so a card scanned mid-cart is
      * picked up by the next synchronization). Totals come from the per-rate
@@ -292,14 +370,31 @@ public class TicketPersistenceService {
      */
     private void applyHeaderAndTotals(Ticket ticket, PosState state) {
         ticket.fidelityCard = state.fidelity.active ? state.fidelity.label : null;
+        ticket.customerTaxId = state.ticket.customerTaxId;
+        // BO-04-01-41/42/43: the self-scanning channel and who decided its control.
+        ticket.selfScanning = state.ticket.selfScanning;
+        ticket.selfScanControlled = state.ticket.selfScanControlled;
+        ticket.selfScanVerified = state.ticket.selfScanVerified;
+        // BO-04-01-14: a sale touched while the store node was lost stays « déconnecté ».
+        ticket.offline = ticket.offline || (refPullService != null && refPullService.isNodeUnreachable());
         ticket.globalDiscountType = state.ticket.globalDiscountType;
         ticket.globalDiscountValue = state.ticket.globalDiscountValue;
         ticket.globalDiscountApplied = state.ticket.globalDiscountApplied;
         ticket.itemCount = state.ticket.items.size();
 
-        VatBreakdown breakdown = new VatBreakdown();
+        RoundingMode rule = roundingMode();
+        VatBreakdown breakdown = new VatBreakdown(rule);
+        // BO-02-02-01: ventilated by REGIME, as the printed ticket is, so two
+        // regimes of one percentage round their tax apart on both papers; the
+        // exempt and third-party lines under their own headings too
+        // (BO-02-03-26/42), so the totals are the sum of the printed rows.
+        Map<String, Integer> regimes = new HashMap<>();
+        for (TicketLine line : ticket.lines) {
+            regimes.put(line.lineUid, line.vatNumber);
+        }
         for (TicketState.TicketItem item : state.ticket.items) {
-            breakdown.add(item.vatRate, item.getTotalPrice().setScale(2, RoundingMode.HALF_UP));
+            breakdown.add(item.vatRate, regimes.get(item.uid), item.getTotalPrice().setScale(2, rule),
+                    item.vatExempt, item.thirdPartySale);
         }
         ticket.totalIncludingTax = breakdown.getTotalIncludingTax();
         ticket.totalExcludingTax = breakdown.getTotalExcludingTax();
@@ -327,6 +422,9 @@ public class TicketPersistenceService {
         TicketPayment.Factory factory = paymentFactories.get(factoryKey);
         if (factory == null) throw new IllegalArgumentException("Mode inconnu : " + factoryKey);
         TicketPayment payment = factory.create(amount, tendered);
+        payment.moneticServer = entry.moneticServer;
+        // BO-03-02-01/-44: the administered tender the settlement was taken as.
+        payment.tenderCode = entry.tenderCode;
         if (payment instanceof VoucherPayment voucherPayment) {
             voucherPayment.voucherLabel = entry.method;
             voucherPayment.voucherNumber = entry.voucherNumber;
@@ -335,9 +433,14 @@ public class TicketPersistenceService {
             cardPayment.authorizationNumber = entry.authorizationNumber;
             cardPayment.degradedMode = entry.degradedMode;
             cardPayment.cardEntryMode = entry.cardEntryMode;
+            // LC-08-05-07: the terminal's own receipt, for the duplicate.
+            cardPayment.customerReceipt = entry.customerReceiptFrame;
         }
         if (payment instanceof com.intermarche.pos.domain.payment.ChequePayment chequePayment) {
             chequePayment.magneticLine = entry.magneticLine;
+            chequePayment.accountNumber = entry.chequeAccountNumber;
+            chequePayment.guaranteeAuthorization = entry.chequeGuaranteeAuthorization;
+            chequePayment.guaranteeProvider = entry.chequeGuaranteeProvider;
         }
         if (payment instanceof com.intermarche.pos.domain.payment.BackupPayment backupPayment) {
             backupPayment.methodLabel = entry.backupMethodLabel;
@@ -369,6 +472,24 @@ public class TicketPersistenceService {
     }
 
     /**
+     * Stamps the moment the cashier went to PAYMENT on the draft
+     * (BO-06-06-02): the first entry only, a return to the sale screen and a
+     * second payment entry keeping the first moment.
+     *
+     * @param ticketId the database id of the draft, possibly null in training
+     */
+    @Transactional
+    public void markPaymentStarted(Long ticketId) {
+        LOGGER.info("Entering method markPaymentStarted with ticketId: " + ticketId);
+        Ticket ticket = ticketId == null ? null : Ticket.findById(ticketId);
+        if (ticket != null && ticket.paymentStartedAt == null) {
+            ticket.paymentStartedAt = LocalDateTime.now();
+            ticket.persist();
+        }
+        LOGGER.info("Exiting method markPaymentStarted");
+    }
+
+    /**
      * Removes every payment persisted on the draft (payment-cancellation
      * coherence: the in-memory list is cleared by the caller, the database
      * must follow, otherwise a later recovery would resurrect ghost payments).
@@ -378,16 +499,65 @@ public class TicketPersistenceService {
     @Transactional
     public void removePaymentsFromTicket(Long ticketId) {
         LOGGER.info("Entering method removePaymentsFromTicket with ticketId: " + ticketId);
+        removePaymentsFromTicket(ticketId, true);
+        LOGGER.info("Exiting method removePaymentsFromTicket");
+    }
+
+    /**
+     * Removes every payment persisted on the draft, journalling each
+     * settlement as cancelled or not (BO-04-01-19): a single settlement undone
+     * clears the set only to replay the survivors, which were not cancelled.
+     *
+     * @param ticketId the database id of the draft ticket
+     * @param journalled whether each removed settlement is journalled as cancelled
+     */
+    @Transactional
+    public void removePaymentsFromTicket(Long ticketId, boolean journalled) {
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null) { LOGGER.info("Exiting method removePaymentsFromTicket"); return; }
         int removed = ticket.payments.size();
+        // BO-04-01-19: each settlement cancelled is journalled with its method and amount.
+        for (com.intermarche.pos.domain.payment.TicketPayment payment : journalled ? ticket.payments
+                : List.<com.intermarche.pos.domain.payment.TicketPayment>of()) {
+            journalCancelledPayment(ticket, payment.getMethodKey(), payment.amount);
+        }
         ticket.payments.clear();
         ticket.persist();
         if (removed > 0) {
             technicalEventService.log(TechnicalEvent.EventType.PAYMENTS_CLEARED,
                     ticket.ticketNumber + " (" + removed + ")");
         }
-        LOGGER.info("Exiting method removePaymentsFromTicket");
+    }
+
+    /**
+     * Journals ONE settlement cancelled on a draft (BO-04-01-19), with its
+     * method and amount, so the journal searches the cancellations by method
+     * and amount range.
+     *
+     * @param ticketId the database id of the draft ticket
+     * @param method the payment method key of the settlement
+     * @param amount the settlement's amount
+     */
+    @Transactional
+    public void journalCancelledPayment(Long ticketId, String method, BigDecimal amount) {
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket != null) {
+            journalCancelledPayment(ticket, method, amount);
+        }
+    }
+
+    /**
+     * Writes the journal entry of one cancelled settlement, under the
+     * ticket's cashier.
+     *
+     * @param ticket the ticket
+     * @param method the payment method key
+     * @param amount the amount
+     */
+    private void journalCancelledPayment(Ticket ticket, String method, BigDecimal amount) {
+        technicalEventService.record(TechnicalEvent.EventType.PAYMENT_CANCELLED,
+                ticket.ticketNumber + " " + method, ticket.cashier == null ? null : ticket.cashier.badgeId,
+                ticket.ticketNumber, amount, method);
     }
 
     /**
@@ -451,11 +621,16 @@ public class TicketPersistenceService {
      * because it is the only place that can render what its own printer produced. The
      * store synchronization carries it up from here.
      *
+     * <p>The customer language it was printed in is kept beside it
+     * (LC-13-06-14), so its restitution speaks that language too.
+     *
      * @param ticketId the database id of the closed ticket
      * @param content the ticket as printed, or null to leave the field alone
+     * @param customerLanguage the customer language of the sale, or null when it
+     *        ran in the register's language
      */
     @Transactional
-    public void storeFormattedContent(Long ticketId, String content) {
+    public void storeFormattedContent(Long ticketId, String content, String customerLanguage) {
         LOGGER.info("Entering method storeFormattedContent with ticketId: " + ticketId + ", content: " + content);
         if (ticketId == null || content == null || content.isBlank()) {
             LOGGER.info("Exiting method storeFormattedContent");
@@ -467,6 +642,7 @@ public class TicketPersistenceService {
             return;
         }
         ticket.formattedContent = content;
+        ticket.customerLanguage = customerLanguage;
         ticket.persist();
         LOGGER.info("Exiting method storeFormattedContent");
     }
@@ -514,6 +690,63 @@ public class TicketPersistenceService {
         ticket.fidelityLines.addAll(lines);
         ticket.persist();
         LOGGER.info("Exiting method storeFidelity");
+    }
+
+    /**
+     * Freezes on the closed ticket the balance of each loyalty pot the
+     * programme computed with this sale (BO-10-02-33), so the receipt and any
+     * duplicata print them.
+     *
+     * <p>Nothing is read or written when there is no pot to state: a sale made
+     * without the pots — the parameter off, no card, the programme silent —
+     * leaves the column as it is, null on a fresh ticket.
+     *
+     * @param ticketId the database id of the closed ticket, or null
+     * @param potBalances the frozen text of the pots, or null when there is none
+     */
+    @Transactional
+    public void storePotBalances(Long ticketId, String potBalances) {
+        LOGGER.info("Entering method storePotBalances with ticketId: " + ticketId + ", potBalances: " + potBalances);
+        if (ticketId == null || potBalances == null) {
+            LOGGER.info("Exiting method storePotBalances");
+            return;
+        }
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method storePotBalances");
+            return;
+        }
+        ticket.fidelityPotBalances = potBalances;
+        ticket.persist();
+        LOGGER.info("Exiting method storePotBalances");
+    }
+
+    /**
+     * Freezes on the closed ticket the loyalty programme's MESSAGES for the
+     * sale (BO-03-03-26, BO-03-03-27), so the receipt and any duplicata print
+     * them.
+     *
+     * <p>Nothing is read or written when there is no message: a sale the
+     * programme said nothing about leaves the column null.
+     *
+     * @param ticketId the database id of the closed ticket, or null
+     * @param messages the frozen text of the messages, or null when there is none
+     */
+    @Transactional
+    public void storeFidelityMessages(Long ticketId, String messages) {
+        LOGGER.info("Entering method storeFidelityMessages with ticketId: " + ticketId);
+        if (ticketId == null || messages == null) {
+            LOGGER.info("Exiting method storeFidelityMessages");
+            return;
+        }
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method storeFidelityMessages");
+            return;
+        }
+        ticket.fidelityMessages = messages;
+        ticket.persist();
+        LOGGER.info("Exiting method storeFidelityMessages");
     }
 
     /**
@@ -574,14 +807,20 @@ public class TicketPersistenceService {
         note.balance = amount;
         note.issuedAt = LocalDateTime.now();
         note.issuingTicketId = ticketId;
-        // Same NOT NULL, 20-character column as every other instrument: a SHORT
-        // unique placeholder carries the INSERT, the definitive number is derived
-        // from the generated id right after.
+        // BO-03-06-62: the note remembers the register and the sale that printed it.
+        Ticket issuing = Ticket.findById(ticketId);
+        note.issuingTerminalId = issuing == null ? ticketNumberService.getTerminalId() : issuing.terminalId;
+        note.issuingDocumentNumber = issuing == null ? null : issuing.ticketNumber;
+        // Same NOT NULL column as every other instrument: a SHORT unique
+        // placeholder carries the INSERT, the definitive number is derived from
+        // the generated id right after.
         note.number = "T" + Long.toUnsignedString(
                 java.util.UUID.randomUUID().getMostSignificantBits(), 36);
         note.persistAndFlush();
-        note.number = com.intermarche.pos.domain.payment.StoredValue.CREDIT_NOTE_PREFIX
-                + String.format("%012d", note.id);
+        // BO-03-06-30 to -38: composed from the administered issuing range, when
+        // the store administers one.
+        note.number = storedValueNumberService.numberOf(note, note.issuingDocumentNumber);
+        syncOutboxService.enqueue(SyncOutbox.EntityType.STORED_VALUE, note.id);
         LOGGER.info("Exiting method issueChangeCreditNote");
         return note.number;
     }
@@ -626,8 +865,10 @@ public class TicketPersistenceService {
         //     moves HERE — a cancelled payment or a crash before this point
         //     never burns stored value.
         for (com.intermarche.pos.domain.payment.TicketPayment payment : ticket.payments) {
+            // BO-03-06-30 to -38: a number composed from an issuing range has no
+            // fixed shape, so the registry itself says which vouchers are its own.
             if (payment instanceof com.intermarche.pos.domain.payment.VoucherPayment voucher
-                    && com.intermarche.pos.domain.payment.StoredValue.isRegistryNumber(voucher.voucherNumber)) {
+                    && voucher.voucherNumber != null) {
                 com.intermarche.pos.domain.payment.StoredValue instrument =
                         com.intermarche.pos.domain.payment.StoredValue.findByNumber(voucher.voucherNumber);
                 if (instrument != null) {
@@ -637,6 +878,8 @@ public class TicketPersistenceService {
                         instrument.status = com.intermarche.pos.domain.payment.StoredValue.Status.EXHAUSTED;
                         instrument.exhaustedAt = LocalDateTime.now();
                     }
+                    // BO-03-06-48/62: the shop's copy follows the balance.
+                    syncOutboxService.enqueue(SyncOutbox.EntityType.STORED_VALUE, instrument.id);
                 }
             }
         }
@@ -659,20 +902,27 @@ public class TicketPersistenceService {
                 card.balance = product.giftCardAmount;
                 card.issuedAt = LocalDateTime.now();
                 card.issuingTicketId = ticket.id;
-                // Same NOT NULL, 20-character column as the credit note: a
-                // SHORT unique placeholder carries the INSERT, the definitive
-                // number is derived from the generated id right after.
+                // BO-03-06-62: the card remembers the register and the sale that printed it.
+                card.issuingTerminalId = ticket.terminalId;
+                card.issuingDocumentNumber = ticket.ticketNumber;
+                // Same NOT NULL column as the credit note: a SHORT unique
+                // placeholder carries the INSERT, the definitive number is
+                // derived from the generated id right after.
                 card.number = "T" + Long.toUnsignedString(
                         java.util.UUID.randomUUID().getMostSignificantBits(), 36);
                 card.persistAndFlush();
-                card.number = com.intermarche.pos.domain.payment.StoredValue.GIFT_CARD_PREFIX
-                        + String.format("%012d", card.id);
+                // BO-03-06-30 to -38: composed from the administered issuing range.
+                card.number = storedValueNumberService.numberOf(card, ticket.ticketNumber);
+                syncOutboxService.enqueue(SyncOutbox.EntityType.STORED_VALUE, card.id);
             }
         }
         ticket.grandTotal = counter.grandTotal;
 
         ticket.persist();
-        technicalEventService.log(TechnicalEvent.EventType.TICKET_CLOSED, ticket.ticketNumber);
+        // BO-04-03-07: the sale reaches the real-time watch with its amount.
+        technicalEventService.record(TechnicalEvent.EventType.TICKET_CLOSED, ticket.ticketNumber,
+                ticket.cashier == null ? null : ticket.cashier.badgeId, ticket.ticketNumber,
+                ticket.totalIncludingTax, null);
         syncOutboxService.enqueue(SyncOutbox.EntityType.TICKET, ticket.id);
         LOGGER.info("Exiting method validateTicket");
     }
@@ -701,7 +951,9 @@ public class TicketPersistenceService {
         if (ticket != null && ticket.status == Ticket.TicketStatus.OPEN) {
             ticket.status = Ticket.TicketStatus.CANCELLED;
             ticket.persist();
-            technicalEventService.log(TechnicalEvent.EventType.TICKET_CANCELLED, ticket.ticketNumber);
+            technicalEventService.record(TechnicalEvent.EventType.TICKET_CANCELLED, ticket.ticketNumber,
+                    ticket.cashier == null ? null : ticket.cashier.badgeId, ticket.ticketNumber,
+                    ticket.totalIncludingTax, null);
             syncOutboxService.enqueue(SyncOutbox.EntityType.TICKET, ticket.id);
             // Campaigns & budgets spec §3: reverse the campaign consumption if a
             // sale was declared for this ticket. An abandoned draft never
@@ -730,6 +982,10 @@ public class TicketPersistenceService {
         TicketLine line = new TicketLine();
         line.lineNumber = lineNumber;
         line.lineUid = item.uid;
+        line.linkedParentUid = item.linkedParentUid;
+        line.linkedArticleEan = item.linkedArticleEan;
+        line.linkedRecordedQuantity = item.linkedRecordedQuantity;
+        line.linkedArticleMultiplier = item.linkedArticleMultiplier;
         line.ean = item.ean;
         line.plu = item.plu;
         if (item.plu != null) {
@@ -758,8 +1014,10 @@ public class TicketPersistenceService {
         line.productLabel = item.label;
         line.quantity = item.quantity;
         line.unitPrice = item.unitPrice;
-        line.totalPrice = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
+        line.totalPrice = item.getTotalPrice().setScale(2, roundingMode());
         line.vatRate = item.vatRate;
+        // BO-02-02-01: the number of the regime, kept beside the rate.
+        line.vatNumber = com.intermarche.pos.domain.catalog.VatRate.numberFor(item.ean, item.vatRate);
         line.deposit = item.isNegative();
         line.moneyProduct = item.moneyProduct;
         line.priceEmbedded = item.priceEmbedded;
@@ -767,14 +1025,30 @@ public class TicketPersistenceService {
         line.embeddedWeight = item.embeddedWeight;
         line.embeddedUnitPrice = item.embeddedUnitPrice;
         line.discountForbidden = item.discountForbidden;
+        // BO-02-03-26/27, -41/42: the VAT status of the line is fiscal data,
+        // printed, reprinted and consolidated by the store node.
+        line.vatExempt = item.vatExempt;
+        line.thirdPartySale = item.thirdPartySale;
+        // BO-05-01-03: the nature of the article, read by the e-reporting.
+        line.service = item.service;
         // LC-02-08: which door the article leaves by is transactional data — the
         // collection voucher is printed from the closed ticket.
         line.toCollect = item.toCollect;
+        line.scanned = item.scanned;
+        line.priceEntered = item.priceEntered;
+        line.carriedOut = item.bulky;
         // EXP-43: a SOUS-TOTAL marker is fiscal data — printed, duplicated, dematerialized.
         line.subtotalBoundary = item.subtotalBoundary;
         line.returnLine = item.returnLine;
+        // BO-03-13-12: the return type of a return line, label and code frozen.
+        line.returnTypeLabel = item.returnTypeLabel;
+        line.returnTypeCode = item.returnTypeLabel == null || posListService == null
+                ? null : posListService.returnTypeCode(item.returnTypeLabel);
         // LC-09-01-11 to -18: what the article was payable with, snapshotted.
         line.restrictedTenders = item.restrictedTenders;
+        // LC-06-02-02 / -12: the quantity a recalled document ordered, printed
+        // beside the delivered quantity the line sells.
+        line.orderedQuantity = item.orderedQuantity;
         // LC-02-03-02: the unit of measure the article was sold in.
         line.unitName = item.unitName;
         line.decimalQuantity = item.decimalQuantity;
@@ -787,6 +1061,10 @@ public class TicketPersistenceService {
         // identifiers above are kept.
         line.activationCode = item.activationCode;
         line.activationProvider = item.activationProvider;
+        line.activationReference = item.activationReference;
+        line.activationApproval = item.activationApproval;
+        line.activationBalanceBefore = item.activationBalanceBefore;
+        line.activationBalanceAfter = item.activationBalanceAfter;
         return line;
     }
 

@@ -57,7 +57,7 @@
 <div class="pos-terminal">
     <div class="top-bar">
         <span class="store-name">{inject:i18n.get('common.store')}</span>
-        <span id="opInfo">CAISSE 04 | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
+        <span id="opInfo">{inject:i18n.get('menu.caisse')} {inject:terminal.id} | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
     <div class="main-area"></div>
@@ -164,6 +164,8 @@
     };
 
     let currentMode = "pin";
+    /* BO-10-02-23 : le nombre de chiffres du code PIN, administre. */
+    const PIN_LENGTH = {pinLength};
     let currentStep = 1;
     let storedLogin = "";
 
@@ -181,6 +183,15 @@
         fetch('/lock-data')
             .then(r => r.json())
             .then(data => {
+                /* BO-01-02-07 : une clé Dallas lue par cette caisse ouvre la
+                   session à elle seule, sans code PIN. Le serveur revérifie le
+                   paramètre ET que la clé a bien été LUE : la page envoie. */
+                if (data.dallasKey && data.dallasKey !== "") {
+                    document.getElementById('inputLogin').value = 'DALLAS:' + data.dallasKey;
+                    document.getElementById('inputPassword').value = '';
+                    document.getElementById('unlockForm').submit();
+                    return;
+                }
                 if (data.scannedBadge && data.scannedBadge !== "") {
                     /* Le volet superviseur, lui, s'alimente par sa propre
                        boite aux lettres : quand il est ouvert, la chaine de
@@ -215,6 +226,7 @@
             containerId: 'keyboardArea',
             keyboardType: 'numpad',
             mode: 'pin',
+            maxLength: PIN_LENGTH,
             placeholder: ""
         });
     }
@@ -314,7 +326,8 @@
                     hiddenId: 'inputPassword',
                     containerId: 'keyboardArea',
                     keyboardType: 'numpad',
-                    mode: 'pin'
+                    mode: 'pin',
+                    maxLength: PIN_LENGTH
                 });
             }
         }

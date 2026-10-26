@@ -25,6 +25,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.AfterEach;
@@ -515,5 +516,186 @@ class NetworkDocumentPrinterTest {
         String html = NetworkDocumentPrinter.html(InvoiceDocument.of(invoice, ticket, false, TestMessages.french()), TestMessages.french());
         assertTrue(html.contains("POMMES"));
         assertFalse(html.contains("class=\"attr\""));
+    }
+
+    /**
+     * Answers a query with one row.
+     *
+     * @param row the row
+     * @return the query
+     */
+    @SuppressWarnings("unchecked")
+    private PanacheQuery<Object> rowQuery(Object row) {
+        PanacheQuery<Object> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(row);
+        return query;
+    }
+
+    /**
+     * BO-03-03-02: the articles are cut into pages, each restating the head
+     * and its « page X / Y », the totals closing the last one; a page size of
+     * zero, or one the articles do not exceed, is one page.
+     */
+    @Test
+    void theA4PageIsCutIntoNumberedPages() {
+        InvoiceDocument document = laidOut();
+        for (int row = 1; row <= 5; row++) {
+            document.lines.add(new InvoiceDocument.Line("ARTICLE " + row, "", "", "1", "20,00 %",
+                    "1,00", "1,20", "1,20", "1,00"));
+        }
+        document.linesPerPage = 2;
+        document.orderNumber = "CMD-42";
+        String html = NetworkDocumentPrinter.html(document, TestMessages.french());
+        assertTrue(html.contains("Page 1 / 3"));
+        assertTrue(html.contains("Page 3 / 3"));
+        assertEquals(2, html.split("class=\"sheet\"", -1).length - 1);
+        assertEquals(3, html.split("CMD-42", -1).length - 1);
+        assertEquals(1, html.split("<footer>", -1).length - 1);
+        assertEquals(1, NetworkDocumentPrinter.sheets(document.lines, 0).size());
+        assertEquals(1, NetworkDocumentPrinter.sheets(document.lines, 5).size());
+        assertEquals(3, NetworkDocumentPrinter.sheets(document.lines, 2).size());
+    }
+
+    /**
+     * BO-03-03-04 / BO-03-05-08: the VAT table writes the regime's code before
+     * the rate — the rate alone without one — and the foot carries the
+     * address the shop prints, written out.
+     */
+    @Test
+    void theA4PageStatesTheCodesAndTheFootAddress() {
+        InvoiceDocument document = laidOut();
+        document.vatRows.add(new InvoiceDocument.VatRow("20,00 %", "1,00", "0,20", "1,20", null, "D"));
+        document.vatRows.add(new InvoiceDocument.VatRow("5,50 %", "1,00", "0,06", "1,06", null, null));
+        document.vatRows.add(new InvoiceDocument.VatRow("10,00 %", "1,00", "0,10", "1,10", null, ""));
+        String plain = NetworkDocumentPrinter.html(document, TestMessages.french());
+        assertTrue(plain.contains("<td>D 20,00 %</td>"));
+        assertTrue(plain.contains("<td>5,50 %</td>"));
+        assertTrue(plain.contains("<td>10,00 %</td>"));
+        assertFalse(plain.contains("intermarche.com"));
+        document.footerUrl = "https://www.intermarche.com";
+        document.footerUrlFormat = "QR";
+        assertTrue(NetworkDocumentPrinter.html(document, TestMessages.french())
+                .contains("<p>https://www.intermarche.com</p>"));
+    }
+
+    /**
+     * BO-03-04-09: the administered document's own template lays out the A4
+     * page when it is an A4 template; one that is unknown, of another type or
+     * that renders nothing leaves the shop's A4 template — here none — to
+     * decide.
+     */
+    @Test
+    void theAdministeredDocumentsOwnTemplateLaysOutThePage() {
+        NetworkDocumentPrinter printer = withRenderer();
+        InvoiceDocument document = laidOut();
+        String handBuilt = NetworkDocumentPrinter.html(document, TestMessages.french());
+        DocumentTemplate own = layout("<p>PRO {document.number}</p>");
+        own.code = "A4_PRO";
+        DocumentTemplate roll = layout("ROLL");
+        roll.documentType = DocumentTemplate.DocumentType.INVOICE;
+        DocumentTemplate empty = layout(" ");
+        PanacheQuery<Object> ownQuery = rowQuery(own);
+        PanacheQuery<Object> rollQuery = rowQuery(roll);
+        PanacheQuery<Object> emptyQuery = rowQuery(empty);
+        panache.when(() -> PanacheEntityBase.find("code", "A4_PRO")).thenReturn(ownQuery);
+        panache.when(() -> PanacheEntityBase.find("code", "ROLL")).thenReturn(rollQuery);
+        panache.when(() -> PanacheEntityBase.find("code", "EMPTY")).thenReturn(emptyQuery);
+        document.templateCode = "A4_PRO";
+        assertEquals("<p>PRO C04-F000042</p>", printer.page(document));
+        document.templateCode = "ROLL";
+        assertEquals(handBuilt, printer.page(document));
+        document.templateCode = "EMPTY";
+        assertEquals(handBuilt, printer.page(document));
+        document.templateCode = "UNKNOWN";
+        assertEquals(handBuilt, printer.page(document));
+    }
+
+    /**
+     * Wires the administered second printer on a printer without A4 URL.
+     *
+     * @param client the mock HTTP client
+     * @param enabled whether the second printer is activated
+     * @param address its administered address
+     * @param format its format, A4 or TICKET
+     * @param connection its connection, NETWORK or LOCAL
+     * @return the wired printer
+     * @throws Exception when the reflection fails
+     */
+    private NetworkDocumentPrinter secondPrinter(HttpClient client, boolean enabled, String address,
+            String format, String connection) throws Exception {
+        NetworkDocumentPrinter printer = networkPrinter(null, client);
+        printer.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(printer.posSettingsService.secondPrinterEnabled()).thenReturn(enabled);
+        when(printer.posSettingsService.secondPrinterAddress()).thenReturn(address);
+        when(printer.posSettingsService.secondPrinterFormat()).thenReturn(format);
+        when(printer.posSettingsService.secondPrinterConnection()).thenReturn(connection);
+        printer.hardwareClient = mock(com.intermarche.pos.ui.hardware.HardwareClient.class);
+        return printer;
+    }
+
+    /**
+     * BO-03-09-21: a second printer deactivated or without address is not a
+     * printer; the register then has none.
+     *
+     * @throws Exception when the reflection fails
+     */
+    @Test
+    void aSecondPrinterNeedsItsActivationAndItsAddress() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        assertFalse(secondPrinter(client, false, "http://p2", "A4", "NETWORK").isAvailable());
+        assertFalse(secondPrinter(client, true, "", "A4", "NETWORK").isAvailable());
+        assertTrue(secondPrinter(client, true, "http://p2", "A4", "NETWORK").isAvailable());
+    }
+
+    /**
+     * BO-03-09-21: a networked A4 second printer receives the page at its
+     * address.
+     *
+     * @throws Exception when the reflection fails
+     */
+    @Test
+    void aNetworkedA4SecondPrinterReceivesThePage() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        doReturn(response(200)).when(client).send(any(HttpRequest.class), any());
+        NetworkDocumentPrinter printer = secondPrinter(client, true, "http://p2.local/print", "A4", "NETWORK");
+        assertTrue(printer.print(fullyPopulated(), List.of("ligne")));
+        verify(client).send(argThat(r -> r.uri().toString().equals("http://p2.local/print")
+                && r.headers().firstValue("Content-Type").orElse("").startsWith("text/html")), any());
+    }
+
+    /**
+     * BO-03-09-21/22: a local ticket-format second printer receives the text
+     * lines through the hardware module; no lines print an empty document,
+     * and a module that does not answer is a failure.
+     *
+     * @throws Exception when the reflection fails
+     */
+    @Test
+    void aLocalTicketSecondPrinterGoesThroughTheModule() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        NetworkDocumentPrinter printer = secondPrinter(client, true, "usb0", "TICKET", "LOCAL");
+        assertTrue(printer.print(fullyPopulated(), List.of("ligne 1", "ligne 2")));
+        verify(printer.hardwareClient).printOnSecondPrinter("usb0", "ligne 1\nligne 2");
+        assertTrue(printer.print(fullyPopulated(), null));
+        verify(printer.hardwareClient).printOnSecondPrinter("usb0", "");
+        doThrow(new RuntimeException("down")).when(printer.hardwareClient).printOnSecondPrinter(anyString(), anyString());
+        assertFalse(printer.print(fullyPopulated(), List.of("ligne")));
+        verifyNoInteractions(client);
+    }
+
+    /**
+     * BO-03-09-21: a networked ticket-format second printer receives the text
+     * lines as plain text.
+     *
+     * @throws Exception when the reflection fails
+     */
+    @Test
+    void aNetworkedTicketSecondPrinterReceivesPlainText() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        doReturn(response(204)).when(client).send(any(HttpRequest.class), any());
+        NetworkDocumentPrinter printer = secondPrinter(client, true, "http://p2.local/t", "TICKET", "NETWORK");
+        assertTrue(printer.print(fullyPopulated(), List.of("ligne")));
+        verify(client).send(argThat(r -> r.headers().firstValue("Content-Type").orElse("")
+                .startsWith("text/plain")), any());
     }
 }

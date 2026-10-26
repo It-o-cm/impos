@@ -76,10 +76,14 @@ class Gs1ScanHandlerTest {
         handler.voucherService = mock(VoucherService.class);
         handler.technicalEventService = mock(TechnicalEventService.class);
         handler.posSettingsService = mock(PosSettingsService.class);
+        handler.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        handler.voucherBurnClient = mock(com.intermarche.pos.ui.payment.VoucherBurnClient.class);
         when(handler.posSettingsService.gs1ExpiryAlert()).thenReturn("NONE");
         when(handler.posSettingsService.gs1CouponExpiryAlert()).thenReturn("NONE");
         when(handler.posSettingsService.gs1GiftCouponTypes()).thenReturn("");
         when(handler.posSettingsService.gs1CouponType()).thenReturn("");
+        // BO-10-09-01: the GS1 reading at its catalog default, active.
+        when(handler.posSettingsService.gs1Enabled()).thenReturn(true);
         return handler;
     }
 
@@ -640,6 +644,90 @@ class Gs1ScanHandlerTest {
         assertNull(state.ticket.transientError);
     }
 
+    /**
+     * A level the shop never administered is no rule: the article is registered
+     * in silence — the null leg of the supervised level.
+     */
+    @Test
+    void anAbsentLevelIsNoRule() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1ExpiryAlert()).thenReturn(null);
+        PosState state = newState();
+        scan(handler, state, ARTICLE + "(17)200101", newProduct(), newPrice());
+        assertEquals(1, state.ticket.items.size());
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * BO-03-06-64: with a refusal threshold of one day, the article whose date is
+     * today is refused with the shop's own message, its date token replaced.
+     */
+    @Test
+    void theRefusalThresholdAndTheShopsMessage() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1ExpiryAlert()).thenReturn("BLOCK");
+        when(handler.posSettingsService.gs1ExpiryBlockDays()).thenReturn(1);
+        when(handler.posSettingsService.gs1ExpiryMessage()).thenReturn(" Date expirée ({date}) ");
+        PosState state = newState();
+        LocalDate today = LocalDate.now();
+        ScanContext ctx = scan(handler, state, ARTICLE + "(17)" + today.format(DateTimeFormatter.ofPattern("yyMMdd")),
+                newProduct(), newPrice());
+        assertTrue(ctx.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Date expirée (" + today.format(DAY) + ")", state.ticket.transientError);
+        verify(handler.endorsementService, never()).requestAuthorization(any(), any(), any(), any());
+    }
+
+    /**
+     * BO-03-06-64: the short-date warning speaks with the shop's own message and
+     * the article is registered.
+     */
+    @Test
+    void theShortDateSpeaksTheShopsMessage() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1ExpiryAlert()).thenReturn("INFO");
+        when(handler.posSettingsService.gs1ExpiryWarnDays()).thenReturn(5);
+        when(handler.posSettingsService.gs1ShortDateMessage()).thenReturn("Attention produit en date courte");
+        PosState state = newState();
+        LocalDate soon = LocalDate.now().plusDays(3);
+        scan(handler, state, ARTICLE + "(17)" + soon.format(DateTimeFormatter.ofPattern("yyMMdd")),
+                newProduct(), newPrice());
+        assertEquals(1, state.ticket.items.size());
+        assertEquals("Attention produit en date courte", state.ticket.transientError);
+        when(handler.posSettingsService.gs1ShortDateMessage()).thenReturn("   ");
+        PosState blank = newState();
+        scan(handler, blank, ARTICLE + "(17)" + soon.format(DateTimeFormatter.ofPattern("yyMMdd")),
+                newProduct(), newPrice());
+        assertTrue(blank.ticket.transientError.contains(soon.format(DAY)));
+        assertFalse(blank.ticket.transientError.contains("Attention"));
+    }
+
+    /**
+     * BO-03-06-64: at the supervised level an expired article is refused and a
+     * supervisor is called with the code; once forced, the next reading of that
+     * very code registers it and the forcing is consumed.
+     */
+    @Test
+    void aSupervisorForcesAnExpiredArticle() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1ExpiryAlert()).thenReturn(" supervisor ");
+        PosState state = newState();
+        String code = ARTICLE + "(17)200101";
+        ScanContext refused = scan(handler, state, code, newProduct(), newPrice());
+        assertTrue(refused.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("ARTICLE PERIME LE 01/01/2020", state.ticket.transientError);
+        verify(handler.endorsementService).requestAuthorization(state, Gs1ScanHandler.FORCE_EXPIRY_ACTION,
+                java.util.Map.of("code", code), null);
+        state.ticket.gs1ForcedCode = "AUTRE";
+        scan(handler, state, code, newProduct(), newPrice());
+        assertTrue(state.ticket.items.isEmpty());
+        state.ticket.gs1ForcedCode = code;
+        scan(handler, state, code, newProduct(), newPrice());
+        assertEquals(1, state.ticket.items.size());
+        assertNull(state.ticket.gs1ForcedCode);
+    }
+
     // --------------------------------------------------
     // The settlements (LC-11-03-05 / -06)
     // --------------------------------------------------
@@ -689,11 +777,19 @@ class Gs1ScanHandlerTest {
         PosState state = newStateWithMockedTicket();
         state.payment.paymentInProgress = true;
         CouponType type = newCouponType("CADEAU");
+        boolean[] gs1During = new boolean[1];
+        org.mockito.Mockito.doAnswer(call -> {
+            gs1During[0] = state.payment.pendingVoucherGs1;
+            return null;
+        }).when(handler.voucherService).applyManualVoucher(any(), any(), any(), any());
         ScanContext ctx = scanSettlement(handler, state,
                 "(253)9526000134367ABC(3902)1500", type);
         assertTrue(ctx.handled);
         verify(handler.voucherService).applyManualVoucher(eq(state), eq(type),
                 eq("9526000134367ABC"), eq(new BigDecimal("15.00")));
+        // BO-11-01-18: the reading is journalled GS1, the mark lifted afterwards.
+        assertTrue(gs1During[0]);
+        assertFalse(state.payment.pendingVoucherGs1);
     }
 
     /**
@@ -711,6 +807,7 @@ class Gs1ScanHandlerTest {
         assertTrue(ctx.handled);
         assertTrue(state.payment.voucherPanelOpen);
         assertEquals("9526000134367ABC", state.payment.pendingVoucherNumber);
+        assertTrue(state.payment.pendingVoucherGs1);
     }
 
     /**
@@ -742,6 +839,26 @@ class Gs1ScanHandlerTest {
         type.amountSource = CouponType.AmountSource.ENCODED;
         scanSettlement(handler, state, "(253)9526000134367ABC", type);
         verify(handler.voucherService).applyEncodedVoucher(eq(state), eq(type), any());
+        assertFalse(state.payment.pendingVoucherGs1);
+    }
+
+    /**
+     * BO-11-01-18: a settlement that fails still lifts the GS1 mark, so the
+     * next voucher is not journalled GS1 by mistake.
+     */
+    @Test
+    void aFailedSettlementLiftsTheGs1Mark() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1GiftCouponTypes()).thenReturn("9526000:CADEAU");
+        PosState state = newStateWithMockedTicket();
+        state.payment.paymentInProgress = true;
+        CouponType type = newCouponType("CADEAU");
+        type.amountSource = CouponType.AmountSource.ENCODED;
+        org.mockito.Mockito.doThrow(new IllegalStateException("registry down"))
+                .when(handler.voucherService).applyEncodedVoucher(any(), any(), any());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> scanSettlement(handler, state, "(253)9526000134367ABC", type));
+        assertFalse(state.payment.pendingVoucherGs1);
     }
 
     /**
@@ -1028,11 +1145,16 @@ class Gs1ScanHandlerTest {
         Product product = newProduct();
         product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .DISCOUNT_FORBIDDEN, "true");
+        product.attributes.put("MEAL_VOUCHER_ELIGIBLE", "true");
         scan(handler, state, ARTICLE, newProduct(), newPrice());
         assertFalse(onlyLine(state).discountForbidden);
         PosState other = newState();
         scan(handler, other, ARTICLE, product, newPrice());
         assertTrue(onlyLine(other).discountForbidden);
+        assertTrue(onlyLine(other).mealVoucherEligible);
+        assertFalse(onlyLine(state).mealVoucherEligible);
+        assertEquals("MEAL_VOUCHER_ELIGIBLE", onlyLine(other).restrictedTenders);
+        assertNull(onlyLine(state).restrictedTenders);
     }
 
     /**
@@ -1178,5 +1300,331 @@ class Gs1ScanHandlerTest {
         verify(handler.technicalEventService).log(eq(TechnicalEvent.EventType.GS1_DECODED),
                 detail.capture());
         assertEquals(250, detail.getValue().length());
+    }
+    /** LC-11-03: an unmarked gift-document payload remains available to later scan recognizers. */
+    @Test
+    void bareGiftDocumentIsNotClaimedWithoutAnExplicitMarker() {
+        Gs1ScanHandler handler = newHandler();
+        ScanContext context = new ScanContext("2531234567890123", newState());
+        handler.handle(context);
+        assertFalse(context.handled);
+        verifyNoInteractions(handler.voucherService);
+    }
+
+    /** BO-03-01-18: GS1 article admission applies explicit scope decisions before the catalog sale ban. */
+    @Test
+    void gs1ArticlesRespectBothScopeDecisions() {
+        for (boolean allowed : new boolean[]{false, true}) {
+            Gs1ScanHandler handler = newHandler();
+            handler.articleScopeService = mock(com.intermarche.pos.ui.ticket.ArticleScopeService.class);
+            Product product = newProduct();
+            product.forbiddenToSale = true;
+            when(handler.articleScopeService.soldHere(product)).thenReturn(allowed);
+            PosState state = newState();
+            assertTrue(scan(handler, state, ARTICLE, product, null).handled);
+            assertEquals(handler.i18n.get(allowed ? "op.produitInterditVente" : "op.articleNonVenduSurCetteCaisse"), state.ticket.transientError);
+            assertTrue(state.ticket.items.isEmpty());
+        }
+    }
+
+    /** LC-11-03/BO-03-01-20: empty gift identities and missing article wording retain their defensive fallbacks. */
+    @Test
+    void missingGiftIdentityAndArticleWordingKeepTheirFallbacks() throws Exception {
+        Gs1ScanHandler handler = newHandler();
+        var method = Gs1ScanHandler.class.getDeclaredMethod("giftTypeOf", String.class);
+        method.setAccessible(true);
+        assertNull(method.invoke(handler, (Object) null));
+        assertNull(method.invoke(handler, " "));
+        handler.i18n = null;
+        Product product = newProduct();
+        product.name = null;
+        method = Gs1ScanHandler.class.getDeclaredMethod("translatedLabel", Product.class);
+        method.setAccessible(true);
+        assertEquals("", method.invoke(handler, product));
+    }
+
+
+    /** LC-11-03: a decoded, unmarked composite gift payload is released even when it contains a recognised document identifier. */
+    @Test
+    void unmarkedCompositeGiftPayloadIsNotClaimed() {
+        String code = "01095260001343672539526000134367ABC";
+        assertTrue(com.intermarche.pos.domain.barcode.gs1.Gs1Parser.parse(code)
+                .has(com.intermarche.pos.domain.barcode.gs1.Gs1ApplicationIdentifier.GDTI));
+        var handler = newHandler();
+        var context = new ScanContext(code, newState());
+        handler.handle(context);
+        assertFalse(context.handled);
+        verifyNoInteractions(handler.voucherService);
+    }
+
+    /** LC-02-03-11: GS1 article admission refuses before creating any line. */
+    @Test
+    void blockingArticleMessageRefusesGs1Article() {
+        PosState state = newState();
+        Product product = newProduct();
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        ScanContext context = scan(newHandler(), state, ARTICLE, product, newPrice());
+        assertTrue(context.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
+    // --------------------------------------------------
+    // BO-10-09-01 / BO-10-09-04: activation and identifier alerts
+    // --------------------------------------------------
+
+    /**
+     * BO-10-09-01: a shop that has not activated the GS1 reading decodes
+     * nothing — the code walks on, unclaimed.
+     */
+    @Test
+    void aDisabledGs1ReadingLeavesTheCodeToTheChain() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1Enabled()).thenReturn(false);
+        PosState state = newState();
+        ScanContext ctx = scan(handler, state, ARTICLE, newProduct(), newPrice());
+        assertFalse(ctx.handled);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * BO-10-09-04: an informing alert registers the article and names the
+     * identifier and its value in the register's sentence.
+     */
+    @Test
+    void anInformingAlertRegistersAndSays() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1AiAlerts()).thenReturn("10=INFO");
+        PosState state = newState();
+        scan(handler, state, ARTICLE + "(10)LOT42", newProduct(), newPrice());
+        assertEquals(1, state.ticket.items.size());
+        assertEquals("IDENTIFIANT GS1 (10) : LOT42", state.ticket.transientError);
+        assertTrue(state.ticket.transientOk);
+    }
+
+    /**
+     * BO-10-09-04: a warning registers the article with the shop's message,
+     * its tokens replaced; an alert on an identifier the code does not carry
+     * says nothing.
+     */
+    @Test
+    void aWarningRegistersWithTheShopsMessage() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1AiAlerts()).thenReturn("17=BLOCK;21=WARN: Série {value} ({ai}) ");
+        PosState state = newState();
+        scan(handler, state, ARTICLE + "(21)SN7", newProduct(), newPrice());
+        assertEquals(1, state.ticket.items.size());
+        assertEquals("Série SN7 (21)", state.ticket.transientError);
+        assertTrue(state.ticket.transientWarn);
+    }
+
+    /**
+     * BO-10-09-04: a blocking alert refuses the article, even on an
+     * identifier this version does not know — which an alert on another
+     * identifier steps over.
+     */
+    @Test
+    void aBlockingAlertRefusesTheArticle() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1AiAlerts()).thenReturn("10=INFO;99=block:Article réservé");
+        PosState state = newState();
+        ScanContext ctx = scan(handler, state, ARTICLE + "(99)MKT", newProduct(), newPrice());
+        assertTrue(ctx.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Article réservé", state.ticket.transientError);
+    }
+
+    /**
+     * BO-10-09-04 (lot-19 defect): an alert administered on the three-digit
+     * identifier 240 fires on a code carrying (240), because the parser now
+     * reads that identifier by its true code instead of taking it for a 24.
+     */
+    @Test
+    void anAlertOnTheAdditionalProductIdentifierFires() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1AiAlerts()).thenReturn("240=BLOCK:Référence {value} retirée");
+        PosState state = newState();
+        ScanContext ctx = scan(handler, state, ARTICLE + "(240)REF77", newProduct(), newPrice());
+        assertTrue(ctx.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Référence REF77 retirée", state.ticket.transientError);
+    }
+
+    /**
+     * BO-10-09-04: a supervised alert — here on the net weight, matched by
+     * its known identifier whatever its decimal digit — refuses and calls a
+     * supervisor; once forced, that very code registers.
+     */
+    @Test
+    void aSupervisedAlertIsForcedBySupervisor() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1AiAlerts()).thenReturn("310=SUPERVISOR:Poids à contrôler");
+        PosState state = newState();
+        String code = ARTICLE + "(3103)001250";
+        scan(handler, state, code, newProduct(), newPrice());
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Poids à contrôler", state.ticket.transientError);
+        verify(handler.endorsementService).requestAuthorization(state, Gs1ScanHandler.FORCE_EXPIRY_ACTION,
+                java.util.Map.of("code", code), null);
+        state.ticket.gs1ForcedCode = code;
+        scan(handler, state, code, newProduct(), newPrice());
+        assertEquals(1, state.ticket.items.size());
+        assertNull(state.ticket.gs1ForcedCode);
+    }
+
+    /**
+     * BO-10-09-04: a table that is missing, blank or mistyped holds no alert —
+     * an entry with no identifier, no equals sign or no known level is
+     * stepped over.
+     */
+    @Test
+    void aMistypedTableHoldsNoAlert() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1AiAlerts()).thenReturn(null, "  ",
+                "nothing;=INFO;10=LOUD:x;17", "10= info ");
+        assertTrue(handler.aiAlerts().isEmpty());
+        assertTrue(handler.aiAlerts().isEmpty());
+        assertTrue(handler.aiAlerts().isEmpty());
+        assertEquals(java.util.List.of(new Gs1ScanHandler.AiAlert("10", "INFO", "")), handler.aiAlerts());
+    }
+
+    /**
+     * BO-11-01-18: with the burn centralised, a coupon a closed sale of the
+     * shop already consumed is refused, naming where; one nobody consumed is
+     * applied; without the centralisation the node is not asked.
+     */
+    @Test
+    void aCouponConsumedElsewhereIsRefused() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1CouponType()).thenReturn("COUPON");
+        CouponType type = newCouponType("COUPON");
+        PosState offState = newStateWithMockedTicket();
+        offState.payment.paymentInProgress = true;
+        scanSettlement(handler, offState, "(255)952600013436712345(3902)0100", type);
+        verifyNoInteractions(handler.voucherBurnClient);
+        when(handler.posSettingsService.gs1CentralBurn()).thenReturn(true);
+        com.intermarche.pos.ui.payment.VoucherBurnClient.Burn burn =
+                new com.intermarche.pos.ui.payment.VoucherBurnClient.Burn();
+        burn.terminalId = "C02";
+        burn.ticketNumber = "C02-000042";
+        when(handler.voucherBurnClient.lookup(any())).thenReturn(burn, (com.intermarche.pos.ui.payment.VoucherBurnClient.Burn) null);
+        PosState burnedState = newStateWithMockedTicket();
+        burnedState.payment.paymentInProgress = true;
+        ScanContext burned = scanSettlement(handler, burnedState, "(255)952600013436712345(3902)0100", type);
+        assertTrue(burned.handled);
+        verify(burnedState.ticket).setError("BON DÉJÀ CONSOMMÉ EN CAISSE C02, TICKET C02-000042");
+        PosState freshState = newStateWithMockedTicket();
+        freshState.payment.paymentInProgress = true;
+        scanSettlement(handler, freshState, "(255)952600013436712345(3902)0100", type);
+        verify(handler.voucherService).applyManualVoucher(eq(freshState), eq(type), any(), eq(new BigDecimal("1.00")));
+        verify(handler.voucherService).applyManualVoucher(eq(offState), eq(type), any(), eq(new BigDecimal("1.00")));
+    }
+
+    /**
+     * BO-04-03-08/09: an administered « date expirée » alert decides an expired
+     * article over the shop's GS1 rule — stopped, or registered; without such
+     * an alert the GS1 rule stays in charge, and a date not passed asks nothing.
+     */
+    @Test
+    void anExpiredDateAlertDecides() {
+        Gs1ScanHandler stopping = newHandler();
+        stopping.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(stopping.controlGateService.onExpired(any()))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP);
+        PosState stopped = newState();
+        scan(stopping, stopped, ARTICLE + "(17)200101", newProduct(), newPrice());
+        assertTrue(stopped.ticket.items.isEmpty());
+        Gs1ScanHandler passing = newHandler();
+        passing.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(passing.posSettingsService.gs1ExpiryAlert()).thenReturn("BLOCK");
+        when(passing.controlGateService.onExpired(any()))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.PASS);
+        PosState passed = newState();
+        scan(passing, passed, ARTICLE + "(17)200101", newProduct(), newPrice());
+        assertEquals(1, passed.ticket.items.size());
+        Gs1ScanHandler unruled = newHandler();
+        unruled.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        when(unruled.posSettingsService.gs1ExpiryAlert()).thenReturn("BLOCK");
+        when(unruled.controlGateService.onExpired(any()))
+                .thenReturn(com.intermarche.pos.ui.control.ControlGateService.Outcome.NO_RULE);
+        PosState ruled = newState();
+        scan(unruled, ruled, ARTICLE + "(17)200101", newProduct(), newPrice());
+        assertTrue(ruled.ticket.items.isEmpty());
+        PosState future = newState();
+        scan(unruled, future, ARTICLE + "(17)" + LocalDate.now().plusMonths(6).format(DateTimeFormatter.ofPattern("yyMMdd")),
+                newProduct(), newPrice());
+        verify(unruled.controlGateService, org.mockito.Mockito.times(1)).onExpired(any());
+    }
+
+    /**
+     * Builds the catalog article the payloads name, sold by the unit: no PLU.
+     *
+     * @param plu the article's PLU, null or empty for a unit article
+     * @return the article
+     */
+    private Product unitProduct(String plu) {
+        Product product = newProduct();
+        product.plu = plu;
+        return product;
+    }
+
+    /**
+     * LC-02-13-03/04: a decimal armed before a GS1 unit article (no PLU) is
+     * refused, nothing is rung and the arming is consumed.
+     */
+    @Test
+    void anArmedDecimalBeforeAUnitArticleWithoutPluIsRefused() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        state.armedQuantity = new BigDecimal("1.5");
+        ScanContext ctx = scan(handler, state, ARTICLE, unitProduct(null), newPrice());
+        assertTrue(ctx.handled);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("QUANTITÉ INVALIDE", state.ticket.transientError);
+        assertNull(state.armedQuantity);
+    }
+
+    /**
+     * LC-02-13-03/04: an EMPTY PLU is a unit article too, so the decimal is
+     * refused the same way.
+     */
+    @Test
+    void anArmedDecimalBeforeAUnitArticleWithAnEmptyPluIsRefused() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        state.armedQuantity = new BigDecimal("1.5");
+        scan(handler, state, ARTICLE, unitProduct(""), newPrice());
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("QUANTITÉ INVALIDE", state.ticket.transientError);
+    }
+
+    /**
+     * LC-02-13-15: a weighed article keeps its measurement; the armed decimal is
+     * not a refusal there and the line is rung.
+     */
+    @Test
+    void anArmedDecimalBeforeAWeighedArticleIsNotARefusal() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        state.armedQuantity = new BigDecimal("1.5");
+        scan(handler, state, ARTICLE, newProduct(), newPrice());
+        assertEquals(BigDecimal.ONE, onlyLine(state).quantity);
+    }
+
+    /**
+     * LC-02-13-04: an article of the decimal-quantity type takes the decimal
+     * armed before it.
+     */
+    @Test
+    void anArmedDecimalBeforeADecimalArticleIsHonoured() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        state.armedQuantity = new BigDecimal("1.5");
+        Product product = unitProduct(null);
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .DECIMAL_QUANTITY_TO_ENTER, "true");
+        scan(handler, state, ARTICLE, product, newPrice());
+        assertEquals(new BigDecimal("1.5"), onlyLine(state).quantity);
     }
 }

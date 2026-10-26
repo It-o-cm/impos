@@ -43,9 +43,27 @@ public class HardwareService {
     @RestClient
     HardwareClient hardwareClient;
 
+    /** Administered peripheral activation (LC-13-02-09/-14). */
+    @Inject com.intermarche.pos.service.PosSettingsService settings;
+    /** Localised device labels (LC-13-02-09/-14). */
+    @Inject com.intermarche.pos.ui.Messages i18n;
+
+
     /** The register state, read for the customer screen's own liveness. */
     @Inject
     com.intermarche.pos.ui.PosState state;
+
+    /** Keeps every ticket printed, for the store node (LC-08-02-02). */
+    @Inject
+    PrintoutService printoutService;
+
+    /** The electronic journal the drawer openings are traced in (BO-04-03-07). */
+    @Inject
+    com.intermarche.pos.service.TechnicalEventService technicalEventService;
+
+    /** Pushes the administered driver configuration (BO-03-09-11 to -22). */
+    @Inject
+    HardwareConfigurationService hardwareConfigurationService;
 
     /** Says whether this register is ADMINISTERED with a customer display. */
     @Inject
@@ -159,19 +177,24 @@ public class HardwareService {
      * device. Read-only or harmless probes only: the scale is read
      * ({@code GET /weight}), the drawer sensor is read
      * ({@code GET /drawer/status}), the customer display is probed with the
-     * idle greeting (what it shows anyway). The printer has no harmless
-     * probe in the hardware contract (printing or cutting are physical
-     * acts), so its status is inherited: FAILED when not one probe got an
-     * answer (no hardware bridge at all), presumed AVAILABLE otherwise —
-     * the day the bridge exposes {@code /printer/status}, probe it here
-     * instead.
+     * idle greeting (what it shows anyway). LC-13-02-09/-14: printer flags
+     * and scanner transport status are probed independently, and administered
+     * deactivation is distinct from a bound device's failure.
      *
-     * @return the four device statuses, in display order
+     * @return the five device statuses, in display order
      */
     public java.util.List<DeviceStatus> probeDevices() {
         LOGGER.info("Entering method probeDevices");
-        Availability scale = probe(() -> hardwareClient.getWeight());
-        Availability drawer = probe(() -> hardwareClient.getDrawerStatus());
+        // BO-03-09-11/14/16/21/22: the driver configuration administered for
+        // this register reaches the hardware module before the lane opens.
+        if (hardwareConfigurationService != null) {
+            hardwareConfigurationService.push();
+        }
+        Availability scale = settings.hardwareEnabled("scale")
+                ? probe(() -> hardwareClient.getWeight()) : Availability.ABSENT;
+        // BO-03-09-11: a drawer whose driver is deactivated is not a missing drawer.
+        Availability drawer = settings.hardwareEnabled("drawer")
+                ? probe(() -> hardwareClient.getDrawerStatus()) : Availability.ABSENT;
         // BO-03-09-13: a point administered WITHOUT a customer display is not a
         // point whose display is missing. Probing it would answer FAILED or
         // ABSENT for a peripheral nobody installed, and the unlock gate would
@@ -184,16 +207,56 @@ public class HardwareService {
         } else {
             display = probe(() -> hardwareClient.setDisplay("BONJOUR"));
         }
-        boolean bridgeAnswered = scale != Availability.FAILED
-                || drawer != Availability.FAILED
-                || display != Availability.FAILED;
+        Availability printer = settings.hardwareEnabled("printer") ? probe(() -> {
+            if (!"OK".equals(hardwareClient.getPrinterStatus())) {
+                throw new IllegalStateException("PRINTER_ERROR");
+            }
+        }) : Availability.ABSENT;
+        state.scannerDisabled = !settings.hardwareEnabled("scanner");
+        Availability scanner = state.scannerDisabled ? Availability.ABSENT
+                : probe(() -> hardwareClient.maintenance("scanner", "status", ""));
+        remember("hardware.printer", printer);
+        remember("hardware.scale", scale);
+        remember("hardware.scanner", scanner);
         LOGGER.info("Exiting method probeDevices");
         return java.util.List.of(
                 new DeviceStatus("BALANCE", scale),
                 new DeviceStatus("TIROIR-CAISSE", drawer),
                 new DeviceStatus("AFFICHEUR CLIENT", display),
-                new DeviceStatus("IMPRIMANTE TICKETS",
-                        bridgeAnswered ? Availability.AVAILABLE : Availability.FAILED));
+                new DeviceStatus("IMPRIMANTE TICKETS", printer),
+                new DeviceStatus(i18n.get("hardware.scanner"), scanner));
+    }
+
+    /** Refreshes LC-13-02-12 scanner health while the lane remains usable. */
+    public void probeScanner() {
+        state.scannerDisabled = !settings.hardwareEnabled("scanner");
+        Availability scanner = state.scannerDisabled ? Availability.ABSENT
+                : probe(() -> hardwareClient.maintenance("scanner", "status", ""));
+        remember("hardware.scanner", scanner);
+    }
+
+    /**
+     * Retains a peripheral indicator for the selling and payment pages.
+     * @param role the device's message-bundle key
+     * @param availability the independently observed state (LC-13-02-09/-14)
+     */
+    private void remember(String role, Availability availability) {
+        String previous = state.peripheralAvailability.put(role, availability.name());
+        if (!availability.name().equals(previous)) {
+            state.touch();
+        }
+    }
+
+    /**
+     * Classifies a failed operation without confusing a missing role with a fault.
+     * @param failure the client failure
+     * @return absence or failure (LC-13-02-09/-14)
+     */
+    private Availability failedOperation(Exception failure) {
+        if (failure instanceof WebApplicationException web) {
+            return declaredAbsent(web.getResponse()) ? Availability.ABSENT : Availability.FAILED;
+        }
+        return Availability.FAILED;
     }
 
     /**
@@ -287,11 +350,22 @@ public class HardwareService {
      */
     public double requestWeighing() {
         LOGGER.info("Entering method requestWeighing");
+        if (!settings.hardwareEnabled("scale")) {
+            remember("hardware.scale", Availability.ABSENT);
+            return 0.0;
+        }
+        // LC-13-02-14: a known failed scale is not retried for every weighed article.
+        if (Availability.FAILED.name().equals(state.peripheralAvailability.get("hardware.scale"))) {
+            return 0.0;
+        }
         try {
             String weightStr = hardwareClient.getWeight();
             LOGGER.info("Exiting method requestWeighing");
-            return Double.parseDouble(weightStr.replace(',', '.'));
+            double weight = Double.parseDouble(weightStr.replace(',', '.'));
+            remember("hardware.scale", Availability.AVAILABLE);
+            return weight;
         } catch (Exception e) {
+            remember("hardware.scale", failedOperation(e));
             LOGGER.error("Erreur de communication avec la balance", e);
             LOGGER.info("Exiting method requestWeighing");
             return 0.0;
@@ -318,6 +392,10 @@ public class HardwareService {
         long deadline = System.currentTimeMillis() + Math.max(0L, weighingWaitMs);
         double weight = requestWeighing(tareKg);
         while (weight <= 0 && System.currentTimeMillis() < deadline) {
+            // LC-13-02-14: a broken or disabled scale does not incur the empty-plate wait.
+            if (!Availability.AVAILABLE.name().equals(state.peripheralAvailability.get("hardware.scale"))) {
+                return weight;
+            }
             try {
                 Thread.sleep(Math.max(1L, weighingPollMs));
             } catch (InterruptedException interrupted) {
@@ -345,11 +423,22 @@ public class HardwareService {
         LOGGER.info("Entering method requestWeighing with tareKg: " + tareKg);
         String tare = (tareKg == null || tareKg.signum() <= 0)
                 ? "0" : tareKg.toPlainString();
+        if (!settings.hardwareEnabled("scale")) {
+            remember("hardware.scale", Availability.ABSENT);
+            return 0.0;
+        }
+        // LC-13-02-14: a known failed scale is not retried for every weighed article.
+        if (Availability.FAILED.name().equals(state.peripheralAvailability.get("hardware.scale"))) {
+            return 0.0;
+        }
         try {
             String weightStr = hardwareClient.getWeightWithTare(tare);
             LOGGER.info("Exiting method requestWeighing");
-            return Double.parseDouble(weightStr.replace(',', '.'));
+            double weight = Double.parseDouble(weightStr.replace(',', '.'));
+            remember("hardware.scale", Availability.AVAILABLE);
+            return weight;
         } catch (Exception e) {
+            remember("hardware.scale", failedOperation(e));
             LOGGER.error("Erreur de communication avec la balance", e);
             LOGGER.info("Exiting method requestWeighing");
             return 0.0;
@@ -389,16 +478,51 @@ public class HardwareService {
 
     /**
      * Fires the drawer-opening pulse.
+     *
+     * <p>THE ONE PLACE EVERY OPENING GOES THROUGH — payment, take-over, period
+     * close, forced opening — so the training-mode rule is enforced here and
+     * nowhere else (BO-10-02-12): a register in training mode whose shop
+     * keeps the drawer shut there sends no pulse at all, whichever gesture
+     * asked for it.
      */
     public void openDrawer() {
         LOGGER.info("Entering method openDrawer");
+        if (state != null && state.trainingMode && settings != null
+                && !settings.drawerOpenInTraining()) {
+            LOGGER.info("Tiroir laissé fermé : mode école (BO-10-02-12).");
+            LOGGER.info("Exiting method openDrawer");
+            return;
+        }
+        // BO-03-09-11: no pulse toward a drawer whose driver is deactivated.
+        if (settings != null && !settings.hardwareEnabled("drawer")) {
+            LOGGER.info("Exiting method openDrawer");
+            return;
+        }
         try {
             hardwareClient.openDrawer();
             LOGGER.info("Ordre d'ouverture du tiroir envoyé.");
         } catch (Exception e) {
             LOGGER.error("Erreur lors de l'ouverture du tiroir", e);
         }
+        traceDrawerOpening();
         LOGGER.info("Exiting method openDrawer");
+    }
+
+    /**
+     * Journals the opening pulse (BO-04-03-07): the real-time watch of the back
+     * office shows every drawer opening, whatever gesture asked for it. A
+     * journal that cannot be written never keeps the drawer shut.
+     */
+    private void traceDrawerOpening() {
+        if (technicalEventService == null) {
+            return;
+        }
+        try {
+            technicalEventService.record(com.intermarche.pos.domain.session.TechnicalEvent.EventType.DRAWER_OPENED,
+                    "Ouverture du tiroir", state == null ? null : state.auth.operatorBadgeId, null, null, null);
+        } catch (RuntimeException e) {
+            LOGGER.warn("Ouverture du tiroir non journalisée", e);
+        }
     }
 
     /**
@@ -409,6 +533,11 @@ public class HardwareService {
      */
     public boolean isDrawerOpen() {
         LOGGER.info("Entering method isDrawerOpen");
+        // BO-03-09-11: a deactivated drawer is held closed, never read.
+        if (settings != null && !settings.hardwareEnabled("drawer")) {
+            LOGGER.info("Exiting method isDrawerOpen");
+            return false;
+        }
         try {
             String status = hardwareClient.getDrawerStatus();
             LOGGER.info("Exiting method isDrawerOpen");
@@ -426,14 +555,61 @@ public class HardwareService {
      * @param content the 42-column formatted text
      */
     public void printReceipt(String content) {
-        LOGGER.info("Entering method printReceipt with content: " + content);
+        LOGGER.info("Entering method printReceipt");
+        // LC-08-02-02: every ticket generated is kept, printer or not.
+        printoutService.record(content);
+        if (!settings.hardwareEnabled("printer")) {
+            remember("hardware.printer", Availability.ABSENT);
+            return;
+        }
         try {
+            if (!"OK".equals(hardwareClient.getPrinterStatus())) {
+                throw new IllegalStateException("PRINTER_ERROR");
+            }
             hardwareClient.printTicket(content);
             LOGGER.info("Ticket envoyé à l'imprimante.");
+            remember("hardware.printer", Availability.AVAILABLE);
         } catch (Exception e) {
+            remember("hardware.printer", failedOperation(e));
             LOGGER.error("Erreur d'impression", e);
         }
         LOGGER.info("Exiting method printReceipt");
+    }
+
+    /**
+     * Records a ticket generated but kept from the printer by a print policy
+     * (LC-08-02-02): its copy reaches the store node like a printed one.
+     *
+     * @param content the 42-column formatted text
+     */
+    public void recordUnprinted(String content) {
+        printoutService.record(content);
+    }
+
+    /**
+     * Prints one sheet on the SLIP STATION, the register's micr printer
+     * (BO-03-04-14): the facturette output of a document goes there, never to
+     * the roll. Recorded like every generated paper (LC-08-02-02).
+     *
+     * @param content the sheet, as formatted text
+     */
+    public void printSlip(String content) {
+        LOGGER.info("Entering method printSlip");
+        printoutService.record(content);
+        if (!settings.hardwareEnabled("printer")) {
+            remember("hardware.printer", Availability.ABSENT);
+            LOGGER.info("Exiting method printSlip");
+            return;
+        }
+        try {
+            hardwareClient.printSlip(content);
+            LOGGER.info("Feuille envoyée à la station facturette.");
+            remember("hardware.printer", Availability.AVAILABLE);
+        } catch (Exception e) {
+            remember("hardware.printer", failedOperation(e));
+            LOGGER.error("Erreur d'impression facturette", e);
+        }
+        LOGGER.info("Exiting method printSlip");
     }
 
     /**
@@ -441,10 +617,19 @@ public class HardwareService {
      */
     public void cutPaper() {
         LOGGER.info("Entering method cutPaper");
+        if (!settings.hardwareEnabled("printer")) {
+            remember("hardware.printer", Availability.ABSENT);
+            return;
+        }
         try {
+            if (!"OK".equals(hardwareClient.getPrinterStatus())) {
+                throw new IllegalStateException("PRINTER_ERROR");
+            }
             hardwareClient.cutPaper();
             LOGGER.info("Coupe papier envoyée.");
+            remember("hardware.printer", Availability.AVAILABLE);
         } catch (Exception e) {
+            remember("hardware.printer", failedOperation(e));
             LOGGER.error("Erreur coupe papier", e);
         }
         LOGGER.info("Exiting method cutPaper");

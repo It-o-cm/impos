@@ -30,6 +30,12 @@ public class VoucherService {
 
     private static final Logger LOGGER = Logger.getLogger(VoucherService.class);
 
+    /** The settlement key of the meal ticket, the tender a paper meal voucher range is bound to (BO-03-06-08). */
+    static final String MEAL_VOUCHER_TENDER = "TR";
+
+    /** The century completing a two-digit year read on a code. */
+    private static final int CENTURY = 2000;
+
     /**
      * The localised operator messages: every sentence this class stamps on the
      * register's message band is a bundle key, never a French literal (LC-13-06).
@@ -43,6 +49,18 @@ public class VoucherService {
     /** The administered controls of the barcode ranges (BO-03-06). */
     @Inject
     CouponCheckService couponCheckService;
+
+    /** The journal of the payment barcodes read at the till (BO-03-06-63). */
+    @Inject
+    com.intermarche.pos.service.ScannedBarcodeService scannedBarcodeService;
+
+    /** The shop-wide lookup of an instrument another register printed (BO-03-06-48). */
+    @Inject
+    StoredValueLookupClient storedValueLookupClient;
+
+    /** The alert level of an unknown voucher (BO-03-06-48). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
 
     /**
      * Resolves a voucher number to the first active payment type whose
@@ -89,7 +107,7 @@ public class VoucherService {
             LOGGER.info("Exiting method applyEncodedVoucher");
             return false;
         }
-        registerPayment(state, type, number, amount);
+        registerPayment(state, type, number, amount, expiryOf(type, number));
         LOGGER.info("Exiting method applyEncodedVoucher");
         return true;
     }
@@ -108,7 +126,7 @@ public class VoucherService {
             LOGGER.info("Exiting method applyManualVoucher");
             return;
         }
-        registerPayment(state, type, number, amount);
+        registerPayment(state, type, number, amount, expiryOf(type, number));
         LOGGER.info("Exiting method applyManualVoucher");
     }
 
@@ -137,7 +155,21 @@ public class VoucherService {
         com.intermarche.pos.domain.payment.StoredValue instrument =
                 com.intermarche.pos.domain.payment.StoredValue.findByNumber(number);
         if (instrument == null) {
-            state.ticket.setError(i18n.get("voucherbalance.bonInconnuRegistre"));
+            // BO-03-06-48: printed by another register of the shop, the store
+            // node knows it, and this register adopts it.
+            instrument = storedValueLookupClient.adopt(number);
+        }
+        if (instrument == null) {
+            // Known neither here nor by the shop: journalled as not found, and
+            // announced at the level the back office chose.
+            scannedBarcodeService.record(number, type, null, null, false, state.payment.ticketDbId,
+                    state.payment.pendingVoucherGs1);
+            if (com.intermarche.pos.domain.barcode.AlertLevel.of(posSettingsService.voucherUnknownAlert())
+                    == com.intermarche.pos.domain.barcode.AlertLevel.INFO) {
+                state.ticket.setWarning(i18n.get("op.bonInconnuSysteme"));
+            } else {
+                state.ticket.setError(i18n.get("voucherbalance.bonInconnuRegistre"));
+            }
             state.touch();
             LOGGER.info("Exiting method applyRegistryVoucher");
             return;
@@ -157,28 +189,67 @@ public class VoucherService {
             LOGGER.info("Exiting method applyRegistryVoucher");
             return;
         }
-        registerPayment(state, type, number, instrument.balance);
+        registerPayment(state, type, number, instrument.balance, instrument.validUntil);
         LOGGER.info("Exiting method applyRegistryVoucher");
     }
 
     /**
      * Registers the voucher payment into the payment state, capped at the
      * remaining due, and records the code so the duplicate control can refuse
-     * it next time (BO-03-06-39/49).
+     * it next time (BO-03-06-39/49) and the back office can list it
+     * (BO-03-06-63).
+     *
+     * <p>BO-03-06-08: a range bound to an administered tender is settled as
+     * that tender — a paper meal voucher as a meal ticket, a purchase voucher
+     * under the label of the tender it was bound to.
      *
      * @param state the current POS state
      * @param type the coupon type used for the payment label, or null
      * @param number the voucher number, or null when there is none
      * @param amount the requested voucher amount
+     * @param validUntil the end of validity of the voucher, or null
      */
-    private void registerPayment(PosState state, CouponType type, String number, BigDecimal amount) {
+    private void registerPayment(PosState state, CouponType type, String number, BigDecimal amount,
+                                 java.time.LocalDateTime validUntil) {
         BigDecimal remaining = state.getRemaining();
         BigDecimal amountToPay = amount.min(remaining).setScale(2, RoundingMode.HALF_UP);
         if (amountToPay.signum() <= 0) {
             return;
         }
-        String label = (type != null) ? type.label : "Bon d'achat";
-        paymentService.processVoucher(state, label, number, amountToPay);
+        String tenderCode = type == null || type.tenderCode == null ? "" : type.tenderCode.trim();
+        BigDecimal journalled = amountToPay;
+        if (MEAL_VOUCHER_TENDER.equals(tenderCode)) {
+            paymentService.processTicketResto(state, amountToPay);
+            // A meal ticket settles at most the eligible basket: the journal keeps
+            // what it actually settled, not what the paper carried.
+            journalled = remaining.subtract(state.getRemaining()).max(BigDecimal.ZERO);
+        } else {
+            com.intermarche.pos.domain.payment.TenderDefinition tender = tenderCode.isEmpty() ? null
+                    : com.intermarche.pos.domain.payment.TenderDefinition.findByCode(tenderCode);
+            String label = tender != null ? tender.label : (type != null) ? type.label : "Bon d'achat";
+            paymentService.processVoucher(state, label, number, amountToPay);
+        }
         couponCheckService.record(type, number);
+        scannedBarcodeService.record(number, type, journalled, validUntil, true, state.payment.ticketDbId,
+                state.payment.pendingVoucherGs1);
+    }
+
+    /**
+     * The end of validity a range reads on a code, from its administered end
+     * date field (BO-03-06-63).
+     *
+     * @param type the range, or null
+     * @param number the code, or null
+     * @return the end of validity at the start of its day, or null when the
+     *         range carries no readable end date
+     */
+    private java.time.LocalDateTime expiryOf(CouponType type, String number) {
+        if (type == null || number == null) {
+            return null;
+        }
+        com.intermarche.pos.domain.barcode.CouponField end =
+                type.fieldOf(com.intermarche.pos.domain.barcode.CouponField.Role.DATE_END);
+        java.time.LocalDate date = end == null ? null : end.dateValue(number, CENTURY);
+        return date == null ? null : date.atStartOfDay();
     }
 }

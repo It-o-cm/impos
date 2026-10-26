@@ -56,6 +56,8 @@ class PinChangeResourceTest {
         when(resource.pinChange.data("state", resource.state)).thenReturn(view);
         when(view.data("error", null)).thenReturn(view);
         when(view.data("success", null)).thenReturn(view);
+        when(resource.authService.pinLength()).thenReturn(6);
+        when(view.data("pinLength", 6)).thenReturn(view);
         assertSame(view, resource.pinChangePage(null, null));
     }
 

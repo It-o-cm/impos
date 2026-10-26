@@ -81,10 +81,12 @@
           <div class="keyboard" id="amountKbArea"></div>
           <div class="form-row" id="reasonRow">
             <label for="reason">{inject:i18n.get('cashmovement.motif')}</label>
+            {! BO-03-02-45/-46 : les depenses actives du BackOffice, chacune avec le
+             ! moyen de paiement dans lequel elle se regle. !}
             <select id="reason" name="reason">
               <option value="">—</option>
-              {#for reason in reasons}
-                <option value="{reason}">{reason}</option>
+              {#for expense in expenses}
+                <option value="{expense.label}" data-tender="{expense.tenderCode ?: ''}">{expense.label}</option>
               {/for}
             </select>
           </div>
@@ -106,6 +108,9 @@
                 <option value="{tender}">{tender}</option>
               {/for}
             </select>
+            {! BO-03-02-45: whether the cashier chose the tender by hand; otherwise the
+             ! server books an expense in the tender the back office gave it. !}
+            <input type="hidden" id="tenderPicked" name="tenderPicked" value="">
           </div>
           {/if}
 
@@ -114,7 +119,7 @@
            ! partout ailleurs, badge puis PIN, entierement tactile. Cet ecran
            ! portait ses propres cases badge et PIN, qui doublaient la modale et
            ! qu'aucun doigt ne pouvait remplir sur une borne sans clavier. !}
-          <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+          <div class="hint" id="managerHint" style="display:none;">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
 
           <div class="actions">
             <button type="submit" class="btn btn-success">{inject:i18n.get('cashmovement.enregistrerMouvement')}</button>
@@ -128,8 +133,9 @@
     </div>
   </div>
 
-  {#include endorsement /}
   {#include keyboard-lib /}
+  {#include endorsement /}
+  <script src="/pos/expense-tender.js"></script>
 
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);

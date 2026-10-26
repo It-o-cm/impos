@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.valuation;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -26,6 +28,10 @@ import org.jboss.logging.Logger;
  * store node and came back for the till that runs WITHOUT one. Two classes on
  * one root path, one reading and one writing — the literal {@code /status}
  * wins over the template, and the methods differ anyway.
+ *
+ * <p>The answer is built by the JSON library, never by concatenation: a
+ * delivery error quotes the engine's message verbatim, and a quote, a
+ * backslash or a line break in it must not break the document.
  */
 @Path("/feeds/import")
 public class EngineFeedStatusResource {
@@ -46,42 +52,16 @@ public class EngineFeedStatusResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response status() {
         LOGGER.info("Entering method status");
-        StringBuilder sb = new StringBuilder("[");
-        boolean first = true;
+        ArrayNode feeds = JsonNodeFactory.instance.arrayNode();
         for (EngineFeedService.FeedState state : engineFeedService.feedStates()) {
-            if (!first) {
-                sb.append(',');
-            }
-            first = false;
-            sb.append("{\"code\":\"").append(state.code())
-                    .append("\",\"version\":\"").append(state.version())
-                    .append("\",\"appliedVersion\":").append(quoted(state.appliedVersion()))
-                    .append(",\"applied\":").append(state.applied())
-                    .append(",\"lastError\":").append(quoted(escape(state.lastError())))
-                    .append('}');
+            feeds.addObject()
+                    .put("code", state.code())
+                    .put("version", state.version())
+                    .put("appliedVersion", state.appliedVersion())
+                    .put("applied", state.applied())
+                    .put("lastError", state.lastError());
         }
         LOGGER.info("Exiting method status");
-        return Response.ok(sb.append(']').toString()).build();
-    }
-
-    /**
-     * Renders a nullable value as a JSON string or the literal {@code null}.
-     *
-     * @param value the value, possibly null
-     * @return the JSON fragment
-     */
-    private String quoted(String value) {
-        return value == null ? "null" : "\"" + value + "\"";
-    }
-
-    /**
-     * Neutralizes the characters a raw error message could use to break out of
-     * its JSON string.
-     *
-     * @param value the message, possibly null
-     * @return the safe message, or null when the input was null
-     */
-    private String escape(String value) {
-        return value == null ? null : value.replace("\\", "\\\\").replace("\"", "'");
+        return Response.ok(feeds.toString()).build();
     }
 }

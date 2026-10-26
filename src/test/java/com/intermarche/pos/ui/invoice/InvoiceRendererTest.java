@@ -214,6 +214,8 @@ class InvoiceRendererTest {
         assertTrue(carries(lines, "Famille : EPICERIE"));
         assertTrue(carries(lines, "3178530403022"));
         assertTrue(carries(lines, "2 x 12,90 (HT 12,23)"));
+        // BO-10-02-19: the line total excluding tax, on its own line.
+        assertTrue(lines.contains("  Total HT" + " ".repeat(27) + "24,45"), String.join("\n", lines));
         assertTrue(carries(lines, "TOTAL HT"));
         assertTrue(carries(lines, "TOTAL TVA"));
         assertTrue(carries(lines, "TOTAL TTC"));
@@ -413,5 +415,110 @@ class InvoiceRendererTest {
                 .anyMatch(line -> line.contains("NIF PT123456789")));
         assertFalse(InvoiceRenderer.render(bare(), TestMessages.french()).stream()
                 .anyMatch(line -> line.contains("NIF ")));
+    }
+
+    /**
+     * BO-03-03-02: the order number has its line under the ticket's, and no
+     * line at all when none was typed.
+     */
+    @Test
+    void theOrderNumberHasItsLine() {
+        InvoiceDocument document = full(0);
+        assertFalse(carries(InvoiceRenderer.render(document, TestMessages.french()), "CMD-42"));
+        document.orderNumber = "CMD-42";
+        assertTrue(carries(InvoiceRenderer.render(document, TestMessages.french()), "CMD-42"));
+    }
+
+    /**
+     * BO-03-03-04: the VAT table prints the regime's code before its rate, and
+     * the rate alone for a row without code — empty or absent.
+     */
+    @Test
+    void theVatTablePrintsTheCodeBeforeTheRate() {
+        InvoiceDocument document = full(0);
+        InvoiceDocument.VatRow row = document.vatRows.get(0);
+        document.vatRows.set(0, new InvoiceDocument.VatRow(row.rate(), row.excludingTax(), row.vat(),
+                row.includingTax(), null, "B"));
+        assertTrue(carries(InvoiceRenderer.render(document, TestMessages.french()), "B " + row.rate()));
+        document.vatRows.set(0, new InvoiceDocument.VatRow(row.rate(), row.excludingTax(), row.vat(),
+                row.includingTax(), null, null));
+        assertFalse(carries(InvoiceRenderer.render(document, TestMessages.french()), "B " + row.rate()));
+    }
+
+    /**
+     * BO-03-05-08: the foot's address prints as a QR code by default, as a
+     * barcode, or written out over as many lines as it takes — and nothing for
+     * AUCUN or for no address.
+     */
+    @Test
+    void theFootAddressPrintsAsAdministered() {
+        InvoiceDocument document = full(0);
+        assertFalse(carries(InvoiceRenderer.render(document, TestMessages.french()), "[[QR"));
+        document.footerUrl = "https://www.intermarche.com";
+        document.footerUrlFormat = "QR";
+        assertTrue(InvoiceRenderer.render(document, TestMessages.french())
+                .contains("[[QR https://www.intermarche.com]]"));
+        document.footerUrlFormat = "BARCODE";
+        assertTrue(InvoiceRenderer.render(document, TestMessages.french())
+                .contains("[[BARCODE https://www.intermarche.com]]"));
+        document.footerUrlFormat = "AUCUN";
+        assertFalse(carries(InvoiceRenderer.render(document, TestMessages.french()), "intermarche.com"));
+        document.footerUrlFormat = "TEXTE";
+        document.footerUrl = "https://www.intermarche.com/une-adresse-assez-longue-pour-deux-lignes";
+        List<String> written = InvoiceRenderer.render(document, TestMessages.french());
+        assertTrue(carries(written, "https://www.intermarche.com/une-adresse-as"));
+        assertTrue(carries(written, "sez-longue-pour-deux-lignes"));
+    }
+
+    /**
+     * BO-03-03-02: each sheet of the slip station opens with its « page X / Y »,
+     * a single sheet included.
+     */
+    @Test
+    void theSheetsAreNumbered() {
+        List<List<String>> sheets = InvoiceRenderer.paginateNumbered(
+                List.of("A", "B", "C"), 2, TestMessages.french());
+        assertEquals(2, sheets.size());
+        assertEquals("Page 1 / 2", sheets.get(0).get(0).trim());
+        assertEquals(List.of("A", "B"), sheets.get(0).subList(1, 3));
+        assertEquals("Page 2 / 2", sheets.get(1).get(0).trim());
+        assertEquals(InvoiceRenderer.WIDTH, sheets.get(1).get(0).length());
+        List<List<String>> one = InvoiceRenderer.paginateNumbered(List.of("A"), 0, TestMessages.french());
+        assertEquals(List.of("Page 1 / 1", "A"), List.of(one.get(0).get(0).trim(), one.get(0).get(1)));
+    }
+
+    /**
+     * BO-03-03-02: a document without terms says it is due on receipt; one
+     * with a due date states the date instead.
+     */
+    @Test
+    void aDocumentWithoutTermsIsDueOnReceipt() {
+        assertTrue(carries(InvoiceRenderer.render(bare(), TestMessages.french()),
+                "Paiement dès réception de la facture"));
+        assertFalse(carries(InvoiceRenderer.render(full(0), TestMessages.french()),
+                "Paiement dès réception de la facture"));
+        assertTrue(NetworkDocumentPrinter.html(bare(), TestMessages.french())
+                .contains("Paiement dès réception de la facture"));
+    }
+
+    /**
+     * BO-03-03-21: an attributes line wider than the paper is carried on as many
+     * indented lines as it needs, cut between words, so that no attribute value
+     * is lost; a short one keeps its single line, and a word wider than a line
+     * is still cut to the width.
+     */
+    @Test
+    void aLongAttributesLineIsWrappedBetweenWords() {
+        InvoiceDocument document = full(0);
+        document.lines.set(0, new InvoiceDocument.Line("LAIT",
+                "Famille : LAIT DEMI-ECREME, ORIGINE : FRANCE, VARIETE : "
+                        + "X".repeat(50), "", "1", "5,50 %", "1,00", "1,06", "1,06"));
+        List<String> lines = InvoiceRenderer.render(document, TestMessages.french());
+        assertTrue(lines.contains("  Famille : LAIT DEMI-ECREME, ORIGINE :"), String.join("\n", lines));
+        assertTrue(lines.contains("  FRANCE, VARIETE :"), String.join("\n", lines));
+        assertTrue(lines.contains("  " + "X".repeat(InvoiceRenderer.WIDTH - 2)), String.join("\n", lines));
+        for (String rendered : lines) {
+            assertTrue(rendered.length() <= InvoiceRenderer.WIDTH, "ligne trop large : " + rendered);
+        }
     }
 }

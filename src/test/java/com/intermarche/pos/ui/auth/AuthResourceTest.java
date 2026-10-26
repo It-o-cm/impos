@@ -192,6 +192,24 @@ class AuthResourceTest {
         verify(resource.state.auth, never()).clearScannedBadge();
     }
 
+    /**
+     * BO-01-02-07: a Dallas key read while locked reaches the page where the
+     * back office lets it open the register, and is dropped elsewhere.
+     */
+    @Test
+    void getLockDataHandsOverADallasKeyOnlyWhereItOpens() {
+        AuthResource allowed = newResource();
+        when(allowed.state.auth.takeScannedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        when(allowed.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        assertEquals("01A2B3C4D5E6F708", allowed.getLockData().get("dallasKey"));
+        AuthResource refused = newResource();
+        when(refused.state.auth.takeScannedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals("", refused.getLockData().get("dallasKey"));
+        AuthResource none = newResource();
+        when(none.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        assertEquals("", none.getLockData().get("dallasKey"));
+    }
+
     // --- unlock ---
 
     /**
@@ -912,4 +930,28 @@ class AuthResourceTest {
         assertEquals("", resource.getSupervisorBadgeData().get("scannedBadge"));
         assertTrue(resource.state.auth.supervisorBadgeArmed());
     }
+    /** BO-10-02-04: a refused drawer gesture keeps hardware shut even after an accepted lane entry. */
+    @Test
+    void acceptedEntryHonoursTheDrawerControl() throws Exception {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.drawerOutOfSaleAllowed(resource.state)).thenReturn(false);
+        var method = AuthResource.class.getDeclaredMethod("openLane");
+        method.setAccessible(true);
+        assertEquals("/session", ((Response) method.invoke(resource)).getLocation().toString());
+        verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    /** EXP-11: an active transaction refuses register closing before any supervisor can force it. */
+    @Test
+    void activeTransactionCannotBeForcedPastAtClosing() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "OP";
+        when(resource.sessionCloseService.obstacle(resource.state)).thenReturn(SessionCloseService.Obstacle.IN_TRANSACTION);
+        var view = mock(io.quarkus.qute.TemplateInstance.class, org.mockito.Mockito.RETURNS_SELF);
+        when(resource.close.data("state", resource.state)).thenReturn(view);
+        assertEquals(200, resource.closeRegister("PIN", "MANAGER", "PIN").getStatus());
+        verify(view).data("error", resource.i18n.get("op.venteCoursTerminezAbandonnez"));
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
 }

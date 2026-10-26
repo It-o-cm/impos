@@ -723,6 +723,42 @@ class HomeServiceTest {
     }
 
     /**
+     * BO-02-03-09: a remise or a discount on a line whose article bans manual
+     * reductions is refused at the gesture, and the modal never opens.
+     */
+    @Test
+    void openPriceModRefusesAReductionOnADiscountForbiddenLine() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        it.discountForbidden = true;
+        when(service.state.getTargetItem()).thenReturn(it);
+        service.openPriceMod("remise");
+        service.openPriceMod("discount");
+        verify(service.state.ticket, org.mockito.Mockito.times(2)).setError("REMISE INTERDITE SUR CET ARTICLE");
+        verifyNoInteractions(service.state.priceModState);
+    }
+
+    /**
+     * BO-02-03-05: forcing the price of an "appel prix" line is refused; a
+     * discount on an ordinary line and a forced price on it still open the modal.
+     */
+    @Test
+    void openPriceModRefusesAForcedPriceOnAPriceCallLine() {
+        TicketState.TicketItem called = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        called.priceCallOnly = true;
+        when(service.state.getTargetItem()).thenReturn(called);
+        service.openPriceMod("force_price");
+        verify(service.state.ticket).setError("PRIX IMPOSÉ PAR LA FICHE ARTICLE");
+        verifyNoInteractions(service.state.priceModState);
+        called.priceCallOnly = false;
+        service.openPriceMod("force_price");
+        service.openPriceMod("discount");
+        verify(service.state.priceModState).set(PriceModType.FORCE_PRICE, "A", "L", called.getHtml(),
+                called.getPriceFormatted(), called.getModifierLabel());
+        verify(service.state.priceModState).set(PriceModType.DISCOUNT, "A", "L", called.getHtml(),
+                called.getPriceFormatted(), called.getModifierLabel());
+    }
+
+    /**
      * {@code openPriceMod()} opens the modal on the targeted line, upper-casing
      * the type (target non-null).
      */
@@ -958,9 +994,22 @@ class HomeServiceTest {
     void callSupervisorReportsNotConfigured() {
         when(service.syncOutboxService.isEnabled()).thenReturn(false);
         service.callSupervisor("no-change");
-        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED, "no-change");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED, "no-change", null);
         verify(service.state.ticket).setError("SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE");
         verify(service.state).touch();
+    }
+
+    /**
+     * BO-06-06-07: the call names the signed-in cashier's badge in the journal,
+     * so the reason-code state reads who called.
+     */
+    @Test
+    void callSupervisorJournalsTheCallerBadge() {
+        when(service.syncOutboxService.isEnabled()).thenReturn(false);
+        service.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        service.state.auth.operatorBadgeId = "12341234";
+        service.callSupervisor("no-change");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED, "no-change", "12341234");
     }
 
     /**
@@ -972,7 +1021,7 @@ class HomeServiceTest {
         when(service.syncOutboxService.isEnabled()).thenReturn(false);
         service.callSupervisor("Prix", "étiquette manquante rayon 4");
         verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
-                "Prix — étiquette manquante rayon 4");
+                "Prix — étiquette manquante rayon 4", null);
     }
 
     /**
@@ -982,7 +1031,7 @@ class HomeServiceTest {
     void callSupervisorWithBlankMessageJournalsReasonOnly() {
         when(service.syncOutboxService.isEnabled()).thenReturn(false);
         service.callSupervisor("Autre", "   ");
-        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED, "Autre");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED, "Autre", null);
     }
 
     /**
@@ -1024,7 +1073,7 @@ class HomeServiceTest {
         service.state.backOfficeMessage = "Rayon propre ?";
         service.answerSurvey("Oui");
         verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
-                "SONDAGE — Rayon propre ? : Oui");
+                "SONDAGE — Rayon propre ? : Oui", null);
         assertNull(service.state.backOfficeSurvey);
         assertEquals("", service.state.backOfficeMessage);
     }
@@ -1038,7 +1087,7 @@ class HomeServiceTest {
         service.answerSurvey("Oui");
         verify(service.technicalEventService, org.mockito.Mockito.never())
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
-                        org.mockito.ArgumentMatchers.anyString());
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
     }
 
     /**
@@ -1052,7 +1101,7 @@ class HomeServiceTest {
         service.answerSurvey("  ");
         verify(service.technicalEventService, org.mockito.Mockito.never())
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
-                        org.mockito.ArgumentMatchers.anyString());
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
         assertNotNull(service.state.backOfficeSurvey);
     }
 
@@ -1070,20 +1119,21 @@ class HomeServiceTest {
         service.answerSurvey("12a");
         verify(service.technicalEventService, org.mockito.Mockito.never())
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
-                        org.mockito.ArgumentMatchers.anyString());
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
         assertSame(numeric, service.state.backOfficeSurvey);
         verify(service.state.ticket).setError("NOMBRE INVALIDE");
         service.state.backOfficeSurvey = numeric;
         service.answerSurvey("42");
         verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
-                "SONDAGE — Nombre de articles ? : 42");
+                "SONDAGE — Nombre de articles ? : 42", null);
         assertNull(service.state.backOfficeSurvey);
     }
 
     /**
      * LC-03-07-07: a POSTAL_CODE survey checks the administered MASK —
      * {@code C} is a digit, everything else literal — and refuses a value
-     * that does not match it, by name, with the survey kept.
+     * that does not match it, by name, with the survey kept; a code whose
+     * digits fill the mask is put in it first (BO-06-03-03).
      */
     @Test
     void aPostalSurveyChecksTheAdministeredMask() {
@@ -1103,11 +1153,17 @@ class HomeServiceTest {
         portuguese.responseType = "POSTAL_CODE";
         portuguese.postalFormat = "CCCC-CCC";
         service.state.backOfficeSurvey = portuguese;
-        service.answerSurvey("4100330");
+        service.answerSurvey("41003");
         verify(service.state.ticket, times(2)).setError("CODE POSTAL INVALIDE");
         service.state.backOfficeSurvey = portuguese;
         service.answerSurvey("4100-300");
         assertNull(service.state.backOfficeSurvey);
+        // BO-06-03-03: a code keyed without the mask's hyphen is put in the
+        // mask, then checked: 4100330 is the 4100-330 of the mask.
+        service.state.backOfficeSurvey = portuguese;
+        service.answerSurvey("4100330");
+        assertNull(service.state.backOfficeSurvey);
+        verify(service.state.ticket, times(2)).setError("CODE POSTAL INVALIDE");
     }
 
     /**
@@ -1160,7 +1216,7 @@ class HomeServiceTest {
         service.state.backOfficeSurvey = informative;
         service.answerSurvey("VU");
         verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
-                "SONDAGE — Pensez a verifier les dates : VU");
+                "SONDAGE — Pensez a verifier les dates : VU", null);
         assertNull(service.state.backOfficeSurvey);
     }
 
@@ -1180,7 +1236,7 @@ class HomeServiceTest {
         assertEquals("", service.state.backOfficeMessage);
         verify(service.technicalEventService, org.mockito.Mockito.never())
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
-                        org.mockito.ArgumentMatchers.anyString());
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
         assertEquals("Rayon propre ?", service.state.skippedSurveyQuestion);
         service.receiveBackOfficeMessage("Rayon propre ?", survey);
         assertNull(service.state.backOfficeSurvey);
@@ -1253,6 +1309,72 @@ class HomeServiceTest {
         service.callSupervisor("theft");
         verify(service.state.ticket).setNotice("SUPERVISEUR PRÉVENU");
         verify(service.state).touch();
+    }
+
+    /**
+     * BO-06-03-02: a survey answer sent as a SONDAGE call names the ticket it
+     * was given on and the cashier's badge.
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aSurveyCallNamesItsTicketAndBadge() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        service.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        service.state.auth.operatorBadgeId = "111";
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        com.intermarche.pos.domain.sale.Ticket last = new com.intermarche.pos.domain.sale.Ticket();
+        last.ticketNumber = "T7";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            io.quarkus.hibernate.orm.panache.PanacheQuery<Object> query =
+                    mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            when(query.firstResult()).thenReturn(last);
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.find(
+                    org.mockito.ArgumentMatchers.eq("terminalId = ?1 and status = ?2 order by id desc"),
+                    org.mockito.ArgumentMatchers.any(Object[].class))).thenReturn(query);
+            service.callSupervisor("SONDAGE");
+        }
+        org.mockito.ArgumentCaptor<Object> payload = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(service.objectMapper).writeValueAsString(payload.capture());
+        java.util.Map<String, String> sent = (java.util.Map<String, String>) payload.getValue();
+        assertEquals("T7", sent.get("ticketNumber"));
+        assertEquals("111", sent.get("badge"));
+        verify(service.state.ticket).setNotice("RÉPONSE AU SONDAGE ENREGISTRÉE");
+        assertEquals(null, service.state.serviceRequestReason);
+    }
+
+    /**
+     * BO-06-03-02: the survey's ticket is the draft being rung up, else the
+     * last one the register closed, else none.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theSurveyTicketIsTheDraftElseTheLastClosed() {
+        com.intermarche.pos.domain.sale.Ticket draft = new com.intermarche.pos.domain.sale.Ticket();
+        draft.ticketNumber = "T8";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            io.quarkus.hibernate.orm.panache.PanacheQuery<Object> none =
+                    mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.find(
+                    org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.any(Object[].class))).thenReturn(none);
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.findById(5L)).thenReturn(draft);
+            service.state.payment.ticketDbId = 5L;
+            assertEquals("T8", service.surveyTicketNumber());
+            service.state.payment.ticketDbId = 6L;
+            assertNull(service.surveyTicketNumber());
+            service.state.payment.ticketDbId = null;
+            assertNull(service.surveyTicketNumber());
+        }
     }
 
     /**
@@ -1736,13 +1858,13 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         service.state.ticket.items.add(it);
         service.state.priceModState.targetUid = "A";
-        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
-                new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
-                        "-10%", true, new BigDecimal("10"), false);
-        when(service.posSettingsService.discountPreset("-10%")).thenReturn(preset);
+        com.intermarche.pos.service.PosListService.DiscountKey preset =
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-10%", true, new BigDecimal("10"), false, false, null);
+        when(service.posListService.discountKey("-10%")).thenReturn(preset);
         when(service.ticketService.isAlreadyReduced(it)).thenReturn(false);
         service.applyPresetKey("-10%");
-        verify(service.ticketService).applyPreset(it, "-10%");
+        verify(service.ticketService).applyPresetValue(it, true, new BigDecimal("10"), false);
         verify(service.ticketService).recalculateTotal(service.state);
         verify(service.state.priceModState).clear();
         verify(service.state).touch();
@@ -1769,7 +1891,7 @@ class HomeServiceTest {
      */
     @Test
     void applyPresetKeyNamesALabelNobodyAdministered() {
-        when(service.posSettingsService.discountPreset("-30%")).thenReturn(null);
+        when(service.posListService.discountKey("-30%")).thenReturn(null);
         service.applyPresetKey("-30%");
         verify(service.state.ticket).setError("TOUCHE DE REMISE INCONNUE");
         verifyNoInteractions(service.ticketService);
@@ -1785,10 +1907,10 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         service.state.ticket.items.add(it);
         service.state.priceModState.targetUid = "GONE";
-        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
-                new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
-                        "-10%", true, new BigDecimal("10"), false);
-        when(service.posSettingsService.discountPreset("-10%")).thenReturn(preset);
+        com.intermarche.pos.service.PosListService.DiscountKey preset =
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-10%", true, new BigDecimal("10"), false, false, null);
+        when(service.posListService.discountKey("-10%")).thenReturn(preset);
         service.applyPresetKey("-10%");
         verify(service.state.ticket).setError("LIGNE INTROUVABLE");
         verifyNoInteractions(service.ticketService);
@@ -1805,15 +1927,16 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         service.state.ticket.items.add(it);
         service.state.priceModState.targetUid = "A";
-        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
-                new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
-                        "-10%", true, new BigDecimal("10"), false);
-        when(service.posSettingsService.discountPreset("-10%")).thenReturn(preset);
+        com.intermarche.pos.service.PosListService.DiscountKey preset =
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-10%", true, new BigDecimal("10"), false, false, null);
+        when(service.posListService.discountKey("-10%")).thenReturn(preset);
         when(service.ticketService.isAlreadyReduced(it)).thenReturn(true);
         service.applyPresetKey("-10%");
         verify(service.state.ticket).setError("ARTICLE DÉJÀ REMISÉ");
-        verify(service.ticketService, never()).applyPreset(
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        verify(service.ticketService, never()).applyPresetValue(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
         verify(service.state.priceModState).clear();
     }
 
@@ -1824,11 +1947,93 @@ class HomeServiceTest {
      */
     @Test
     void discountPresetsDelegatesToTheCatalog() {
-        java.util.List<com.intermarche.pos.service.PosSettingsService.DiscountPreset> administered =
-                java.util.List.of(new com.intermarche.pos.service.PosSettingsService.DiscountPreset(
-                        "-10%", true, new BigDecimal("10"), false));
-        when(service.posSettingsService.discountPresets()).thenReturn(administered);
-        assertEquals(administered, service.discountPresets());
+        com.intermarche.pos.service.PosListService.DiscountKey line =
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-10%", true, new BigDecimal("10"), false, false, null);
+        com.intermarche.pos.service.PosListService.DiscountKey ticket =
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-5% TICKET", true, new BigDecimal("5"), false, true, null);
+        when(service.posListService.discountKeys()).thenReturn(java.util.List.of(line, ticket));
+        assertEquals(java.util.List.of(line), service.discountPresets());
+        assertEquals(java.util.List.of(ticket), service.ticketDiscountPresets());
+    }
+
+    /**
+     * BO-03-07-04: a key whose figure the cashier types re-arms the modal in
+     * its mode — line or ticket, percent or amount — and carries ITS ceiling.
+     */
+    @Test
+    void anOpenPresetArmsTheModalWithItsCeiling() {
+        PriceModState modal = new PriceModState();
+        service.state.priceModState = modal;
+        when(service.posListService.discountKey("LIBRE")).thenReturn(
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "LIBRE", true, null, false, false, new BigDecimal("30")));
+        service.applyPresetKey("LIBRE");
+        assertEquals(PriceModType.DISCOUNT, modal.type);
+        assertEquals("LIBRE", modal.presetLabel);
+        assertEquals(new BigDecimal("30"), modal.presetMaximum);
+        when(service.posListService.discountKey("LIBRE")).thenReturn(
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "LIBRE", false, null, false, false, null));
+        service.applyPresetKey("LIBRE");
+        assertEquals(PriceModType.REMISE, modal.type);
+        when(service.posListService.discountKey("LIBRE")).thenReturn(
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "LIBRE", true, null, false, true, null));
+        service.applyPresetKey("LIBRE");
+        assertEquals(PriceModType.GLOBAL_DISCOUNT, modal.type);
+        when(service.posListService.discountKey("LIBRE")).thenReturn(
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "LIBRE", false, null, false, true, null));
+        service.applyPresetKey("LIBRE");
+        assertEquals(PriceModType.GLOBAL_REMISE, modal.type);
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /**
+     * BO-03-07-03/-06: a key on the TICKET TOTAL carrying its figure applies
+     * the global discount or rebate at once and closes the modal.
+     */
+    @Test
+    void aTicketPresetAppliesTheGlobalGesture() {
+        when(service.posListService.discountKey("-5% T")).thenReturn(
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-5% T", true, new BigDecimal("5"), false, true, null));
+        service.applyPresetKey("-5% T");
+        verify(service.ticketService).applyGlobalDiscount(service.state, PriceModType.GLOBAL_DISCOUNT,
+                new BigDecimal("5"));
+        when(service.posListService.discountKey("-2E T")).thenReturn(
+                new com.intermarche.pos.service.PosListService.DiscountKey(
+                        "-2E T", false, new BigDecimal("2"), false, true, null));
+        service.applyPresetKey("-2E T");
+        verify(service.ticketService).applyGlobalDiscount(service.state, PriceModType.GLOBAL_REMISE,
+                new BigDecimal("2"));
+        verify(service.ticketService, org.mockito.Mockito.times(2)).recalculateTotal(service.state);
+    }
+
+    /**
+     * BO-03-07-04: the typed figure of an administered key stays under that
+     * key's ceiling — above it the gesture is refused and named; at or under
+     * it, and with no ceiling armed, the ordinary path runs.
+     */
+    @Test
+    void aTypedPresetFigureStaysUnderItsCeiling() {
+        PriceModState modal = new PriceModState();
+        service.state.priceModState = modal;
+        modal.presetLabel = "LIBRE";
+        modal.presetMaximum = new BigDecimal("30");
+        service.submitPriceMod(PriceModType.GLOBAL_DISCOUNT, null, new BigDecimal("40"));
+        verify(service.state.ticket).setError("PLAFOND DE LA TOUCHE LIBRE : 30");
+        verify(service.endorsementService, never()).gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        modal.presetLabel = "LIBRE";
+        modal.presetMaximum = new BigDecimal("30");
+        service.submitPriceMod(PriceModType.GLOBAL_DISCOUNT, null, new BigDecimal("30"));
+        modal.presetMaximum = new BigDecimal("30");
+        service.submitPriceMod(PriceModType.GLOBAL_DISCOUNT, null, null);
+        verify(service.endorsementService, org.mockito.Mockito.times(2)).gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     /**
@@ -2682,16 +2887,16 @@ class HomeServiceTest {
     }
 
     /**
-     * {@code cancelLine()} refuses to cancel the only article (EXP-35): the
-     * refusal names the abandon exit, and neither a cancel nor an endorsement runs.
+     * LC-02-11-04: missing administered reasons refuses the unique article cancellation;
+     * neither cancellation nor endorsement runs without a valid reason list.
      */
     @Test
-    void cancelLineRefusesTheOnlyArticle() {
+    void cancelLineRefusesUniqueArticleWithoutAdministeredReasons() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
         service.state.selectedTicketIndex = 0;
         service.state.lastEnteredItemId = "A";
         service.cancelLine();
-        verify(service.state.ticket).setError("DERNIER ARTICLE — UTILISEZ L'ABANDON DE TICKET");
+        verify(service.state.ticket).setError("MOTIF D'ANNULATION OBLIGATOIRE — CONFIGUREZ LES MOTIFS AU BACK-OFFICE");
         verify(service.ticketService, never()).cancelItemById(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
         verify(service.endorsementService, never()).requestAuthorization(
@@ -3049,7 +3254,12 @@ class HomeServiceTest {
     void startReturnTypeRoutesADedicatedTicketTypeToTheReturnScreen() {
         when(service.posListService.returnTypes()).thenReturn(java.util.List.of(
                 new com.intermarche.pos.service.PosSettingsService.ReturnType("Defectueux", true)));
+        service.state.refund = new com.intermarche.pos.ui.returnprocess.RefundState();
+        service.state.refund.foundTickets.add(new com.intermarche.pos.domain.sale.Ticket());
+        service.state.refund.errorMessage = "stale";
         assertTrue(service.startReturnType("Defectueux"));
+        assertTrue(service.state.refund.foundTickets.isEmpty());
+        assertNull(service.state.refund.errorMessage);
         assertEquals("Defectueux", service.state.returnTypeLabel);
         assertFalse(service.state.returnMode);
         verify(service.technicalEventService).log(
@@ -3414,7 +3624,7 @@ class HomeServiceTest {
         service.answerSurvey(null);
         verify(service.technicalEventService, org.mockito.Mockito.never())
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
-                        org.mockito.ArgumentMatchers.anyString());
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
         assertSame(survey, service.state.backOfficeSurvey);
     }
 
@@ -3584,5 +3794,441 @@ class HomeServiceTest {
         when(service.endorsementService.gestureAuthorized(any(), anyString())).thenReturn(true);
         service.cancelByScan("123");
         verify(service.ticketService).cancelItemById(service.state, "A");
+    }
+    /** LC-07: direct payment navigation keeps the selected menu; a null ordinary selection is retained explicitly. */
+    @Test
+    void coverageDirectAndNullMenuSelection() {
+        service.state.menu = com.intermarche.pos.ui.PosMenu.ARTICLES;
+        service.selectMenu(com.intermarche.pos.ui.PosMenu.REGLEMENT);
+        assertEquals(com.intermarche.pos.ui.PosMenu.ARTICLES, service.state.menu);
+        service.selectMenu(null);
+        assertNull(service.state.menu);
+    }
+
+    /** LC-02: each amount gesture uses implicit cents while quantity/percentage gestures preserve their parsed value. */
+    @Test
+    void coveragePreEntryAmountGestures() throws Exception {
+        var method = HomeService.class.getDeclaredMethod("preEntryAmount", PriceModType.class, String.class, BigDecimal.class);
+        method.setAccessible(true);
+        for (PriceModType type : PriceModType.values()) {
+            boolean amount = type == PriceModType.REMISE || type == PriceModType.GLOBAL_REMISE || type == PriceModType.FORCE_PRICE;
+            assertEquals(amount ? new BigDecimal("3.50") : BigDecimal.TEN, method.invoke(service, type, "3,50", BigDecimal.TEN));
+        }
+        assertEquals(BigDecimal.TEN, method.invoke(service, PriceModType.REMISE, null, BigDecimal.TEN));
+        assertEquals(BigDecimal.TEN, method.invoke(service, PriceModType.REMISE, "abc", BigDecimal.TEN));
+    }
+
+    /** BO-10-02-06: quantity ceilings cover disabled/equal/exceeded values and every administered control level. */
+    @Test
+    void coverageQuantityControlLegs() throws Exception {
+        var method = HomeService.class.getDeclaredMethod("quantityControlPassed", String.class, BigDecimal.class);
+        method.setAccessible(true);
+        assertEquals(true, method.invoke(service, "LINE", BigDecimal.TEN));
+        when(service.posSettingsService.controlQuantityMax()).thenReturn(5);
+        assertEquals(true, method.invoke(service, "LINE", BigDecimal.ONE));
+        for (var level : com.intermarche.pos.ui.endorsement.ControlLevel.values()) {
+            when(service.endorsementService.check(service.state, com.intermarche.pos.ui.endorsement.ControlPoint.QUANTITY)).thenReturn(level);
+            boolean allowed = level != com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK
+                    && level != com.intermarche.pos.ui.endorsement.ControlLevel.ENDORSE;
+            assertEquals(allowed, method.invoke(service, "LINE", BigDecimal.TEN), level.name());
+        }
+    }
+
+    /** LC-03-07: postal masks cover absent masks, upper/lower length bounds, digit slots and literal slots. */
+    @Test
+    void coveragePostalMaskLegs() {
+        assertTrue(service.postalFormatMatches(" ", "1234"));
+        assertFalse(service.postalFormatMatches(null, "12345678901"));
+        assertFalse(service.postalFormatMatches("CC", "A1"));
+        assertFalse(service.postalFormatMatches("ABCC", "AC12"));
+        assertTrue(service.postalFormatMatches("ABCC", "ab12"));
+    }
+
+    /** LC-03-07: a survey without a question and a repeated skipped survey independently control the arrival indicator. */
+    @Test
+    void coverageSurveyArrivalNullQuestionAndSkipped() {
+        var survey = new PosState.BackOfficeSurvey();
+        service.receiveBackOfficeMessage(null, survey);
+        assertTrue(service.state.boMessageArrived);
+        assertSame(survey, service.state.backOfficeSurvey);
+        survey.question = "QUESTION";
+        service.state.skippedSurveyQuestion = "QUESTION";
+        service.receiveBackOfficeMessage(" ", survey);
+        assertFalse(service.state.boMessageArrived);
+        assertNull(service.state.backOfficeSurvey);
+    }
+
+    /** BO-04-02: informational HTTP status is refused on cancellation/acknowledgement, with the configured sync token. */
+    @Test
+    void supervisorNoticesRefuseInformationalStatusAndCarryTheToken() throws Exception {
+        service.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://store");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        service.supervisorToken = java.util.Optional.of("TOKEN");
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(199);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.cancelServiceRequest();
+        assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+        service.state.backOfficeMessage = "MESSAGE";
+        service.ackBackOfficeMessage();
+        assertEquals("MESSAGE", service.state.backOfficeMessage);
+        var sent = org.mockito.ArgumentCaptor.forClass(java.net.http.HttpRequest.class);
+        verify(client, org.mockito.Mockito.times(2)).send(sent.capture(), any());
+        assertEquals(java.util.Optional.of("TOKEN"), sent.getValue().headers().firstValue("X-Sync-Token"));
+    }
+
+    /** BO-04-02: a survey-only acknowledgement still reports missing node configuration; no content remains a no-op. */
+    @Test
+    void acknowledgementHandlesSurveyOnlyAndNoContent() {
+        service.state.backOfficeMessage = null;
+        service.ackBackOfficeMessage();
+        verify(service.state.ticket).setNotice(service.i18n.get("supervisor.aucunMessage"));
+        service.state.backOfficeSurvey = new PosState.BackOfficeSurvey();
+        service.ackBackOfficeMessage();
+        verify(service.state.ticket).setError(service.i18n.get("op.supervisionNonConfigureeCaisse"));
+    }
+
+    /** BO-10-02-01: watched cancellation blocks or warns according to the administered control level. */
+    @Test
+    void watchedCancellationDistinguishesBlockAndWarning() {
+        service.state.ticket.items.add(item("A", "EAN", null, BigDecimal.TEN, BigDecimal.ONE));
+        service.state.ticket.items.add(item("B", "OTHER", null, BigDecimal.ONE, BigDecimal.ONE));
+        for (var level : new com.intermarche.pos.ui.endorsement.ControlLevel[]{com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK, com.intermarche.pos.ui.endorsement.ControlLevel.WARN}) {
+            when(service.endorsementService.check(service.state, com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_LINE)).thenReturn(level);
+            when(service.endorsementService.controlMessage(com.intermarche.pos.ui.endorsement.ControlPoint.CANCEL_LINE, level)).thenReturn("CANCEL CONTROL");
+            service.cancelLineByUid("A");
+            if (level == com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK) verify(service.state.ticket).setError("CANCEL CONTROL");
+            else verify(service.state.ticket).setWarning("CANCEL CONTROL");
+        }
+        verify(service.ticketService).cancelItemById(service.state, "A");
+    }
+
+    /** LC-02-13: an empty PLU is a unit line, money products refuse changes and missing quantities remain invalid. */
+    @Test
+    void quantityGuardsCoverEmptyPluMoneyAndNullValue() throws Exception {
+        var item = item("A", "EAN", "", BigDecimal.TEN, new BigDecimal("2"));
+        service.state.ticket.items.add(item);
+        assertTrue(service.decrementByScan("A"));
+        var method = HomeService.class.getDeclaredMethod("applyLineQuantity", String.class, BigDecimal.class);
+        method.setAccessible(true);
+        item.moneyProduct = true;
+        method.invoke(service, "A", BigDecimal.ONE);
+        verify(service.state.ticket).setError(service.i18n.get("op.quantiteNonModifiableLigne"));
+        item.moneyProduct = false;
+        method.invoke(service, "A", null);
+        verify(service.state.ticket).setError(service.i18n.get("op.quantiteInvalidePlage"));
+    }
+
+    /** BO-03-07: a cumulative preset is still replayed on an already reduced line. */
+    @Test
+    void cumulativePresetRemainsAvailableOnReducedLines() {
+        var item = item("A", "EAN", null, BigDecimal.TEN, BigDecimal.ONE);
+        service.state.ticket.items.add(item);
+        service.state.priceModState.targetUid = "A";
+        when(service.posListService.discountKey("PRESET")).thenReturn(new com.intermarche.pos.service.PosListService.DiscountKey("PRESET", true, BigDecimal.TEN, true, false, null));
+        when(service.ticketService.isAlreadyReduced(item)).thenReturn(true);
+        service.applyPresetKey("PRESET");
+        verify(service.ticketService).applyPresetValue(item, true, BigDecimal.TEN, true);
+    }
+
+    /** LC-02-13/BO-10-02-06: weighed/sticker quantities stay protected and an exceeded blocking ceiling preserves the line. */
+    @Test
+    void quantityEditsRespectProtectedLinesAndBlockingCeilings() throws Exception {
+        var method = HomeService.class.getDeclaredMethod("applyLineQuantity", String.class, BigDecimal.class);
+        method.setAccessible(true);
+        var item = item("A", "EAN", "PLU", BigDecimal.TEN, BigDecimal.ONE);
+        service.state.ticket.items.add(item);
+        method.invoke(service, "A", BigDecimal.TEN);
+        item.plu = null;
+        item.priceEmbedded = true;
+        method.invoke(service, "A", BigDecimal.TEN);
+        verify(service.state.ticket, org.mockito.Mockito.times(2)).setError(service.i18n.get("op.quantiteNonModifiableLigne"));
+        item.priceEmbedded = false;
+        when(service.posSettingsService.controlQuantityMax()).thenReturn(1);
+        when(service.endorsementService.check(service.state, com.intermarche.pos.ui.endorsement.ControlPoint.QUANTITY)).thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        method.invoke(service, "A", BigDecimal.TEN);
+        assertEquals(BigDecimal.ONE, item.quantity);
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /** LC-01-07-05 and LC-01-08-05: interrupted or failed acknowledgements keep their pending content and restore interruption. */
+    @Test
+    void failedSupervisorExchangesRetainThePendingOperatorState() throws Exception {
+        service.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://store");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        HttpClient client = mock(HttpClient.class);
+        when(client.send(any(), any())).thenThrow(new InterruptedException("cancel interrupted"), new InterruptedException("ack interrupted"), new java.io.IOException("node unavailable"));
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+        service.state.serviceRequestReason = "Security";
+        service.state.backOfficeMessage = "MESSAGE";
+        try {
+            service.cancelServiceRequest();
+            assertTrue(Thread.interrupted());
+            assertEquals(PosState.ServiceRequestStatus.PENDING, service.state.serviceRequest);
+            assertEquals("Security", service.state.serviceRequestReason);
+            service.ackBackOfficeMessage();
+            assertTrue(Thread.interrupted());
+            assertEquals("MESSAGE", service.state.backOfficeMessage);
+            service.ackBackOfficeMessage();
+            assertEquals("MESSAGE", service.state.backOfficeMessage);
+            verify(service.state.ticket, org.mockito.Mockito.times(2)).setError(service.i18n.get("op.appelSuperviseurInterrompu"));
+            verify(service.state.ticket).setError(service.i18n.get("op.appelSuperviseurImpossible"));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    /** LC-02-11-04: the unique sale line asks for a configured reason before requesting endorsement. */
+    @Test
+    void uniqueArticleRequestsReasonBeforeEndorsement() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        when(service.posListService.justificationsOf(com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE))
+                .thenReturn(java.util.List.of(new com.intermarche.pos.service.PosListService.ListChoice("ERROR", "Erreur")));
+        service.cancelLineByUid("A");
+        assertEquals("A", service.state.ticket.pendingCancelUid);
+        verifyNoInteractions(service.ticketService);
+        verify(service.endorsementService, never()).requestAuthorization(any(), anyString());
+    }
+
+    /** LC-02-11-04: a valid reason still requires fresh endorsement even when ordinary cancellation is unrestricted. */
+    @Test
+    void uniqueArticleWithReasonAlwaysRequestsFreshEndorsement() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.lastEnteredItemId = "A";
+        service.state.ticket.pendingCancelUid = "A";
+        var reason = new com.intermarche.pos.service.PosListService.ListChoice("ERROR", "Erreur");
+        when(service.posListService.justificationsOf(com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE))
+                .thenReturn(java.util.List.of(reason));
+        when(service.posListService.justificationOf(com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE, "ERROR"))
+                .thenReturn(reason);
+        service.cancelLineWithReason("ERROR");
+        assertEquals("ERROR", service.state.ticket.pendingCancelReasonCode);
+        assertEquals("Erreur", service.state.ticket.pendingCancelReasonLabel);
+        assertNull(service.state.ticket.pendingCancelUid);
+        verify(service.endorsementService).requestAuthorization(service.state, "CANCEL_LINE_A");
+        verify(service.endorsementService, never()).gestureAuthorized(any(), anyString());
+        verify(service.endorsementService, never()).check(any(), any());
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /** LC-02-11-04: an unknown reason cannot reach endorsement or cancel the unique article. */
+    @Test
+    void uniqueArticleRejectsUnknownReason() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.ticket.pendingCancelUid = "A";
+        service.cancelLineWithReason("FORGED");
+        assertEquals("A", service.state.ticket.pendingCancelUid);
+        assertNull(service.state.ticket.pendingCancelReasonCode);
+        verify(service.state.ticket).setError("MOTIF D'ANNULATION INCONNU");
+        verifyNoInteractions(service.ticketService, service.endorsementService);
+    }
+
+    /** LC-01-05-01: a fresh exact-function grant satisfies the unique article aval, while retaining its reason. */
+    @Test
+    void exactFunctionApprovalDoesNotAskForSecondUniqueArticleAval() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.lastEnteredItemId = "A";
+        service.state.ticket.pendingCancelReasonCode = "ERROR";
+        service.state.ticket.pendingCancelReasonLabel = "Erreur";
+        when(service.posListService.justificationsOf(com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE))
+                .thenReturn(java.util.List.of(new com.intermarche.pos.service.PosListService.ListChoice("ERROR", "Erreur")));
+        when(service.endorsementService.functionApproved()).thenReturn(true);
+        service.cancelLineByUid("A");
+        verify(service.endorsementService,never()).requestAuthorization(any(),anyString());
+        verify(service.ticketService).cancelItemById(service.state,"A");
+    }
+
+    /** LC-02-03-04: the deposit quantity can only be changed through its bottle. */
+    @Test
+    void linkedDepositCannotBeEditedIndependently() throws Exception {
+        var deposit = item("B", "EAN", null, BigDecimal.ONE, BigDecimal.ONE);
+        deposit.linkedParentUid = "A";
+        service.state.ticket.items.add(deposit);
+        var method = HomeService.class.getDeclaredMethod("applyLineQuantity", String.class, BigDecimal.class);
+        method.setAccessible(true);
+        method.invoke(service, "B", BigDecimal.TEN);
+        assertEquals(BigDecimal.ONE, deposit.quantity);
+        assertFalse(service.decrementByScan("B"));
+        service.state.lastEnteredItemId = "B";
+        service.repeatLastItem();
+        verify(service.state.ticket, org.mockito.Mockito.times(2)).setError(service.i18n.get("op.articleLieGereParPrincipal"));
+    }
+
+
+    /** LC-02-12-05: absent/null EANs and automatic companions refuse without any approval or cart change. */
+    @Test
+    void groupCancellationRejectsAbsentArticlesAndCompanions() {
+        var item = item("A", "300", null, BigDecimal.TEN, BigDecimal.ONE);
+        service.state.ticket.items.add(item);
+        service.cancelGroupArticle(null);
+        service.cancelGroupArticle("absent");
+        verify(service.state.ticket, times(2)).setError(service.i18n.get("op.articleAbsentTicket"));
+        item.linkedParentUid = "BOTTLE";
+        service.cancelGroupArticle("300");
+        service.performGroupArticleCancellation("A");
+        verify(service.state.ticket, times(2)).setError(service.i18n.get("op.articleLieGereParPrincipal"));
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /** LC-02-12-05: even a last-entered article waits for exact approval and skips the ordinary reason list. */
+    @Test
+    void groupSelectionParksItsStableUidBeforeAnyMutation() {
+        var item = item("A", "300", null, BigDecimal.TEN, new BigDecimal("3"));
+        service.state.ticket.items.add(item);
+        service.state.lastEnteredItemId = "A";
+        service.state.ticket.pendingCancelReasonCode = "OLD";
+        service.state.ticket.pendingCancelReasonLabel = "Old reason";
+        service.cancelGroupArticle("300");
+        verify(service.endorsementService).requestAuthorization(service.state, "CANCEL_GROUP_ARTICLE", java.util.Map.of("uid", "A"), null);
+        assertEquals(new BigDecimal("3"), item.quantity);
+        assertNull(service.state.ticket.pendingCancelReasonCode);
+        assertNull(service.state.ticket.pendingCancelReasonLabel);
+        verify(service.posListService, never()).justificationsOf(any());
+        verifyNoInteractions(service.ticketService);
+        item.valuedTotal = BigDecimal.TEN;
+        service.performGroupArticleCancellation("A");
+        assertEquals(new BigDecimal("2"), item.quantity);
+        assertNull(item.valuedTotal);
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /** LC-02-11-04: choosing the final sold article keeps the reason flow; a stale approval cannot bypass it. */
+    @Test
+    void lastSoldArticleStillRequiresItsReasonAndFreshApproval() {
+        var item = item("A", "300", null, BigDecimal.TEN, BigDecimal.ONE);
+        service.state.ticket.items.add(item);
+        service.cancelGroupArticle("300");
+        verify(service.state.ticket).setError(service.i18n.get("op.motifAnnulationObligatoire"));
+        service.performGroupArticleCancellation("A");
+        verify(service.state.ticket, times(2)).setError(service.i18n.get("op.motifAnnulationObligatoire"));
+        var reason = new com.intermarche.pos.service.PosListService.ListChoice("ERROR", "Entry error");
+        when(service.posListService.justificationsOf(com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE)).thenReturn(java.util.List.of(reason));
+        service.cancelGroupArticle("300");
+        assertEquals("A", service.state.ticket.pendingCancelUid);
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /** LC-02-12-05: missing/stale approval identifiers never retarget another occurrence of the EAN. */
+    @Test
+    void approvedGroupCancellationDoesNotRetargetAStaleUid() {
+        service.state.ticket.items.add(item("NEW", "300", null, BigDecimal.TEN, BigDecimal.ONE));
+        service.performGroupArticleCancellation("OLD");
+        service.performGroupArticleCancellation(null);
+        verify(service.state.ticket, times(2)).setError(service.i18n.get("op.ligneIntrouvable"));
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /** LC-02-12-06: empty PLU unit lines decrement, while weighed, embedded, money and negative-price lines cancel whole. */
+    @Test
+    void groupCancellationRespectsPhysicalArticleKinds() {
+        service.state.ticket.items.add(item("OTHER", "999", null, BigDecimal.ONE, BigDecimal.ONE));
+        var item = item("A", "300", "", BigDecimal.TEN, new BigDecimal("3"));
+        service.state.ticket.items.add(item);
+        service.performGroupArticleCancellation("A");
+        assertEquals(new BigDecimal("2"), item.quantity);
+        item.plu = "PLU";
+        service.performGroupArticleCancellation("A");
+        item.plu = null;
+        item.priceEmbedded = true;
+        service.performGroupArticleCancellation("A");
+        item.priceEmbedded = false;
+        item.moneyProduct = true;
+        service.performGroupArticleCancellation("A");
+        item.moneyProduct = false;
+        item.unitPrice = BigDecimal.ONE.negate();
+        service.performGroupArticleCancellation("A");
+        item.unitPrice = BigDecimal.ONE;
+        item.quantity = BigDecimal.ONE;
+        service.state.lastEnteredItemId = "A";
+        service.performGroupArticleCancellation("A");
+        verify(service.ticketService, times(5)).cancelItemById(service.state, "A");
+        assertNull(service.state.lastEnteredItemId);
+        service.state.ticket.items.remove(0);
+        item.quantity = new BigDecimal("-2");
+        service.cancelGroupArticle("300");
+        verify(service.endorsementService).requestAuthorization(service.state, "CANCEL_GROUP_ARTICLE", java.util.Map.of("uid", "A"), null);
+        service.performGroupArticleCancellation("A");
+        verify(service.ticketService, times(6)).cancelItemById(service.state, "A");
+    }
+
+
+    /** LC-02-12-05/LC-02-03-04: a separately sold deposit remains cancellable without removing an automatic companion. */
+    @Test
+    void groupSelectionPrefersAnIndependentSaleOverAnAutomaticCompanion() {
+        var companion = item("AUTO", "300", null, BigDecimal.ONE, BigDecimal.ONE);
+        companion.linkedParentUid = "BOTTLE";
+        var independent = item("SALE", "300", null, BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(companion);
+        service.state.ticket.items.add(independent);
+        service.cancelGroupArticle("300");
+        verify(service.endorsementService).requestAuthorization(service.state, "CANCEL_GROUP_ARTICLE", java.util.Map.of("uid", "SALE"), null);
+        assertEquals(BigDecimal.ONE, companion.quantity);
+    }
+
+    /**
+     * BO-10-07-19: the disconnected appearance needs the back office's
+     * activation AND an outage lasting the administered delay.
+     */
+    @Test
+    void offlineAppearanceNeedsActivationAndALastingOutage() {
+        service.refPullService = mock(com.intermarche.pos.service.sync.RefPullService.class);
+        when(service.posSettingsService.offlineDisplayDelaySeconds()).thenReturn(60);
+        when(service.refPullService.isUnreachableFor(eq(60L), any())).thenReturn(true);
+        assertFalse(service.offlineAppearance());
+        when(service.posSettingsService.offlineDisplayEnabled()).thenReturn(true);
+        assertTrue(service.offlineAppearance());
+        when(service.refPullService.isUnreachableFor(eq(60L), any())).thenReturn(false);
+        assertFalse(service.offlineAppearance());
+    }
+
+    /**
+     * LC-02-13-04: a DECIMAL armed quantity is announced with the decimal comma
+     * of the register, « QUANTITÉ 1,5 », never with a dot.
+     */
+    @Test
+    void armQuantityAnnouncesADecimalWithAComma() {
+        service.armQuantity(new BigDecimal("1.50"));
+        assertEquals(new BigDecimal("1.50"), service.state.armedQuantity);
+        verify(service.state.ticket).setNotice("QUANTITÉ 1,5 — SAISISSEZ L'ARTICLE");
+    }
+
+    /**
+     * LC-02-13-03: a decimal keyed before a cancel-by-scan of a UNIT line takes
+     * nothing off it — « QUANTITÉ INVALIDE », the line left whole, the keyed
+     * figure consumed and nothing else to do for the caller.
+     */
+    @Test
+    void decrementByScanRefusesADecimalOnAUnitLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3"));
+        service.state.ticket.items.add(it);
+        service.state.armedQuantity = new BigDecimal("1.5");
+        assertTrue(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("3").compareTo(it.quantity));
+        assertNull(service.state.armedQuantity);
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * LC-02-13-02: on a line of the decimal-quantity type the keyed decimal is
+     * taken off, and the notice writes it with a comma.
+     */
+    @Test
+    void decrementByScanTakesADecimalOffADecimalLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3.5"));
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.state.armedQuantity = new BigDecimal("1.5");
+        assertTrue(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("2.0").compareTo(it.quantity));
+        verify(service.state.ticket).setNotice("1,5 UNITE(S) RETIREE(S) DE LA LIGNE");
     }
 }

@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -676,8 +676,12 @@ class DocumentTemplateServiceTest {
     void withoutATypeOnlyTheCommonValuesAreOffered() {
         DocumentTemplateService service = newService();
         List<DocumentTemplateService.Reference> references = service.references(null);
-        assertEquals(9, references.size());
+        assertEquals(15, references.size());
         assertNotNull(find(references, "{store.siret}"));
+        // BO-03-10-19/20: the whole store record is offered to a header.
+        assertNotNull(find(references, "{store.phone}"));
+        assertNotNull(find(references, "{store.vatNumber}"));
+        assertNotNull(find(references, "{store.bankAccount}"));
         assertNotNull(find(references, "{date}"));
         for (DocumentTemplateService.Reference reference : references) {
             assertFalse(reference.isRepeating());
@@ -725,6 +729,87 @@ class DocumentTemplateServiceTest {
             }
         }
         throw new AssertionError("référence absente du catalogue : " + expression);
+    }
+
+    /**
+     * {@code parseError} falls back to the exception's type when the parser
+     * raises without a message — the null-message arm of its ternary, which a
+     * real Qute failure always carries a message for.
+     */
+    @Test
+    void parseErrorFallsBackToTheExceptionTypeWhenMessageIsNull() {
+        DocumentTemplateService service = new DocumentTemplateService();
+        Engine engine = mock(Engine.class);
+        when(engine.parse("x")).thenThrow(new RuntimeException((String) null));
+        service.engine = engine;
+        assertEquals("java.lang.RuntimeException", service.parseError("x"));
+    }
+
+    /**
+     * {@code text} writes a null value as the empty string — the null arm of its
+     * guard, which no demonstration value reaches, exercised directly.
+     */
+    @Test
+    void textWritesNullAsTheEmptyString() throws Exception {
+        DocumentTemplateService service = newService();
+        assertEquals("", invokePrivate(service, "text",
+                new Class<?>[]{Object.class}, new Object[]{null}));
+    }
+
+    /**
+     * {@code singular} drops the plural s of a list name, invents a loop variable
+     * for a name that carries none, and for a one-letter name too short to
+     * strip — both arms of each condition, driven directly because every
+     * demonstration list happens to be a plural longer than one letter.
+     */
+    @Test
+    void singularStripsThePluralOrInventsALoopVariable() throws Exception {
+        DocumentTemplateService service = newService();
+        assertEquals("line", invokePrivate(service, "singular",
+                new Class<?>[]{String.class}, new Object[]{"lines"}));
+        assertEquals("movementItem", invokePrivate(service, "singular",
+                new Class<?>[]{String.class}, new Object[]{"movement"}));
+        assertEquals("sItem", invokePrivate(service, "singular",
+                new Class<?>[]{String.class}, new Object[]{"s"}));
+    }
+
+    /**
+     * {@code listReferences} offers a list of PLAIN values as its loop and the
+     * value itself, not as fields — the not-a-map arm, which no demonstration
+     * list reaches because every one carries maps, exercised directly.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void listReferencesOffersAPlainListAsTheValueItself() throws Exception {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> found =
+                (List<DocumentTemplateService.Reference>) invokePrivate(service, "listReferences",
+                        new Class<?>[]{String.class, List.class},
+                        new Object[]{"tags", List.of("PROMO", "BIO")});
+        assertEquals(2, found.size());
+        assertEquals("{#for tag in tags}…{/for}", found.get(0).getExpression());
+        assertEquals("2 ligne(s)", found.get(0).getSample());
+        assertEquals("{tag}", found.get(1).getExpression());
+        assertEquals("PROMO", found.get(1).getSample());
+        assertEquals("{#for tag in tags}…{/for}", found.get(1).getLoop());
+    }
+
+    /**
+     * Invokes a private method of the service by reflection, so the arms no
+     * demonstration document can reach are still exercised.
+     *
+     * @param service the service under test
+     * @param name the method name
+     * @param types the parameter types
+     * @param args the arguments
+     * @return whatever the method returns
+     * @throws Exception when the method cannot be reached or raises
+     */
+    private Object invokePrivate(DocumentTemplateService service, String name,
+                                 Class<?>[] types, Object[] args) throws Exception {
+        java.lang.reflect.Method method = DocumentTemplateService.class.getDeclaredMethod(name, types);
+        method.setAccessible(true);
+        return method.invoke(service, args);
     }
 
     /**
@@ -1117,4 +1202,19 @@ class DocumentTemplateServiceTest {
         return mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class, invocation ->
                 "firstResult".equals(invocation.getMethod().getName()) ? result : null);
     }
+    /** BO-03-03: incomplete zone markup is preserved and a declared zone without a source expands to nothing. */
+    @Test
+    void malformedAndEmptyZoneSourcesKeepTheirFallbacks() {
+        DocumentTemplateService service = newService();
+        assertEquals("[[ZONE ???]]", service.expandZones("[[ZONE ???]]"));
+        DocumentTemplate empty = new DocumentTemplate();
+        try (var templates = mockStatic(DocumentTemplate.class)) {
+            templates.when(() -> DocumentTemplate.findByCode("EMPTY")).thenReturn(empty);
+            assertEquals("AB", service.expandZones("A[[ZONE EMPTY]]B"));
+        }
+        for (var type : DocumentTemplate.DocumentType.values()) {
+            assertNotNull(service.sampleData(type).get("store"), type.name());
+        }
+    }
+
 }

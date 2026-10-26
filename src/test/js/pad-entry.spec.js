@@ -303,3 +303,48 @@ describe('what is not an amount keeps its comma', () => {
     expect(posted()).toBe('12');
   });
 });
+
+
+describe('LC-09-01-10: e-mail special characters', () => {
+  /** Every unquoted local-part symbol must be reachable through a real rendered key. */
+  it.each(Array.from("!#$%&'*+/=?^_`{|}~-@.()[]:;,<>" + String.fromCharCode(34, 92) + " "))('enters the literal %s key without losing it', (symbol) => {
+    pad = field({ keyboardType: 'email', mode: 'text', maxLength: 120 });
+    const button = Array.from(document.querySelectorAll('#kb button')).find((key) => key.innerText === (symbol === ' ' ? '\u2423' : symbol));
+    expect(button).toBeDefined();
+    button.click();
+    expect(posted()).toBe(symbol);
+  });
+
+  /** A common tagged address is assembled entirely through the on-screen keys and posted intact. */
+  it('enters an apostrophe and a plus tag in a complete address', () => {
+    pad = field({ keyboardType: 'email', mode: 'text', maxLength: 120 });
+    const address = "o'connor+tag@example.fr";
+    for (const letter of address) {
+      const button = Array.from(document.querySelectorAll('#kb button')).find((key) => key.innerText === letter.toUpperCase());
+      expect(button).toBeDefined();
+      button.click();
+    }
+    expect(posted()).toBe(address);
+    expect(shown()).toBe(address);
+  });
+});
+
+describe('LC-06-02-01 / -09: a document code is keyed on the recall screen', () => {
+  /** The document-code keyboard carries digits, letters and the dash, and posts the code in capitals. */
+  it('enters DV-0001 through the rendered keys, in capitals', () => {
+    pad = field({ keyboardType: 'documentCode', mode: 'text', maxLength: 30, uppercase: true });
+    for (const character of 'DV-0001') {
+      const button = Array.from(document.querySelectorAll('#kb button')).find((key) => key.innerText === character);
+      expect(button).toBeDefined();
+      button.click();
+    }
+    expect(posted()).toBe('DV-0001');
+    expect(shown()).toBe('DV-0001');
+  });
+
+  /** The search keyboard keeps its space key: the dash belongs to the document-code keyboard only. */
+  it('leaves the search keyboard without a dash', () => {
+    pad = field({ keyboardType: 'searchAlpha', mode: 'text', maxLength: 30 });
+    expect(Array.from(document.querySelectorAll('#kb button')).some((key) => key.innerText === '-')).toBe(false);
+  });
+});

@@ -485,4 +485,44 @@ class ConsumptionServiceTest {
             service.recordFailure(7L, "HTTP 500");
         }
     }
+
+    /** GB-01-07: malformed or zero-valued offer portions never manufacture per-article consumption declarations. */
+    @Test
+    void incompleteOfferPortionsDoNotCreateDeclarations() throws Exception {
+        var response = new com.intermarche.pos.ui.valuation.ValuationPayloads.ValuationResponseDto();
+        var advantage = new com.intermarche.pos.ui.valuation.ValuationPayloads.AdvantageDto();
+        advantage.offer = "OFF";
+        var method = ConsumptionService.class.getDeclaredMethod("deriveLines", response.getClass(), advantage.getClass());
+        method.setAccessible(true);
+        response.offers = null;
+        assertNull(method.invoke(service, response, advantage));
+        var offer = new com.intermarche.pos.ui.valuation.ValuationPayloads.OfferDto();
+        offer.offerId = "OFF";
+        response.offers = List.of(offer);
+        offer.items = null;
+        assertNull(method.invoke(service, response, advantage));
+        offer.items = List.of();
+        assertNull(method.invoke(service, response, advantage));
+        var item = new com.intermarche.pos.ui.valuation.ValuationPayloads.OfferItemDto();
+        offer.items = List.of(item);
+        assertNull(method.invoke(service, response, advantage));
+        item.lineId = "L1";
+        assertNull(method.invoke(service, response, advantage));
+        item.amount = new com.intermarche.pos.ui.valuation.ValuationPayloads.AmountDto();
+        assertNull(method.invoke(service, response, advantage));
+        item.amount.amountIncludingTax = BigDecimal.ZERO;
+        assertNull(method.invoke(service, response, advantage));
+    }
+
+    /** GB-01: serialization failure returns no declaration payload rather than publishing partial financial JSON. */
+    @Test
+    void unreadableAdvantageAmountCannotBecomeADeclarationPayload() throws Exception {
+        var amount = mock(java.math.BigDecimal.class);
+        when(amount.toString()).thenThrow(new IllegalStateException("unreadable amount"));
+        var advantage = new ConsumptionService.DeclaredAdvantage("OFFER", amount, null, List.of());
+        var writer = ConsumptionService.class.getDeclaredMethod("toJson", List.class);
+        writer.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertNull(writer.invoke(service, List.of(advantage)));
+    }
+
 }

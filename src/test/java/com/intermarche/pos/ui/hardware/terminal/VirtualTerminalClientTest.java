@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -65,6 +66,50 @@ class VirtualTerminalClientTest {
     }
 
     /**
+     * LC-08-05-07: a receipt returned with the decision reaches the outcome,
+     * customer copy then merchant copy after the WCL separator.
+     */
+    @Test
+    void acceptReturnsTheTerminalReceiptSplitIntoItsCopies() {
+        park("12.00");
+        org.mockito.ArgumentCaptor<TerminalOutcome> captor =
+                org.mockito.ArgumentCaptor.forClass(TerminalOutcome.class);
+        assertTrue(client.accept("CLIENT\n--/--COMMERCANT\n"));
+        verify(callback).onAccepted(captor.capture());
+        assertEquals("CLIENT\n", captor.getValue().customerReceiptFrame);
+        assertEquals("COMMERCANT\n", captor.getValue().merchantReceiptFrame);
+    }
+
+    /**
+     * LC-08-05-07: a receipt without separator is the customer copy alone.
+     */
+    @Test
+    void acceptReturnsACustomerOnlyReceipt() {
+        park("12.00");
+        org.mockito.ArgumentCaptor<TerminalOutcome> captor =
+                org.mockito.ArgumentCaptor.forClass(TerminalOutcome.class);
+        assertTrue(client.accept("CLIENT\n"));
+        verify(callback).onAccepted(captor.capture());
+        assertEquals("CLIENT\n", captor.getValue().customerReceiptFrame);
+        assertNull(captor.getValue().merchantReceiptFrame);
+    }
+
+    /**
+     * LC-08-05-07: a blank receipt is no receipt, like a decision without
+     * body.
+     */
+    @Test
+    void acceptIgnoresABlankReceipt() {
+        park("12.00");
+        org.mockito.ArgumentCaptor<TerminalOutcome> captor =
+                org.mockito.ArgumentCaptor.forClass(TerminalOutcome.class);
+        assertTrue(client.accept("  "));
+        verify(callback).onAccepted(captor.capture());
+        assertNull(captor.getValue().customerReceiptFrame);
+        assertNull(captor.getValue().merchantReceiptFrame);
+    }
+
+    /**
      * {@code accept} returns a 6-digit authorization number in the outcome, as
      * a real monetique would (BO-04-01-08).
      */
@@ -77,6 +122,7 @@ class VirtualTerminalClientTest {
         verify(callback).onAccepted(captor.capture());
         String auth = captor.getValue().authorizationNumber;
         assertTrue(auth != null && auth.matches("\\d{6}"));
+        assertEquals("1", captor.getValue().server);
     }
 
     /**
@@ -91,6 +137,7 @@ class VirtualTerminalClientTest {
         assertTrue(client.refuse());
         verify(callback).onRefused(captor.capture());
         org.junit.jupiter.api.Assertions.assertNull(captor.getValue().authorizationNumber);
+        assertEquals("1", captor.getValue().server);
     }
 
     /**

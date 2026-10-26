@@ -323,4 +323,72 @@ class TicketReassignmentServiceTest {
         assertTrue(detail.getValue().contains("caisse=C04"), detail.getValue());
         assertEquals("", service.state.reprint.reassignCard);
     }
+    /** LC-03-06-01/03: null card and ticket identifiers are refused before valuation or printing. */
+    @Test
+    void nullIdentifiersKeepTheirOwnRefusals() {
+        TicketReassignmentService service = newService();
+        service.perform(1L, null);
+        assertEquals("NUMÉRO DE CARTE FIDÉLITÉ REQUIS", service.state.reprint.reassignError);
+        service.perform(null, CARD);
+        assertEquals("TICKET INTROUVABLE", service.state.reprint.reassignError);
+        verifyNoInteractions(service.valuationService, service.ticketPrinterService);
+    }
+
+    /** LC-03-06-04: rebuilding skips cancelled lines, restores stored order and preserves available stable identifiers. */
+    @Test
+    void rebuiltCartKeepsOnlySoldLinesInStoredOrder() {
+        TicketReassignmentService service = newService();
+        Ticket ticket = closedTicket(1L);
+        ticket.fidelityCard = " ";
+        var second = new com.intermarche.pos.domain.sale.TicketLine();
+        second.lineNumber = 2;
+        second.lineUid = "SECOND";
+        second.linkedParentUid = "BOTTLE";
+        second.linkedArticleEan = "DEPOSIT";
+        second.linkedRecordedQuantity = BigDecimal.ONE;
+        second.productLabel = "SECOND";
+        second.unitPrice = BigDecimal.TEN;
+        second.quantity = BigDecimal.ONE;
+        second.vatRate = BigDecimal.ZERO;
+        var first = new com.intermarche.pos.domain.sale.TicketLine();
+        first.lineNumber = 1;
+        first.lineUid = null;
+        first.productLabel = "FIRST";
+        first.unitPrice = BigDecimal.ONE;
+        first.quantity = BigDecimal.ONE;
+        first.vatRate = BigDecimal.ZERO;
+        var cancelled = new com.intermarche.pos.domain.sale.TicketLine();
+        cancelled.cancelled = true;
+        ticket.lines.addAll(java.util.List.of(second, cancelled, first));
+        when(service.valuationService.valuate(any(), eq(CARD), any())).thenReturn(new ValuationService.ValuationOutcome("LOCAL", null, null));
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(() -> PanacheEntityBase.findById(1L)).thenReturn(ticket);
+            service.perform(1L, CARD);
+        }
+        var cart = ArgumentCaptor.forClass(com.intermarche.pos.ui.ticket.TicketState.class);
+        verify(service.valuationService).valuate(cart.capture(), eq(CARD), any());
+        assertEquals(2, cart.getValue().items.size());
+        assertEquals("FIRST", cart.getValue().items.get(0).label);
+        assertEquals("SECOND", cart.getValue().items.get(1).uid);
+        assertEquals("BOTTLE", cart.getValue().items.get(1).linkedParentUid);
+        assertEquals("DEPOSIT", cart.getValue().items.get(1).linkedArticleEan);
+        assertEquals(BigDecimal.ONE, cart.getValue().items.get(1).linkedRecordedQuantity);
+        assertEquals(CARD, ticket.fidelityCard);
+    }
+
+    /** LC-03-06-06: unavailable totals and recalculation results remain explicitly unknown in the journal. */
+    @Test
+    void reassignmentJournalNamesUnavailableFigures() throws Exception {
+        TicketReassignmentService service = newService();
+        Ticket ticket = closedTicket(1L);
+        ticket.totalIncludingTax = null;
+        var method = TicketReassignmentService.class.getDeclaredMethod("journal", Ticket.class, String.class, BigDecimal.class);
+        method.setAccessible(true);
+        method.invoke(service, ticket, CARD, null);
+        ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
+        verify(service.technicalEventService).log(eq(TechnicalEvent.EventType.TICKET_REASSIGNED), detail.capture(), any());
+        assertTrue(detail.getValue().contains("montant=?"));
+        assertTrue(detail.getValue().contains("avantages=moteur indisponible"));
+    }
+
 }

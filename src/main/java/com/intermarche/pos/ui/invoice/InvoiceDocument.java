@@ -42,6 +42,18 @@ public final class InvoiceDocument {
     private static final DecimalFormat DF = amountFormat();
 
     /**
+     * The scale a figure of a commercial document is computed and printed with
+     * (BO-10-02-19): three decimals when the shop administered three, two for
+     * anything else — the same clamp as the settings themselves.
+     *
+     * @param decimals the administered decimals
+     * @return 2 or 3
+     */
+    static int scale(int decimals) {
+        return decimals == 3 ? 3 : 2;
+    }
+
+    /**
      * Builds the amount format of a commercial document: French decimals, and
      * thousands grouped by a PLAIN SPACE.
      *
@@ -50,6 +62,7 @@ public final class InvoiceDocument {
      * narrow no-break one because the same strings go to a receipt printer whose code
      * page has no such character and would print a question mark on the paper.
      *
+     * @param decimals the administered decimals
      * @return the format
      */
     private static DecimalFormat amountFormat(int decimals) {
@@ -71,9 +84,72 @@ public final class InvoiceDocument {
      * @param vatAmount decimals of a VAT row's tax
      * @param totalExcludingTax decimals of the foot's total excluding tax
      * @param totalIncludingTax decimals of the foot's total including tax
+     * @param lineTotalExcludingTax decimals of an article line's total
+     *        excluding tax (BO-10-02-19)
+     * @param rounding the rule a computed tax-excluded figure is rounded with
+     *        (BO-10-02-18)
+     * @param units how the quantities are written — the decimals and symbol of
+     *        a weight, the decimals of a unit-of-measure quantity — as on the
+     *        receipt (BO-10-08-28, BO-10-08-29); null meaning the historical
+     *        writing
      */
     public record Decimals(int unitExcludingTax, int vatBase, int vatAmount,
-            int totalExcludingTax, int totalIncludingTax) {
+            int totalExcludingTax, int totalIncludingTax, int lineTotalExcludingTax,
+            RoundingMode rounding, com.intermarche.pos.domain.catalog.UnitFormat units) {
+
+        /**
+         * Normalises the writing of quantities: none handed over is the
+         * register's historical one.
+         *
+         * @param unitExcludingTax decimals of the unit price excluding tax
+         * @param vatBase decimals of a VAT row's taxable base
+         * @param vatAmount decimals of a VAT row's tax
+         * @param totalExcludingTax decimals of the foot's total excluding tax
+         * @param totalIncludingTax decimals of the foot's total including tax
+         * @param lineTotalExcludingTax decimals of an article line's total
+         *        excluding tax
+         * @param rounding the rounding rule of a computed tax-excluded figure
+         * @param units the writing of quantities, possibly null
+         */
+        public Decimals {
+            units = com.intermarche.pos.domain.catalog.UnitFormat.orDefault(units);
+        }
+
+        /**
+         * Builds the counts of a document that administers no writing of
+         * quantities: the register's historical one.
+         *
+         * @param unitExcludingTax decimals of the unit price excluding tax
+         * @param vatBase decimals of a VAT row's taxable base
+         * @param vatAmount decimals of a VAT row's tax
+         * @param totalExcludingTax decimals of the foot's total excluding tax
+         * @param totalIncludingTax decimals of the foot's total including tax
+         * @param lineTotalExcludingTax decimals of an article line's total
+         *        excluding tax
+         * @param rounding the rounding rule of a computed tax-excluded figure
+         */
+        public Decimals(int unitExcludingTax, int vatBase, int vatAmount,
+                int totalExcludingTax, int totalIncludingTax, int lineTotalExcludingTax,
+                RoundingMode rounding) {
+            this(unitExcludingTax, vatBase, vatAmount, totalExcludingTax, totalIncludingTax,
+                    lineTotalExcludingTax, rounding, null);
+        }
+
+        /**
+         * Builds the counts of a document that administers neither the line
+         * total excluding tax nor a rounding rule: two decimals there, half up.
+         *
+         * @param unitExcludingTax decimals of the unit price excluding tax
+         * @param vatBase decimals of a VAT row's taxable base
+         * @param vatAmount decimals of a VAT row's tax
+         * @param totalExcludingTax decimals of the foot's total excluding tax
+         * @param totalIncludingTax decimals of the foot's total including tax
+         */
+        public Decimals(int unitExcludingTax, int vatBase, int vatAmount,
+                int totalExcludingTax, int totalIncludingTax) {
+            this(unitExcludingTax, vatBase, vatAmount, totalExcludingTax, totalIncludingTax,
+                    2, RoundingMode.HALF_UP);
+        }
 
         /**
          * The counts every document used before they became administrable.
@@ -133,10 +209,31 @@ public final class InvoiceDocument {
      * @param unitExcludingTax   the unit price excluding tax
      * @param unitIncludingTax   the unit price including tax
      * @param totalIncludingTax  the line total including tax
+     * @param totalExcludingTax  the line total excluding tax (BO-10-02-19)
      */
     public record Line(String label, String attributes, String ean, String quantity,
             String vatRate, String unitExcludingTax, String unitIncludingTax,
-            String totalIncludingTax) {
+            String totalIncludingTax, String totalExcludingTax) {
+
+        /**
+         * Builds a row carrying no line total excluding tax — the shape every
+         * row had before the document stated one.
+         *
+         * @param label the article's label
+         * @param attributes the attributes line
+         * @param ean the article code, empty when not printed
+         * @param quantity the quantity
+         * @param vatRate the VAT rate as a percentage
+         * @param unitExcludingTax the unit price excluding tax
+         * @param unitIncludingTax the unit price including tax
+         * @param totalIncludingTax the line total including tax
+         */
+        public Line(String label, String attributes, String ean, String quantity,
+                String vatRate, String unitExcludingTax, String unitIncludingTax,
+                String totalIncludingTax) {
+            this(label, attributes, ean, quantity, vatRate, unitExcludingTax, unitIncludingTax,
+                    totalIncludingTax, "");
+        }
     }
 
     /**
@@ -148,7 +245,22 @@ public final class InvoiceDocument {
      * @param includingTax     the tax-included total
      */
     public record VatRow(String rate, String excludingTax, String vat, String includingTax,
-                        String legalMention) {
+                        String legalMention, String code) {
+
+        /**
+         * Builds a row carrying no VAT code — the shape every row had before
+         * the table stated the regime's code ({@code BO-03-03-04}).
+         *
+         * @param rate the rate as the document writes it
+         * @param excludingTax the base excluding tax
+         * @param vat the tax amount
+         * @param includingTax the total including tax
+         * @param legalMention the legal mention of the regime, or null
+         */
+        public VatRow(String rate, String excludingTax, String vat, String includingTax,
+                      String legalMention) {
+            this(rate, excludingTax, vat, includingTax, legalMention, "");
+        }
 
         /**
          * Builds a row carrying no legal mention — the shape every row had
@@ -245,6 +357,71 @@ public final class InvoiceDocument {
 
     /** The legal identity of the operating company, for the page footer. */
     public final String legalFooter;
+
+    /**
+     * The customer's ORDER number ({@code BO-03-03-02}), EMPTY when the operator
+     * typed none — the three renderings then print no order line at all.
+     */
+    public String orderNumber = "";
+
+    /**
+     * The e-invoicing mention the back office administered
+     * ({@code fiscal.einvoicing-mention}, {@code BO-05-01-02}), printed after
+     * the legal mentions while electronic invoicing is active; empty otherwise.
+     */
+    public String einvoicingMention = "";
+
+    /**
+     * The web address the foot of the document carries ({@code BO-03-05-08}),
+     * EMPTY when the shop administers none.
+     */
+    public String footerUrl = "";
+
+    /**
+     * How the foot's address is printed on the roll ({@code BO-03-05-08}):
+     * {@code QR}, {@code BARCODE}, {@code TEXTE} or {@code AUCUN}.
+     */
+    public String footerUrlFormat = "";
+
+    /**
+     * How many article lines one A4 page carries ({@code BO-03-03-02}), zero
+     * for a single page.
+     */
+    public int linesPerPage;
+
+    /**
+     * The code of the template of the administered document this paper is
+     * drawn as ({@code BO-03-04-09}), EMPTY when the shop's invoice templates
+     * stand.
+     */
+    public String templateCode = "";
+
+    /**
+     * What the shop administered for its documents beyond their content: the
+     * VAT codes of the table ({@code BO-03-03-04}), the article attributes
+     * printed under each line ({@code BO-03-03-21}), the foot's address and its
+     * format ({@code BO-03-05-08}) and the lines of an A4 page
+     * ({@code BO-03-03-02}).
+     *
+     * @param vatCodes whether the VAT table states each regime's code
+     * @param attributeCodes the article attributes printed under each line
+     * @param footerUrl the address at the foot, blank for none
+     * @param footerUrlFormat how the roll prints it
+     * @param linesPerPage the article lines of an A4 page, zero for one page
+     */
+    public record Options(boolean vatCodes, List<String> attributeCodes, String footerUrl,
+                          String footerUrlFormat, int linesPerPage) {
+
+        /**
+         * The options of a document laid out with nothing administered: no
+         * code, no attribute, no address, one page.
+         *
+         * @return the empty options
+         */
+        public static Options none() {
+            return new Options(false, List.of(), "", "", 0);
+        }
+    }
 
     /**
      * The logo the back office administered for this store
@@ -403,9 +580,32 @@ public final class InvoiceDocument {
     public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
             String taxIdLabel, com.intermarche.pos.ui.Messages i18n, Decimals decimals,
             String logoImage) {
+        return of(invoice, ticket, showEan, taxIdLabel, i18n, decimals, logoImage, Options.none());
+    }
+
+    /**
+     * Lays out a document with what the shop administered beyond its content
+     * ({@code BO-03-03-02}, {@code -04}, {@code -21}, {@code BO-03-05-08}).
+     *
+     * @param invoice    the document, carrying its number, its addressee and its
+     *                   frozen totals
+     * @param ticket     the closed ticket it states
+     * @param showEan    whether the article codes are printed ({@code BO-03-03-03})
+     * @param taxIdLabel the wording to print in place of the digits, null or blank
+     *                   to print the identifier itself
+     * @param i18n       the operator wordings
+     * @param decimals   the decimals the shop administered for its documents
+     * @param logoImage  the administered store logo, null or blank to fall back
+     *                   on the installation's file
+     * @param options    the administered codes, attributes, address and pages
+     * @return the laid-out document
+     */
+    public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
+            String taxIdLabel, com.intermarche.pos.ui.Messages i18n, Decimals decimals,
+            String logoImage, Options options) {
         List<Tender> tenders = tendersOf(ticket, i18n);
-        return new InvoiceDocument(
-                invoice.documentType.getTitle(),
+        InvoiceDocument document = new InvoiceDocument(
+                invoice.printedTitle(),
                 invoice.documentNumber,
                 invoice.issueDate.format(DATE_TIME),
                 invoice.ticketNumber,
@@ -415,7 +615,7 @@ public final class InvoiceDocument {
                 sellerOf(ticket.store),
                 customerOf(invoice),
                 linesOf(ticket, showEan, i18n, decimals),
-                vatRowsOf(ticket, decimals),
+                vatRowsOf(ticket, decimals, options.vatCodes()),
                 tenders,
                 amountFormat(decimals.totalExcludingTax()).format(invoice.totalExcludingTax),
                 amountFormat(decimals.vatAmount()).format(invoice.totalVat),
@@ -426,6 +626,60 @@ public final class InvoiceDocument {
                 taxIdLabel == null || taxIdLabel.isBlank()
                         ? text(invoice.customerTaxId) : taxIdLabel,
                 logoImage);
+        document.orderNumber = text(invoice.orderNumber);
+        document.footerUrl = text(options.footerUrl());
+        document.footerUrlFormat = text(options.footerUrlFormat()).toUpperCase(Locale.ROOT);
+        document.linesPerPage = Math.max(0, options.linesPerPage());
+        return document.withOptions(ticket, i18n, options);
+    }
+
+    /**
+     * Applies the administered attributes to the rows already laid out — a
+     * document with none administered keeps its rows untouched.
+     *
+     * @param ticket the closed ticket the document states
+     * @param i18n the operator wordings
+     * @param options the administered options
+     * @return this document
+     */
+    private InvoiceDocument withOptions(Ticket ticket, com.intermarche.pos.ui.Messages i18n,
+            Options options) {
+        if (!options.attributeCodes().isEmpty()) {
+            List<TicketLine> live = new ArrayList<>();
+            for (TicketLine line : ticket.lines) {
+                if (!line.cancelled) {
+                    live.add(line);
+                }
+            }
+            for (int index = 0; index < lines.size(); index++) {
+                Line row = lines.get(index);
+                lines.set(index, new Line(row.label(),
+                        attributesOf(live.get(index), i18n, options.attributeCodes()), row.ean(),
+                        row.quantity(), row.vatRate(), row.unitExcludingTax(),
+                        row.unitIncludingTax(), row.totalIncludingTax(), row.totalExcludingTax()));
+            }
+        }
+        return this;
+    }
+
+    /**
+     * Tells whether the document states a customer order number
+     * ({@code BO-03-03-02}).
+     *
+     * @return true when an order number was typed
+     */
+    public boolean statesOrderNumber() {
+        return !orderNumber.isEmpty();
+    }
+
+    /**
+     * Tells whether the document carries an address at its foot
+     * ({@code BO-03-05-08}).
+     *
+     * @return true when the foot prints an address
+     */
+    public boolean statesFooterUrl() {
+        return !footerUrl.isEmpty() && !"AUCUN".equals(footerUrlFormat);
     }
 
     /**
@@ -470,7 +724,8 @@ public final class InvoiceDocument {
      * @return the mentions
      */
     public String getLegalMentions() {
-        return LEGAL_MENTIONS;
+        return einvoicingMention == null || einvoicingMention.isBlank()
+                ? LEGAL_MENTIONS : LEGAL_MENTIONS + " " + einvoicingMention.trim();
     }
 
     /**
@@ -505,8 +760,8 @@ public final class InvoiceDocument {
      *
      * @return true when a due date was administered for this customer
      */
-    public boolean hasDueDate() {
-        return dueDate != null && !dueDate.isEmpty();
+    public boolean statesDueDate() {
+        return !dueDate.isEmpty();
     }
 
     /**
@@ -515,8 +770,8 @@ public final class InvoiceDocument {
      *
      * @return true when the line is printed
      */
-    public boolean hasCustomerTaxId() {
-        return customerTaxId != null && !customerTaxId.isEmpty();
+    public boolean statesCustomerTaxId() {
+        return !customerTaxId.isEmpty();
     }
 
     /**
@@ -563,6 +818,9 @@ public final class InvoiceDocument {
         documentData.put("legalFooter", nullToEmpty(legalFooter));
         documentData.put("legalMentions", nullToEmpty(getLegalMentions()));
         documentData.put("logo", nullToEmpty(getLogo()));
+        documentData.put("orderNumber", orderNumber);
+        documentData.put("dueOnReceipt", !statesDueDate());
+        documentData.put("footerUrl", statesFooterUrl() ? footerUrl : "");
         data.put("document", documentData);
         List<Map<String, Object>> articleRows = new ArrayList<>();
         for (Line line : lines) {
@@ -574,7 +832,8 @@ public final class InvoiceDocument {
                     "vatRate", nullToEmpty(line.vatRate()),
                     "unitExcludingTax", nullToEmpty(line.unitExcludingTax()),
                     "unitIncludingTax", nullToEmpty(line.unitIncludingTax()),
-                    "total", nullToEmpty(line.totalIncludingTax())));
+                    "total", nullToEmpty(line.totalIncludingTax()),
+                    "totalExcludingTax", nullToEmpty(line.totalExcludingTax())));
         }
         data.put("lines", articleRows);
         List<Map<String, Object>> vatTable = new ArrayList<>();
@@ -583,7 +842,8 @@ public final class InvoiceDocument {
                     "rate", nullToEmpty(row.rate()),
                     "base", nullToEmpty(row.excludingTax()),
                     "vat", nullToEmpty(row.vat()),
-                    "includingTax", nullToEmpty(row.includingTax())));
+                    "includingTax", nullToEmpty(row.includingTax()),
+                    "code", nullToEmpty(row.code())));
         }
         data.put("vatRows", vatTable);
         List<Map<String, Object>> settlements = new ArrayList<>();
@@ -616,7 +876,7 @@ public final class InvoiceDocument {
                 "name", nullToEmpty(party.name()),
                 "legalName", nullToEmpty(party.legalName()),
                 "contact", nullToEmpty(party.contact()),
-                "addressLines", party.addressLines() == null ? List.of() : party.addressLines(),
+                "addressLines", party.addressLines(),
                 "phone", nullToEmpty(party.phone()),
                 "fax", nullToEmpty(party.fax()),
                 "siret", nullToEmpty(party.siret()),
@@ -677,13 +937,16 @@ public final class InvoiceDocument {
                     text(line.productLabel),
                     attributesOf(line, i18n),
                     showEan ? text(line.ean) : "",
-                    quantityOf(line),
+                    quantityOf(line, decimals.units()),
                     percent(rate),
                     amountFormat(decimals.unitExcludingTax())
                             .format(excludingTax(line.unitPrice, rate,
-                                    decimals.unitExcludingTax())),
+                                    decimals.unitExcludingTax(), decimals.rounding())),
                     DF.format(orZero(line.unitPrice)),
-                    DF.format(orZero(line.totalPrice))));
+                    DF.format(orZero(line.totalPrice)),
+                    amountFormat(decimals.lineTotalExcludingTax())
+                            .format(excludingTax(line.totalPrice, rate,
+                                    decimals.lineTotalExcludingTax(), decimals.rounding()))));
         }
         return rows;
     }
@@ -706,19 +969,59 @@ public final class InvoiceDocument {
     }
 
     /**
+     * Assembles the attributes line from the ATTRIBUTES the shop prints on its
+     * invoices ({@code BO-03-03-21}): « label : value » for each administered
+     * attribute the article carries, after the family.
+     *
+     * <p>Read from the article the line still references — the referential —
+     * and never from the receipt, which prints none of them: the Belgian rule
+     * the questionnaire states is that these attributes belong to the invoice
+     * alone. An attribute the article does not carry is left out rather than
+     * printed empty, and an attribute the catalog does not describe is named by
+     * its code.
+     *
+     * @param line the ticket line
+     * @param i18n the operator wordings
+     * @param codes the administered attribute codes, in print order
+     * @return the attributes line, empty when the line carries none
+     */
+    private static String attributesOf(TicketLine line, com.intermarche.pos.ui.Messages i18n,
+            List<String> codes) {
+        List<String> parts = new ArrayList<>();
+        String family = attributesOf(line, i18n);
+        if (!family.isEmpty()) {
+            parts.add(family);
+        }
+        for (String code : codes) {
+            String value = line.product == null || line.product.attributes == null
+                    ? null : line.product.attributes.get(code);
+            if (!isFilled(value)) {
+                continue;
+            }
+            com.intermarche.pos.domain.catalog.attribute.ProductAttributeDef def =
+                    com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.def(code);
+            parts.add((def == null ? code : def.label()) + " : " + value.trim());
+        }
+        return String.join(", ", parts);
+    }
+
+    /**
      * Lays out the VAT table, by the same rule as the receipt — which is what makes
      * the two documents agree, as {@code BO-03-03-04} requires.
      *
      * @param ticket the closed ticket
      * @return the rows, by ascending rate
      */
-    private static List<VatRow> vatRowsOf(Ticket ticket, Decimals decimals) {
-        VatBreakdown breakdown = new VatBreakdown();
+    private static List<VatRow> vatRowsOf(Ticket ticket, Decimals decimals, boolean codes) {
+        // BO-10-02-19: the bases are COMPUTED at the decimals they are printed
+        // with — a base rounded to the cent and padded with a zero would print
+        // 8,360 beside a line total of 8,358.
+        VatBreakdown breakdown = new VatBreakdown(decimals.rounding(), scale(decimals.vatBase()));
         for (TicketLine line : ticket.lines) {
             if (line.cancelled) {
                 continue;
             }
-            breakdown.add(line.vatRate, line.totalPrice);
+            breakdown.add(line.vatRate, line.vatNumber, line.totalPrice);
         }
         List<VatRow> rows = new ArrayList<>();
         for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
@@ -729,15 +1032,21 @@ public final class InvoiceDocument {
             // carried on its own row so the invoice states it beside the tax it
             // belongs to. Null when the regime administers none, or when no
             // regime carries that rate at all.
-            com.intermarche.pos.domain.catalog.VatRate regime =
-                    com.intermarche.pos.domain.catalog.VatRate.findByRate(bucket.rate);
+            // BO-02-02-01: the regime read by the number its lines kept, so two
+            // regimes of one percentage keep their own mention and code.
+            com.intermarche.pos.domain.catalog.VatRate regime = bucket.number == null
+                    ? com.intermarche.pos.domain.catalog.VatRate.findByRate(bucket.rate)
+                    : com.intermarche.pos.domain.catalog.VatRate.resolve(bucket.rate, bucket.number);
             String legalMention = regime == null || regime.legalMention == null
                     || regime.legalMention.isBlank() ? null : regime.legalMention.trim();
+            // BO-03-03-04: the regime's code, the letter the receipt's own
+            // table prints beside the same rate, where the shop states codes.
+            String code = codes && regime != null ? text(regime.code()) : "";
             rows.add(new VatRow(percent(bucket.rate),
                     amountFormat(decimals.vatBase()).format(bucket.totalExcludingTax),
                     amountFormat(decimals.vatAmount()).format(bucket.vatAmount),
                     amountFormat(decimals.totalIncludingTax()).format(bucket.totalIncludingTax),
-                    legalMention));
+                    legalMention, code));
         }
         return rows;
     }
@@ -800,6 +1109,7 @@ public final class InvoiceDocument {
             case "ForeignCurrency" -> i18n.get("doc.devise");
             case "Backup" -> i18n.get("doc.secoursMonetique");
             case "TrdCard" -> i18n.get("doc.carteTrd");
+            case "SocialCard" -> i18n.get("doc.carteSociale");
             case "RestoFlash" -> i18n.get("doc.restoFlash");
             case "SupplierGiftCard" -> i18n.get("doc.carteCadeau");
             case "Sogec" -> i18n.get("doc.bonSogec");
@@ -851,21 +1161,24 @@ public final class InvoiceDocument {
     }
 
     /**
-     * Formats a line's quantity: kilograms for a weighed article, a plain count
-     * otherwise.
+     * Formats a line's quantity with the administered writing of quantities,
+     * as the receipt does (BO-10-08-28, BO-10-08-29): a weight with its
+     * decimals and its symbol for a weighed article, a unit-of-measure
+     * quantity with its decimals and its unit, a plain count otherwise.
      *
      * @param line the ticket line
+     * @param units the administered writing of quantities
      * @return the formatted quantity
      */
-    private static String quantityOf(TicketLine line) {
+    private static String quantityOf(TicketLine line, com.intermarche.pos.domain.catalog.UnitFormat units) {
         BigDecimal value = orZero(line.quantity);
         if (isFilled(line.plu)) {
-            return String.format("%.3f kg", value).replace(".", ",");
+            return units.weight(value);
         }
-        if (value.stripTrailingZeros().scale() <= 0) {
-            return value.stripTrailingZeros().toPlainString();
+        if (isFilled(line.unitName)) {
+            return units.measure(value) + " " + line.unitName.trim();
         }
-        return String.format("%.2f", value).replace(".", ",");
+        return units.measure(value);
     }
 
     /**
@@ -876,12 +1189,15 @@ public final class InvoiceDocument {
      * @param scale        the decimals the document states this figure on, so
      *                     that a price printed on three decimals is COMPUTED on
      *                     three and not rounded to two first ({@code BO-10-02-19})
+     * @param rounding     the shop's rounding rule ({@code BO-10-02-18}), null
+     *                     meaning half up
      * @return the tax-excluded amount
      */
     private static BigDecimal excludingTax(BigDecimal includingTax, BigDecimal rate,
-            int scale) {
+            int scale, RoundingMode rounding) {
         return orZero(includingTax)
-                .divide(BigDecimal.ONE.add(rate), scale, RoundingMode.HALF_UP);
+                .divide(BigDecimal.ONE.add(rate), scale,
+                        rounding == null ? RoundingMode.HALF_UP : rounding);
     }
 
     /**

@@ -165,6 +165,22 @@ public class TareService {
     }
 
     /**
+     * The pictures of the tare containers (BO-02-03-39), by container code: the
+     * active store images of the tare-container usage, each carrying the code
+     * of the container it shows.
+     *
+     * @return the pictures as data URIs, by container code, never null
+     */
+    public java.util.Map<String, String> containerImages() {
+        java.util.Map<String, String> images = new java.util.HashMap<>();
+        for (com.intermarche.pos.domain.setting.StoreImage image : com.intermarche.pos.domain.setting.StoreImage
+                .findActiveByUsage(com.intermarche.pos.domain.setting.StoreImage.Usage.TARE_CONTAINER)) {
+            images.put(image.code, image.imageData);
+        }
+        return images;
+    }
+
+    /**
      * The administered container list offered to the cashier (LC-14-01-04).
      *
      * @return the administered containers, in order, never null

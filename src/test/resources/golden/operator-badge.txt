@@ -2,6 +2,6 @@
              BADGE OPERATEUR
 ------------------------------------------
 OPERATEUR                          jdupont
-BADGE                           BADGE-0042
+[[BARCODE BADGE-0042]]
 ------------------------------------------
       SCANNEZ OU SAISISSEZ CE NUMERO

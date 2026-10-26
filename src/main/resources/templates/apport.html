@@ -66,15 +66,15 @@
       </div>
 
       <form id="apportForm" method="post" action="/action/apport/record"
-            onsubmit="return prepareApport();" class="count-area">
+            onsubmit="return ApportCount.prepareApport();" class="count-area" data-threshold="{threshold}">
         <input type="hidden" id="amount" name="amount" value="0">
         <input type="hidden" id="detail" name="detail" value="">
 
         <div class="count-list-area">
           <div class="tabs-container">
-            <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">{inject:i18n.get('apport.billets')}</button>
-            <button type="button" class="tab-btn" onclick="switchTab('coins', this)">{inject:i18n.get('apport.pieces')}</button>
-            <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">{inject:i18n.get('apport.rouleaux')}</button>
+            <button type="button" class="tab-btn active" onclick="ApportCount.switchTab('bills', this)">{inject:i18n.get('apport.billets')}</button>
+            <button type="button" class="tab-btn" onclick="ApportCount.switchTab('coins', this)">{inject:i18n.get('apport.pieces')}</button>
+            <button type="button" class="tab-btn" onclick="ApportCount.switchTab('rolls', this)">{inject:i18n.get('apport.rouleaux')}</button>
           </div>
           <div class="items-scroll" id="listContainer">
             {#for item in bills}
@@ -93,7 +93,7 @@
             <div class="total-amount" id="totalDisplay">0,00 €</div>
           </div>
           <div class="manager-block" id="managerBlock" style="display:none;">
-            <div class="hint">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+            <div class="hint">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
           </div>
           <div class="numpad-container" id="numpadArea"></div>
         </div>
@@ -106,105 +106,13 @@
     </div>
   </div>
 
-  {#include endorsement /}
   {#include keyboard-lib /}
+  {#include endorsement /}
 
+  <script src="/pos/apport-count.js"></script>
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 
-    const threshold = parseFloat("{threshold}");
-    const countState = {};
-    const countValues = {};
-    let selectedElement = null;
-
-    /* Swaps the denomination tab, reusing the count page's fragment endpoint. */
-    function switchTab(type, btnElement) {
-      selectedElement = null;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btnElement.classList.add('active');
-      fetch('/cash-count/fragment/' + type)
-        .then(r => r.text())
-        .then(html => {
-          document.getElementById('listContainer').innerHTML = html;
-          refreshDisplay();
-        });
-    }
-
-    /* One click on a denomination row arms the numpad for it; the quantity
-       already keyed is loaded back so a mistake is corrected, not added to. */
-    function selectItem(element) {
-      if (selectedElement) selectedElement.classList.remove('selected');
-      selectedElement = element;
-      selectedElement.classList.add('selected');
-      const id = element.getAttribute('data-id');
-      const value = parseFloat(element.getAttribute('data-value'));
-      countValues[id] = value;
-      PosInput.setup({
-        containerId: 'numpadArea',
-        keyboardType: 'numpad',
-        mode: 'integer',
-        maxLength: 4,
-        placeholder: "0",
-        onChange: (val) => {
-          const qty = parseInt(val) || 0;
-          countState[id] = qty;
-          updateItemDisplay(element, qty, value);
-          updateTotal();
-        }
-      });
-      PosInput.prefill((countState[id] || 0).toString());
-    }
-
-    function updateItemDisplay(element, qty, value) {
-      element.querySelector('.item-qty').innerText = 'x ' + qty;
-      element.querySelector('.item-total').innerText =
-        (qty * value).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
-    }
-
-    function currentTotal() {
-      let total = 0;
-      for (const [id, qty] of Object.entries(countState)) {
-        total += (countValues[id] || 0) * qty;
-      }
-      return total;
-    }
-
-    function updateTotal() {
-      const total = currentTotal();
-      document.getElementById('totalDisplay').innerText =
-        total.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
-      const block = document.getElementById('managerBlock');
-      if (block) block.style.display = (total > threshold) ? 'block' : 'none';
-    }
-
-    function refreshDisplay() {
-      document.querySelectorAll('.count-item').forEach(item => {
-        const id = item.getAttribute('data-id');
-        const value = parseFloat(item.getAttribute('data-value'));
-        if (!countValues[id]) countValues[id] = value;
-        if (countState[id]) updateItemDisplay(item, countState[id], value);
-      });
-      updateTotal();
-    }
-
-    /* Fills the posted total and the per-denomination detail. A count that adds
-       up to nothing is refused here rather than travelling to the server. */
-    function prepareApport() {
-      const total = currentTotal();
-      if (total <= 0) return false;
-      document.getElementById('amount').value = total.toFixed(2);
-      document.getElementById('detail').value = JSON.stringify(countState);
-      return true;
-    }
-
-    const listContainer = document.getElementById('listContainer');
-    if (listContainer) {
-      listContainer.addEventListener('click', function(e) {
-        const item = e.target.closest('.count-item');
-        if (item) selectItem(item);
-      });
-      refreshDisplay();
-    }
   </script>
 </body>
 </html>

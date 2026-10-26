@@ -1,12 +1,16 @@
 package com.intermarche.pos.domain.payment;
 
-import com.intermarche.pos.domain.BaseEntity;
-import com.intermarche.pos.domain.store.Address;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 
 import java.math.BigDecimal;
 import java.util.Objects;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * A professional customer, the party an invoice is addressed to.
@@ -221,6 +225,36 @@ public class AccountCustomer extends BaseEntity {
      */
     @Column(name = "credit_balance", precision = 12, scale = 2, nullable = false)
     public BigDecimal creditBalance = BigDecimal.ZERO;
+
+    /** The customer's profession (BO-06-03-04), or null. */
+    @Column(name = "profession", length = 60)
+    public String profession;
+
+    /**
+     * How the customer's advantage is invoiced (BO-06-03-04): {@code AMOUNT}
+     * (a sum), {@code PERCENT} (a rate), {@code SUPPLEMENT} (a supplement
+     * code), or null.
+     */
+    @Column(name = "billing_type", length = 12)
+    public String billingType;
+
+    /** The supplement code of a {@code SUPPLEMENT} billing type, or null. */
+    @Column(name = "supplement_code", length = 20)
+    public String supplementCode;
+
+    /**
+     * The INVOICING address when it differs from the main one
+     * (BO-06-03-04), its street empty otherwise.
+     */
+    @jakarta.persistence.Embedded
+    @jakarta.persistence.AttributeOverride(name = "streetLine1", column = @Column(name = "billing_street1"))
+    @jakarta.persistence.AttributeOverride(name = "streetLine2", column = @Column(name = "billing_street2"))
+    @jakarta.persistence.AttributeOverride(name = "postalCode", column = @Column(name = "billing_postal_code"))
+    @jakarta.persistence.AttributeOverride(name = "city", column = @Column(name = "billing_city"))
+    @jakarta.persistence.AttributeOverride(name = "country", column = @Column(name = "billing_country"))
+    @jakarta.persistence.AttributeOverride(name = "latitude", column = @Column(name = "billing_latitude"))
+    @jakarta.persistence.AttributeOverride(name = "longitude", column = @Column(name = "billing_longitude"))
+    public Address billingAddress;
 
     /**
      * The reserve of free fields the commercial management fills as it likes

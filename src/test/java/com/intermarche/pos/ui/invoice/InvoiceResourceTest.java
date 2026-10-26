@@ -182,6 +182,27 @@ class InvoiceResourceTest {
         verify(resource.invoiceService).open();
     }
 
+    /**
+     * A step past the ticket while no ticket is chosen — a stale page or a
+     * hand-made request — goes back to naming the ticket instead of failing to
+     * render; with a ticket chosen, the step is kept.
+     */
+    @Test
+    void aStepWithoutTicketGoesBackToTheTicket() {
+        InvoiceResource resource = newResource();
+        resource.state.invoice = new InvoiceState();
+        resource.state.invoice.step = InvoiceState.Step.CUSTOMER;
+        stubRequest(resource);
+        resource.showSlip();
+        assertEquals(InvoiceState.Step.TICKET, resource.state.invoice.step);
+        resource.showSlip();
+        assertEquals(InvoiceState.Step.TICKET, resource.state.invoice.step);
+        resource.state.invoice.ticket = new Ticket();
+        resource.state.invoice.step = InvoiceState.Step.CUSTOMER;
+        resource.showSlip();
+        assertEquals(InvoiceState.Step.CUSTOMER, resource.state.invoice.step);
+    }
+
     // --- chooseTicket / pickTicket ---
 
     /**
@@ -317,10 +338,12 @@ class InvoiceResourceTest {
         InvoiceResource resource = newResource();
         InvoiceDocument document = documentOf(1);
         when(resource.invoiceService.preview()).thenReturn(document);
+        resource.state.invoice.error = "REFUS";
         TemplateInstance view = stubDocument(resource);
         assertSame(view, resource.preview(null));
         verify(resource.documentPage).data("document", document);
         verify(view).data("issued", false);
+        verify(view).data("error", "REFUS");
         verify(view).data("page", 1);
         verify(view).data("pageCount", 1);
         verify(view).data("hasPrev", false);
@@ -400,6 +423,7 @@ class InvoiceResourceTest {
         assertSame(view, resource.showDocument(7L, null));
         verify(resource.documentPage).data("document", document);
         verify(view).data("issued", true);
+        verify(view).data("error", "");
         verify(view).data("page", 1);
     }
 
@@ -546,8 +570,7 @@ class InvoiceResourceTest {
     void requestFlagsTheDocumentStepWhenSeveralKindsAreEligible() {
         InvoiceResource resource = newResource();
         TemplateInstance view = stubRequest(resource);
-        when(resource.invoiceService.eligibleDocumentTypes())
-                .thenReturn(java.util.List.of(DocumentType.FACTURE, DocumentType.FACTURE));
+        when(resource.invoiceService.documentChoiceCount()).thenReturn(2);
         assertSame(view, resource.showInvoiceScreen());
         verify(view).data("hasDocumentStep", true);
     }
@@ -670,5 +693,54 @@ class InvoiceResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/invoice", response.getLocation().toString());
         verify(resource.invoiceService).backToDocumentStep();
+    }
+
+    /**
+     * BO-03-04-18: without the validation step the review IS the document —
+     * the request page renders the preview —, a review that cannot be laid out
+     * falls back on the request page, and the step stands where validation is
+     * asked or while the order number is typed.
+     */
+    @Test
+    void withoutValidationTheReviewIsTheDocument() {
+        InvoiceResource resource = newResource();
+        TemplateInstance request = stubRequest(resource);
+        TemplateInstance page = stubDocument(resource);
+        when(resource.state.invoice.isOnPreviewStep()).thenReturn(true);
+        InvoiceDocument document = documentOf(1);
+        when(resource.invoiceService.preview()).thenReturn(document);
+        assertSame(page, resource.showInvoiceScreen());
+        when(resource.invoiceService.preview()).thenReturn(null);
+        assertSame(request, resource.showInvoiceScreen());
+        when(resource.posSettingsService.invoiceCustomerValidation()).thenReturn(true);
+        assertSame(request, resource.showInvoiceScreen());
+        when(resource.posSettingsService.invoiceCustomerValidation()).thenReturn(false);
+        resource.state.invoice.enteringOrderNumber = true;
+        resource.i18n = TestMessages.french();
+        assertSame(request, resource.showInvoiceScreen());
+    }
+
+    /**
+     * BO-03-03-02: the order number is typed in its own mask, posted to its own
+     * form, and recorded by the service; BO-03-04-16: the page announces a
+     * mandatory account number.
+     */
+    @Test
+    void theOrderNumberHasItsOwnMask() {
+        InvoiceResource resource = newResource();
+        resource.i18n = TestMessages.french();
+        TemplateInstance view = stubRequest(resource);
+        resource.state.invoice.enteringOrderNumber = true;
+        resource.state.invoice.orderNumber = "CMD-1";
+        when(resource.posSettingsService.invoiceAccountNumberRequired()).thenReturn(true);
+        assertSame(view, resource.editOrderNumber());
+        verify(resource.invoiceService).editOrderNumber();
+        verify(view, org.mockito.Mockito.atLeastOnce()).data("formAction", "/invoice/order");
+        verify(view, org.mockito.Mockito.atLeastOnce()).data("accountRequired", true);
+        verify(view, org.mockito.Mockito.atLeastOnce()).data(org.mockito.ArgumentMatchers.eq("fields"),
+                org.mockito.ArgumentMatchers.argThat(fields -> fields instanceof java.util.List<?> list
+                        && list.size() == 1 && ((EntryField) list.get(0)).value().equals("CMD-1")));
+        assertSame(view, resource.setOrderNumber("CMD-2"));
+        verify(resource.invoiceService).setOrderNumber("CMD-2");
     }
 }

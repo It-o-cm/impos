@@ -476,4 +476,44 @@ class FinancialMovementResourceTest {
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(),
                 any(), any(), any(), any());
     }
+
+    /** LC-12: malformed, empty-key, empty-label and repeated options are each ignored; lookup retains the first label. */
+    @org.junit.jupiter.api.Test
+    void coverageOptionParserAndLabelLookup() throws Exception {
+        var resource = newResource();
+        var options = FinancialMovementResource.class.getDeclaredMethod("options", String.class);
+        options.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of(), options.invoke(resource, (Object) null));
+        var valid = (java.util.List<?>) options.invoke(resource, "BAD;:Empty;A: ;A:One;A:Two;B:Bee");
+        org.junit.jupiter.api.Assertions.assertEquals(2, valid.size());
+        var label = FinancialMovementResource.class.getDeclaredMethod("labelOf", String.class, String.class);
+        label.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertEquals("One", label.invoke(resource, "A", "B:Bee;A:One"));
+        var amount = FinancialMovementResource.class.getDeclaredMethod("parseAmount", String.class);
+        amount.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertEquals(java.math.BigDecimal.ZERO, amount.invoke(resource, " "));
+    }
+    /** LC-12-10: an invalid source is refused again after endorsement and missing labels/amounts retain safe fallbacks. */
+    @Test
+    void endorsedTransferRechecksItsSourceAndFallbacks() throws Exception {
+        var resource = newResource();
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.performEndorsed(java.util.Map.of("source", "UNKNOWN", "destination", "CREDIT", "amount", "1"), "MANAGER"), "/financial-movement?error=bad-tender");
+        var method = FinancialMovementResource.class.getDeclaredMethod("labelOf", String.class, String.class);
+        method.setAccessible(true);
+        assertEquals("UNKNOWN", method.invoke(resource, "UNKNOWN", "CASH:Cash"));
+        method = FinancialMovementResource.class.getDeclaredMethod("parseAmount", String.class);
+        method.setAccessible(true);
+        assertEquals(BigDecimal.ZERO, method.invoke(resource, (Object) null));
+    }
+
+    /** LC-12 and LC-04: malformed monetary input is neutralized before creating any financial document; covers numeric parsing failures. */
+    @Test
+    void malformedMoneyCannotBecomeAFinancialAmount() throws Exception {
+        var method = FinancialMovementResource.class.getDeclaredMethod("parseAmount", String.class);
+        method.setAccessible(true);
+        assertEquals(java.math.BigDecimal.ZERO, method.invoke(newResource(), "12,3,4"));
+        assertEquals(java.math.BigDecimal.ZERO, method.invoke(newResource(), "NaN"));
+    }
+
 }

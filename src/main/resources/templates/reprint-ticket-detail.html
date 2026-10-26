@@ -7,6 +7,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{inject:i18n.get('reprintticketdetail.detailTicket')}</title>
   <style>
     {#include theme /}
@@ -86,7 +87,7 @@
              href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/toggle/{line.id}">
             <div class="item-label">
               <span class="exchange-mark">{#if state.reprint.isSelected(line.id)}&#10003;{#else}&nbsp;{/if}</span>
-              <span class="item-qty">{line.formattedQuantity}</span>
+              <span class="item-qty">{inject:units.line(line)}</span>
               {line.productLabel}
             </div>
           </a>
@@ -101,7 +102,7 @@
         {#for line in state.reprint.visibleLines}
           <div class="receipt-item">
             <div class="item-label">
-              <span class="item-qty">{line.formattedQuantity}</span>
+              <span class="item-qty">{inject:units.line(line)}</span>
               {line.productLabel}
             </div>
             <span class="item-price">{line.totalFormatted} €</span>
@@ -139,6 +140,7 @@
     {#else}
       <a href="/reprint" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.retourListe')}</a>
       <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.bonEchange')}</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/promotions" class="btn btn-muted">{inject:i18n.get('reprint.promotions')}</a>
       <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimer')}</a>
       {#if state.reprint.reassignMode && !state.reprint.viewedTicket.fidelityCard}
       <!-- LC-03-06-01 / -02 : LA TOUCHE DE RÉAFFECTATION n'existe que dans le
@@ -180,10 +182,10 @@
   <div style="position:absolute; top:3.75rem; left:0; right:0; padding:8px; text-align:center; background:var(--warning); color:#000; font-weight:bold; z-index:30;">{state.reprint.reassignError}</div>
   {/if}
 
+  {#include keyboard-lib /}
   {#include endorsement /}
 </div>
 
-{#include keyboard-lib /}
 
 <script>
   setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);

@@ -82,6 +82,8 @@ class CashMovementResourceTest {
         // The administered lists (BO-04-03-12), consulted for the justifications.
         resource.posListService = mock(com.intermarche.pos.service.PosListService.class);
         resource.endorsementService = mock(EndorsementService.class);
+        // The tender referential (BO-03-02-20/-26): no tender is administered.
+        resource.tenderRulesService = mock(com.intermarche.pos.ui.payment.TenderRulesService.class);
         resource.cashMovement = mock(Template.class);
         resource.ticketPrinterService =
                 mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
@@ -112,7 +114,9 @@ class CashMovementResourceTest {
         when(resource.cashMovement.data("state", resource.state)).thenReturn(ti1);
         when(ti1.data(eq("reasons"), any())).thenReturn(ti2);
         when(ti2.data(eq("tenders"), any())).thenReturn(tiTenders);
-        when(tiTenders.data(eq("threshold"), any())).thenReturn(ti3);
+        TemplateInstance tiExpenses = mock(TemplateInstance.class);
+        when(tiTenders.data(eq("expenses"), any())).thenReturn(tiExpenses);
+        when(tiExpenses.data(eq("threshold"), any())).thenReturn(ti3);
         when(ti3.data(eq("saved"), any())).thenReturn(ti4);
         when(ti4.data(eq("error"), any())).thenReturn(ti5);
         return new TemplateInstance[]{ti1, ti2, ti3, ti4, ti5};
@@ -154,7 +158,9 @@ class CashMovementResourceTest {
         when(resource.cashMovement.data("state", resource.state)).thenReturn(ti1);
         when(ti1.data(eq("reasons"), any())).thenReturn(tiReasons);
         when(tiReasons.data(eq("tenders"), any())).thenReturn(tiTenders);
-        when(tiTenders.data(eq("threshold"), any())).thenReturn(ti3);
+        TemplateInstance tiExpenses = mock(TemplateInstance.class);
+        when(tiTenders.data(eq("expenses"), any())).thenReturn(tiExpenses);
+        when(tiExpenses.data(eq("threshold"), any())).thenReturn(ti3);
         when(ti3.data(eq("saved"), any())).thenReturn(ti4);
         when(ti4.data(eq("error"), any())).thenReturn(ti5);
         return new TemplateInstance[]{ti1, tiReasons};
@@ -298,7 +304,7 @@ class CashMovementResourceTest {
     void recordTrainingModeBlocked() {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = true;
-        assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, null),
+        assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, null, null),
                 "/cash-movement?error=training");
         verifyNoInteractions(resource.cashSessionService);
         verifyNoInteractions(resource.cashMovementService);
@@ -313,7 +319,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
-        assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, null),
+        assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, null, null),
                 "/cash-movement?error=no-session");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -327,7 +333,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record(null, "10", "Timbres", null, null),
+        assertRedirect(resource.record(null, "10", "Timbres", null, null, null),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -341,7 +347,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("BOGUS", "10", "Timbres", null, null),
+        assertRedirect(resource.record("BOGUS", "10", "Timbres", null, null, null),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -367,7 +373,7 @@ class CashMovementResourceTest {
                 eq("Timbres"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("EXPENSE", "30,00", "Timbres", null, null),
+            assertRedirect(resource.record("EXPENSE", "30,00", "Timbres", null, null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.state).touch();
@@ -392,7 +398,7 @@ class CashMovementResourceTest {
                 eq("Timbres"), eq(null), eq("CHEQUE"), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, "CHEQUE"),
+            assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, "CHEQUE", "true"),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
@@ -418,7 +424,7 @@ class CashMovementResourceTest {
                 eq("Timbres"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, "   "),
+            assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, "   ", null),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
@@ -447,7 +453,7 @@ class CashMovementResourceTest {
                 eq("Timbres"), eq("M1"), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("EXPENSE", null, "Timbres", null, null),
+            assertRedirect(resource.record("EXPENSE", null, "Timbres", null, null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.endorsementService, never()).authorize(any(), any(), any());
@@ -496,7 +502,7 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        assertRedirect(resource.record("EXPENSE", "150", "Timbres", null, null),
+        assertRedirect(resource.record("EXPENSE", "150", "Timbres", null, null, null),
                 "/cash-movement");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<java.util.Map<String, String>> form = ArgumentCaptor.forClass(java.util.Map.class);
@@ -507,6 +513,7 @@ class CashMovementResourceTest {
         assertEquals("Timbres", form.getValue().get("reason"));
         assertEquals("", form.getValue().get("reference"));
         assertEquals("", form.getValue().get("paymentMethod"));
+        assertEquals("", form.getValue().get("tenderPicked"));
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
@@ -548,7 +555,7 @@ class CashMovementResourceTest {
         when(resource.cashMovementService.record(eq(session), eq(null),
                 eq(CashMovement.MovementType.DECLARATION), eq(BigDecimal.ZERO),
                 eq("Comptage"), eq(null), eq(null), eq(null), eq(null))).thenReturn(null);
-        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null, null),
+        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null, null, null),
                 "/cash-movement?error=endorsement");
         verify(resource.state).touch();
     }
@@ -569,7 +576,7 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        assertRedirect(resource.record("DECLARATION", null, null, null, "CB"),
+        assertRedirect(resource.record("DECLARATION", null, null, null, "CB", "true"),
                 "/cash-movement");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<java.util.Map<String, String>> form = ArgumentCaptor.forClass(java.util.Map.class);
@@ -580,6 +587,7 @@ class CashMovementResourceTest {
         assertEquals("", form.getValue().get("reason"));
         assertEquals("", form.getValue().get("reference"));
         assertEquals("CB", form.getValue().get("paymentMethod"));
+        assertEquals("true", form.getValue().get("tenderPicked"));
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
@@ -593,7 +601,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("WITHDRAWAL", "30", "Coffre", null, null),
+        assertRedirect(resource.record("WITHDRAWAL", "30", "Coffre", null, null, null),
                 "/cash-movement?error=own-screen");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -608,7 +616,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("DEPOSIT", "30", "Apport", null, null),
+        assertRedirect(resource.record("DEPOSIT", "30", "Apport", null, null, null),
                 "/cash-movement?error=own-screen");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -622,7 +630,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("EXPENSE", "30", null, null, null),
+        assertRedirect(resource.record("EXPENSE", "30", null, null, null, null),
                 "/cash-movement?error=reason");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -636,7 +644,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("EXPENSE", "30", "   ", null, null),
+        assertRedirect(resource.record("EXPENSE", "30", "   ", null, null, null),
                 "/cash-movement?error=reason");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -650,7 +658,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, null, null),
+        assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, null, null, null),
                 "/cash-movement?error=reference");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -664,7 +672,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, "  ", null),
+        assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, "  ", null, null),
                 "/cash-movement?error=reference");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -688,7 +696,7 @@ class CashMovementResourceTest {
                 new BigDecimal("30"), " CMD42 ")).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, " CMD42 ", null),
+            assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, " CMD42 ", null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).recordAcompte(session, cashier,
@@ -713,7 +721,7 @@ class CashMovementResourceTest {
                 .thenReturn(null);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(mock(Employee.class));
-            assertRedirect(resource.record("CUSTOMER_DEPOSIT", "0", null, "CMD42", null),
+            assertRedirect(resource.record("CUSTOMER_DEPOSIT", "0", null, "CMD42", null, null),
                     "/cash-movement?error=endorsement");
         }
         verifyNoInteractions(resource.ticketPrinterService);
@@ -741,7 +749,7 @@ class CashMovementResourceTest {
         when(resource.ticketNumberService.getTerminalId()).thenReturn("C01");
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("EXPENSE", "12,50", "Timbres", null, null),
+            assertRedirect(resource.record("EXPENSE", "12,50", "Timbres", null, null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.ticketPrinterService).printMovementTicket("Dépense",
@@ -766,7 +774,7 @@ class CashMovementResourceTest {
                 any(), any(), any())).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("DECLARATION", "200", null, null, null),
+            assertRedirect(resource.record("DECLARATION", "200", null, null, null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
@@ -835,5 +843,259 @@ class CashMovementResourceTest {
         assertRedirect(resource.performEndorsed(parked, "22222222"),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
+    }
+    /** LC-12: each movement kind carries the exact label used by its printed document. */
+    @org.junit.jupiter.api.Test
+    void coverageEveryMovementTypeLabel() throws Exception {
+        var resource = new CashMovementResource();
+        resource.i18n = TestMessages.french();
+        var method = CashMovementResource.class.getDeclaredMethod("typeLabelOf", com.intermarche.pos.domain.session.CashMovement.MovementType.class);
+        method.setAccessible(true);
+        var expected = java.util.Map.of("EXPENSE", "Dépense", "CUSTOMER_DEPOSIT", "Acompte client", "DECLARATION", "Déclaration (comptage)",
+                "WITHDRAWAL", "Prélèvement", "DEPOSIT", "Apport", "TRANSFER", "Transfert");
+        for (var type : com.intermarche.pos.domain.session.CashMovement.MovementType.values())
+            org.junit.jupiter.api.Assertions.assertEquals(expected.get(type.name()), method.invoke(resource, type));
+    }
+
+    /** LC-12: a missing optional reference remains empty in an endorsement, and endorsed expenses still require their reason. */
+    @Test
+    void endorsementPayloadAndRevalidationKeepTheirGuards() {
+        var resource = newResource();
+        when(resource.cashSessionService.getOpenSession()).thenReturn(new CashSession());
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        resource.record("DECLARATION", "150", null, null, "CASH", "true");
+        var form = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(resource.endorsementService).requestAuthorization(org.mockito.ArgumentMatchers.eq(resource.state),
+                org.mockito.ArgumentMatchers.anyString(), form.capture(), org.mockito.ArgumentMatchers.eq("/cash-movement"));
+        assertEquals("", form.getValue().get("reference"));
+        var posted = new java.util.HashMap<String, String>();
+        posted.put("type", "EXPENSE");
+        posted.put("amount", "10");
+        assertEquals("/cash-movement?error=reason", resource.performEndorsed(posted, "MANAGER").getLocation().toString());
+        org.mockito.Mockito.verifyNoInteractions(resource.ticketPrinterService);
+    }
+
+
+    /** LC-12: an optional supplied reference is retained when a declaration is parked for endorsement. */
+    @Test
+    void suppliedReferenceIsRetainedInTheEndorsementPayload() {
+        var resource = newResource();
+        when(resource.cashSessionService.getOpenSession()).thenReturn(new CashSession());
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        resource.record("DECLARATION", "150", null, "REFERENCE", "CASH", "true");
+        var form = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(resource.endorsementService).requestAuthorization(org.mockito.ArgumentMatchers.eq(resource.state),
+                org.mockito.ArgumentMatchers.anyString(), form.capture(), org.mockito.ArgumentMatchers.eq("/cash-movement"));
+        assertEquals("REFERENCE", form.getValue().get("reference"));
+    }
+
+
+    /**
+     * Builds an administered expense.
+     *
+     * @param tender the tender it is paid in, or null for cash
+     * @param max its maximum, or null
+     * @param level its control above the maximum
+     * @return the expense
+     */
+    private com.intermarche.pos.service.PosListService.Expense expense(String tender, String max,
+            com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel level) {
+        return new com.intermarche.pos.service.PosListService.Expense("TIMBRES", "Timbres", tender,
+                max == null ? null : new BigDecimal(max), level);
+    }
+
+    /**
+     * Wires an open session, a logged cashier and a movement the service records.
+     *
+     * @param resource the resource under test
+     * @return the open session
+     */
+    private CashSession openSessionFor(CashMovementResource resource) {
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.record(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(mock(CashMovement.class));
+        when(resource.cashMovementService.recordAcompte(any(), any(), any(), any()))
+                .thenReturn(mock(CashMovement.class));
+        return session;
+    }
+
+    /**
+     * BO-03-02-20/-47: the page offers the parameter's tenders then the
+     * referential's, each once, and names the two expense controls.
+     */
+    @Test
+    void pageOffersTheReferentialTendersAndNamesTheExpenseControls() {
+        CashMovementResource resource = newResource();
+        when(resource.tenderRulesService.movementTenders()).thenReturn(List.of("CHEQUE", "TR"));
+        TemplateInstance[] chain = stubChainWith(resource, List.of(), List.of("CHEQUE"));
+        resource.cashMovementPage(null, null);
+        verify(chain[1]).data("tenders", List.of("CHEQUE", "TR"));
+        CashMovementResource blocked = newResource();
+        TemplateInstance[] links = stubPageChain(blocked);
+        blocked.cashMovementPage("expense-max", null);
+        verify(links[3]).data("error", "MONTANT SUPERIEUR AU MAXIMUM DE LA DEPENSE");
+        CashMovementResource warned = newResource();
+        TemplateInstance[] more = stubPageChain(warned);
+        warned.cashMovementPage("expense-warn", "1");
+        verify(more[3]).data("error", "MOUVEMENT ENREGISTRE AU-DELA DU MAXIMUM DE LA DEPENSE");
+    }
+
+    /**
+     * BO-03-02-46: an expense the back office no longer offers is refused when
+     * expenses are administered; with none administered, any reason passes.
+     */
+    @Test
+    void anExpenseNoLongerOfferedIsRefused() {
+        CashMovementResource resource = newResource();
+        openSessionFor(resource);
+        when(resource.posListService.expenses()).thenReturn(List.of(expense(null, null,
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE)));
+        assertRedirect(resource.record("EXPENSE", "10", "Essence", null, null, null),
+                "/cash-movement?error=reason");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(),
+                any(), any(), any(), any());
+    }
+
+    /**
+     * BO-03-02-47: above a BLOCKING maximum the expense is refused, whether
+     * posted directly or replayed after an endorsement.
+     */
+    @Test
+    void anExpenseOverABlockingMaximumIsRefused() {
+        CashMovementResource resource = newResource();
+        openSessionFor(resource);
+        when(resource.posListService.expense("Timbres")).thenReturn(expense(null, "50",
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING));
+        assertRedirect(resource.record("EXPENSE", "60", "Timbres", null, null, null),
+                "/cash-movement?error=expense-max");
+        java.util.Map<String, String> parked = new java.util.HashMap<>();
+        parked.put("type", "EXPENSE");
+        parked.put("amount", "60");
+        parked.put("reason", "Timbres");
+        assertRedirect(resource.performEndorsed(parked, "M2"), "/cash-movement?error=expense-max");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(),
+                any(), any(), any(), any());
+    }
+
+    /**
+     * BO-03-02-47: above a SUPERVISOR maximum the expense is parked for a
+     * manager; replayed without a badge it is refused, with one it is recorded.
+     */
+    @Test
+    void anExpenseOverASupervisorMaximumAsksAManager() {
+        CashMovementResource resource = newResource();
+        openSessionFor(resource);
+        when(resource.posListService.expense("Timbres")).thenReturn(expense(null, "50",
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR));
+        assertRedirect(resource.record("EXPENSE", "60", "Timbres", null, null, null), "/cash-movement");
+        verify(resource.endorsementService).requestAuthorization(eq(resource.state),
+                eq(CashMovementResource.ENDORSEMENT_ACTION), any(), eq("/cash-movement"));
+        java.util.Map<String, String> parked = new java.util.HashMap<>();
+        parked.put("type", "EXPENSE");
+        parked.put("amount", "60");
+        parked.put("reason", "Timbres");
+        assertRedirect(resource.performEndorsed(parked, null), "/cash-movement?error=endorsement");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertRedirect(resource.performEndorsed(parked, "M2"), "/cash-movement?ok=1&error=expense-warn");
+        }
+    }
+
+    /**
+     * BO-03-02-45/-47: an expense administered in another tender is recorded
+     * in it when none was picked, keeps the picked one otherwise, and an
+     * informative maximum records the expense and tells the cashier.
+     */
+    @Test
+    void anExpenseIsRecordedInItsTenderAndUnderItsInformativeMaximum() {
+        CashMovementResource resource = newResource();
+        CashSession session = openSessionFor(resource);
+        when(resource.posListService.expense("Timbres")).thenReturn(expense("CHEQUE", "50",
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.INFO));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertRedirect(resource.record("EXPENSE", "60", "Timbres", null, "", null),
+                    "/cash-movement?ok=1&error=expense-warn");
+            assertRedirect(resource.record("EXPENSE", "20", "Timbres", null, "TR", "true"),
+                    "/cash-movement?ok=1");
+        }
+        verify(resource.cashMovementService).record(eq(session), any(), eq(CashMovement.MovementType.EXPENSE),
+                eq(new BigDecimal("60")), eq("Timbres"), any(), eq("CHEQUE"), any(), any());
+        verify(resource.cashMovementService).record(eq(session), any(), eq(CashMovement.MovementType.EXPENSE),
+                eq(new BigDecimal("20")), eq("Timbres"), any(), eq("TR"), any(), any());
+    }
+
+    /**
+     * BO-03-02-26: a down-payment prints its duplicate where the down-payment
+     * tender asks for one, and only there.
+     */
+    @Test
+    void aDownPaymentPrintsItsDuplicateWhereTheTenderAsks() {
+        CashMovementResource resource = newResource();
+        openSessionFor(resource);
+        com.intermarche.pos.domain.payment.TenderDefinition deposit =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        deposit.code = "ACOMPTE";
+        when(resource.tenderRulesService.tender("ACOMPTE")).thenReturn(null, deposit, deposit);
+        CashMovement third = new CashMovement();
+        third.reason = "Acompte commande CMD3";
+        when(resource.cashMovementService.recordAcompte(any(), any(), any(), eq("CMD3"))).thenReturn(third);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            resource.record("CUSTOMER_DEPOSIT", "30", null, "CMD1", null, null);
+            resource.record("CUSTOMER_DEPOSIT", "30", null, "CMD2", null, null);
+            deposit.printDuplicate = true;
+            resource.record("CUSTOMER_DEPOSIT", "30", null, "CMD3", null, null);
+        }
+        verify(resource.ticketPrinterService, org.mockito.Mockito.times(1)).printMovementTicket(
+                eq("Acompte client - DUPLICATA"), eq(new BigDecimal("30")), eq("Acompte commande CMD3"),
+                any(), any(), any());
+        verify(resource.ticketPrinterService, org.mockito.Mockito.times(3)).printMovementTicket(
+                eq("Acompte client"), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-03-02-45: an expense administered in NO tender is booked in cash when the
+     * cashier did not pick one — even when the screen still posts the cheque of the
+     * expense chosen before it — and an expense administered with a blank tender
+     * likewise; a tender the cashier picked by hand is kept.
+     */
+    @Test
+    void aCashExpenseIsNotBookedInATenderLeftBehind() {
+        CashMovementResource resource = newResource();
+        CashSession session = openSessionFor(resource);
+        when(resource.posListService.expense("Timbres")).thenReturn(expense(null, null,
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE));
+        when(resource.posListService.expense("Fournitures")).thenReturn(
+                new com.intermarche.pos.service.PosListService.Expense("FOURN", "Fournitures", "  ", null,
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertRedirect(resource.record("EXPENSE", "11", "Timbres", null, "CHEQUE", null), "/cash-movement?ok=1");
+            assertRedirect(resource.record("EXPENSE", "12", "Fournitures", null, "CHEQUE", ""), "/cash-movement?ok=1");
+            assertRedirect(resource.record("EXPENSE", "13", "Timbres", null, "CHEQUE", "true"), "/cash-movement?ok=1");
+        }
+        verify(resource.cashMovementService).record(eq(session), any(), eq(CashMovement.MovementType.EXPENSE),
+                eq(new BigDecimal("11")), eq("Timbres"), any(), org.mockito.ArgumentMatchers.isNull(), any(), any());
+        verify(resource.cashMovementService).record(eq(session), any(), eq(CashMovement.MovementType.EXPENSE),
+                eq(new BigDecimal("12")), eq("Fournitures"), any(), org.mockito.ArgumentMatchers.isNull(), any(), any());
+        verify(resource.cashMovementService).record(eq(session), any(), eq(CashMovement.MovementType.EXPENSE),
+                eq(new BigDecimal("13")), eq("Timbres"), any(), eq("CHEQUE"), any(), any());
+    }
+
+    /**
+     * The justificatif names the movement in the register's language: « Uitgave »
+     * at a Dutch till.
+     *
+     * @throws Exception if the private method cannot be reached
+     */
+    @Test
+    void theMovementTypeIsNamedInTheRegisterLanguage() throws Exception {
+        var resource = new CashMovementResource();
+        PosState dutch = new PosState();
+        dutch.language = "nl";
+        resource.i18n = TestMessages.french(dutch);
+        var method = CashMovementResource.class.getDeclaredMethod("typeLabelOf", CashMovement.MovementType.class);
+        method.setAccessible(true);
+        assertEquals(resource.i18n.get("cashmovement.depense"), method.invoke(resource, CashMovement.MovementType.EXPENSE));
+        org.junit.jupiter.api.Assertions.assertNotEquals("Dépense", method.invoke(resource, CashMovement.MovementType.EXPENSE));
     }
 }

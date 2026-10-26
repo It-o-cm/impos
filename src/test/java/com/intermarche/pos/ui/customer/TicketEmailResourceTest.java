@@ -296,4 +296,57 @@ class TicketEmailResourceTest {
         verify(view).data("phone", "06 12 34 56 78");
         verify(view).data("smsSent", true);
     }
+
+    /** LC-08-02: absent SMS input is empty, while a missing stored ticket prevents delivery even with a valid number. */
+    @Test
+    void smsInputAndMissingTicketKeepTheirFallbacks() {
+        var resource = newResource();
+        var view = stubPage(resource);
+        resource.state.trainingMode = true;
+        resource.state.fidelity.holderEmail = null;
+        assertSame(view, resource.sendSms(null));
+        verify(view).data("phone", "");
+        resource.state.trainingMode = false;
+        resource.state.fidelity.holderEmail = "client@example.com";
+        resource.state.lastClosedTicketId = 5L;
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            assertSame(view, resource.sendSms("0612345678"));
+        }
+        verify(resource.ticketSmsService, never()).send(any(), anyString());
+    }
+
+
+    /** LC-08-02: an absent phone in a rendered form is presented as empty text. */
+    @Test
+    void absentRenderedPhoneIsEmpty() throws Exception {
+        var resource = newResource();
+        var view = stubPage(resource);
+        var method = TicketEmailResource.class.getDeclaredMethod("page", String.class, String.class, String.class, boolean.class, boolean.class);
+        method.setAccessible(true);
+        assertSame(view, method.invoke(resource, "", null, "", false, false));
+        verify(view).data("phone", "");
+    }
+
+
+    /** LC-08-02-05: the completed sale's known address survives clearing loyalty and retains its edit policy. */
+    @Test
+    void automaticOfferUsesLastSaleAddressAfterLoyaltyWasCleared() {
+        var resource = newResource();
+        resource.state.lastClosedTicketEmail = "client@example.test";
+        resource.state.fidelity.clear();
+        when(resource.state.requireLastClosedTicket()).thenReturn(true);
+        var page = stubPage(resource);
+        assertSame(page, resource.showEmailScreen());
+        verify(page).data("address", "client@example.test");
+        verify(page).data("known", true);
+        verify(page).data("editable", false);
+        verify(resource.ticketMailService, never()).send(any(), anyString());
+    }
+
+    /** LC-08-02-05: the automatic offer remains visible immediately after cash closing opens the drawer. */
+    @Test
+    void emailOfferMayDisplayWhileCashDrawerIsOpen() throws Exception {
+        org.junit.jupiter.api.Assertions.assertTrue(TicketEmailResource.class.getMethod("showEmailScreen")
+                .isAnnotationPresent(com.intermarche.pos.ui.DrawerMayBeOpen.class));
+    }
 }

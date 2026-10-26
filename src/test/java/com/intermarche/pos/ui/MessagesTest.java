@@ -325,6 +325,18 @@ class MessagesTest {
     }
 
     /**
+     * A code is read through its family prefix; a code the bundles do not
+     * label shows itself, and a null code is empty.
+     */
+    @Test
+    void codesAreReadThroughTheirFamilyPrefix() {
+        Messages messages = newMessages();
+        assertEquals("ESPÈCES", messages.code("ticketsearch.payment.", "CASH"));
+        assertEquals("XYZ", messages.code("ticketsearch.payment.", "XYZ"));
+        assertEquals("", messages.code("ticketsearch.payment.", null));
+    }
+
+    /**
      * Without an administered second language the bilingual rendering is the
      * single label (first leg of its guard).
      */
@@ -356,6 +368,132 @@ class MessagesTest {
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("de");
         assertEquals("A rendre", messages.both("customer.change"));
         assertNull(messages.getSecondLang());
+    }
+
+    // --- the customer's own language (LC-13-06-08 / -13) ---
+
+    /**
+     * Without a customer choice the customer-facing rendering is the usual one:
+     * operator's chain and, where administered, bilingual.
+     */
+    @Test
+    void forCustomerWithoutAChoiceRendersAsUsual() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.customerSecondLanguage()).thenReturn("nl");
+        assertEquals("Terug te geven / A rendre", messages.forCustomer(() -> messages.both("customer.change")));
+        assertEquals("fr", messages.forCustomer(messages::getLang));
+    }
+
+    /**
+     * LC-13-06-14: a rendering in a given language — the one a ticket was sold
+     * in — speaks it inside the scope only; a language no bundle ships, or none,
+     * leaves the usual rendering.
+     */
+    @Test
+    void forLanguageRendersTheGivenLanguageInsideTheScopeOnly() {
+        Messages messages = newMessages();
+        assertEquals("TERUG", messages.forLanguage("nl-BE", () -> messages.get("common.back")));
+        assertEquals("RETOUR", messages.get("common.back"));
+        assertEquals("RETOUR", messages.forLanguage("de", () -> messages.get("common.back")));
+        assertEquals("RETOUR", messages.forLanguage(null, () -> messages.get("common.back")));
+    }
+
+    /**
+     * LC-13-06-09 / -14: the customer language of the sale is the primary subtag
+     * of the language chosen or retrieved, when a bundle ships it, and none
+     * otherwise.
+     */
+    @Test
+    void theCustomerLanguageTagIsASupportedPrimarySubtag() {
+        Messages messages = newMessages();
+        assertNull(messages.customerLanguageTag());
+        messages.state.customerLanguage = "PT_pt";
+        assertEquals("pt", messages.customerLanguageTag());
+        messages.state.customerLanguage = "de";
+        assertNull(messages.customerLanguageTag());
+        assertEquals("nl", messages.supportedLanguage(" nl "));
+        assertNull(messages.supportedLanguage(""));
+    }
+
+    /**
+     * BO-10-07-17: the customer display speaks its administered first language,
+     * the second one kept beside it, inside the scope only; the customer's own
+     * choice still wins, monolingual; no administered language, the usual
+     * rendering.
+     */
+    @Test
+    void forCustomerDisplayRendersTheDisplaysTwoLanguages() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.customerSecondLanguage()).thenReturn("fr");
+        when(messages.posSettingsService.customerDisplayLanguage()).thenReturn(" NL ");
+        assertEquals("A rendre / Terug te geven", messages.forCustomerDisplay(() -> messages.both("customer.change")));
+        assertEquals("nl", messages.forCustomerDisplay(messages::getLang));
+        assertEquals("RETOUR", messages.get("common.back"));
+        messages.state.customerLanguage = "pt";
+        assertEquals("A devolver", messages.forCustomerDisplay(() -> messages.both("customer.change")));
+        messages.state.customerLanguage = null;
+        when(messages.posSettingsService.customerDisplayLanguage()).thenReturn("");
+        assertEquals("RETOUR", messages.forCustomerDisplay(() -> messages.get("common.back")));
+    }
+
+    /**
+     * A language no bundle ships is no choice: the rendering stays the usual one.
+     */
+    @Test
+    void forCustomerIgnoresALanguageNoBundleShips() {
+        Messages messages = newMessages();
+        messages.state.customerLanguage = "de";
+        assertEquals("RETOUR", messages.forCustomer(() -> messages.get("common.back")));
+    }
+
+    /**
+     * The customer's language outranks the operator's own choice inside the
+     * scope, drops the second language — the choice IS the alternative to the
+     * bilingual display — and leaves the cashier's labels alone outside it.
+     */
+    @Test
+    void forCustomerRendersTheCustomersLanguageMonolingualAndOnlyInsideTheScope() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.customerSecondLanguage()).thenReturn("nl");
+        messages.state.language = "fr";
+        messages.state.customerLanguage = "pt";
+        assertEquals("VOLTAR", messages.forCustomer(() -> messages.get("common.back")));
+        assertEquals("pt", messages.forCustomer(messages::getLang));
+        assertNull(messages.forCustomer(messages::getSecondLang));
+        assertEquals(messages.forCustomer(() -> messages.get("customer.change")),
+                messages.forCustomer(() -> messages.both("customer.change")));
+        assertEquals("RETOUR", messages.get("common.back"));
+        assertEquals("Terug te geven / A rendre", messages.both("customer.change"));
+    }
+
+    /**
+     * A nested scope restores the outer one, and leaving the outer one restores
+     * the operator's labels.
+     */
+    @Test
+    void forCustomerRestoresTheEnclosingScope() {
+        Messages messages = newMessages();
+        messages.state.customerLanguage = "nl";
+        String nested = messages.forCustomer(() -> {
+            String inner = messages.forCustomer(() -> messages.get("common.back"));
+            return inner + "|" + messages.get("common.back");
+        });
+        assertEquals("TERUG|TERUG", nested);
+        assertEquals("RETOUR", messages.get("common.back"));
+    }
+
+    /**
+     * The printing variant runs its work in the customer's language and restores
+     * the operator's afterwards.
+     */
+    @Test
+    void runForCustomerRunsTheWorkInTheCustomersLanguage() {
+        Messages messages = newMessages();
+        messages.state.customerLanguage = "nl";
+        StringBuilder printed = new StringBuilder();
+        messages.runForCustomer(() -> printed.append(messages.get("common.back")));
+        assertEquals("TERUG", printed.toString());
+        assertEquals("RETOUR", messages.get("common.back"));
     }
 
     /**
@@ -531,4 +669,133 @@ class MessagesTest {
             assertEquals("pt", messages.getLang(), "a forgotten memo reads the row again");
         }
     }
+    /** LC-13-06: bundled-language discovery handles jars, unrelated entries, unlistable file URLs and unknown protocols. */
+    @Test
+    void coverageClasspathBundleDiscovery(@org.junit.jupiter.api.io.TempDir java.nio.file.Path temporary) throws Exception {
+        var archive = temporary.resolve("bundles.jar");
+        try (var jar = new java.util.jar.JarOutputStream(java.nio.file.Files.newOutputStream(archive))) {
+            for (String entry : new String[]{"messages/", "messages/msg_de.properties", "messages/msg_.properties",
+                    "messages/msg_DE.properties", "messages/msg_de.txt", "README"}) {
+                jar.putNextEntry(new java.util.jar.JarEntry(entry));
+                jar.closeEntry();
+            }
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        ClassLoader loader = new ClassLoader(previous) {
+            /** Supplies all protocol arms without querying the network. */
+            @Override public java.util.Enumeration<java.net.URL> getResources(String name) throws java.io.IOException {
+                return java.util.Collections.enumeration(java.util.List.of(
+                        java.net.URI.create("jar:" + archive.toUri() + "!/messages/").toURL(), archive.toUri().toURL(),
+                        java.net.URI.create("http://localhost/unused").toURL()));
+            }
+        };
+        var method = Messages.class.getDeclaredMethod("classpathBundles");
+        method.setAccessible(true);
+        try {
+            Thread.currentThread().setContextClassLoader(loader);
+            assertEquals(java.util.Set.of("de"), method.invoke(null));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    /** LC-13-06: an unenumerable classpath is tolerated, while an unreadable bundle reports its I/O cause. */
+    @Test
+    void coverageClasspathEnumerationAndReadFailure() throws Exception {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        ClassLoader loader = new ClassLoader(previous) {
+            /** Simulates a classpath provider which cannot enumerate directories. */
+            @Override public java.util.Enumeration<java.net.URL> getResources(String name) throws java.io.IOException {
+                throw new java.io.IOException("unreadable directory");
+            }
+            /** Simulates a present bundle whose stream cannot be read. */
+            @Override public java.io.InputStream getResourceAsStream(String name) {
+                return new java.io.InputStream() {
+                    /** Reports the failing byte read without accessing a file or network. */
+                    @Override public int read() throws java.io.IOException { throw new java.io.IOException("unreadable bundle"); }
+                };
+            }
+        };
+        var discovery = Messages.class.getDeclaredMethod("classpathBundles");
+        discovery.setAccessible(true);
+        var load = Messages.class.getDeclaredMethod("load", String.class);
+        load.setAccessible(true);
+        try {
+            Thread.currentThread().setContextClassLoader(loader);
+            assertEquals(java.util.Set.of(), discovery.invoke(null));
+            var failure = org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException.class,
+                    () -> load.invoke(null, "de"));
+            assertEquals(java.io.UncheckedIOException.class, failure.getCause().getClass());
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    /** LC-13-06: external bundles are discovered only in a real configured directory and normalized language files. */
+    @Test
+    void coverageExternalBundleDiscovery(@org.junit.jupiter.api.io.TempDir java.nio.file.Path temporary) throws Exception {
+        var config = org.mockito.Mockito.mock(org.eclipse.microprofile.config.Config.class);
+        var method = Messages.class.getDeclaredMethod("externalBundles");
+        method.setAccessible(true);
+        java.nio.file.Files.writeString(temporary.resolve("msg_de.properties"), "language.name=Deutsch");
+        java.nio.file.Files.writeString(temporary.resolve("unrelated.txt"), "ignored");
+        try (var provider = org.mockito.Mockito.mockStatic(org.eclipse.microprofile.config.ConfigProvider.class)) {
+            provider.when(org.eclipse.microprofile.config.ConfigProvider::getConfig).thenReturn(config);
+            when(config.getOptionalValue("pos.messages.dir", String.class)).thenReturn(java.util.Optional.of(temporary.toString()));
+            assertEquals(java.util.Set.of("de"), method.invoke(null));
+            when(config.getOptionalValue("pos.messages.dir", String.class)).thenReturn(java.util.Optional.of(temporary.resolve("unrelated.txt").toString()));
+            assertEquals(java.util.Set.of(), method.invoke(null));
+            when(config.getOptionalValue("pos.messages.dir", String.class)).thenReturn(java.util.Optional.empty());
+            assertEquals(java.util.Set.of(), method.invoke(null));
+        }
+    }
+
+
+    /** LC-13-06: an unreadable bundle fails explicitly rather than being silently accepted as an empty language. */
+    @Test
+    void unreadableBundleReportsItsIoFailure() throws Exception {
+        var method = Messages.class.getDeclaredMethod("load", String.class);
+        method.setAccessible(true);
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        ClassLoader failing = new ClassLoader(previous) {
+            /** LC-13-06: supplies a stream whose contents cannot be read, without accessing the filesystem. */
+            @Override
+            public java.io.InputStream getResourceAsStream(String name) {
+                return new java.io.InputStream() {
+                    /** LC-13-06: simulates the resource read failure. */
+                    @Override
+                    public int read() throws java.io.IOException {
+                        throw new java.io.IOException("unreadable bundle");
+                    }
+                };
+            }
+        };
+        try {
+            Thread.currentThread().setContextClassLoader(failing);
+            var failure = org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException.class,
+                    () -> method.invoke(null, "broken"));
+            assertEquals(java.io.UncheckedIOException.class, failure.getCause().getClass());
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+
+    /** LC-13-06: a configured directory that becomes unlistable contributes no languages instead of breaking the language selector. */
+    @Test
+    void unlistableExternalDirectoryContributesNoLanguages() throws Exception {
+        var config = org.mockito.Mockito.mock(org.eclipse.microprofile.config.Config.class);
+        when(config.getOptionalValue("pos.messages.dir", String.class)).thenReturn(java.util.Optional.of("mock-directory"));
+        var method = Messages.class.getDeclaredMethod("externalBundles");
+        method.setAccessible(true);
+        try (var provider = org.mockito.Mockito.mockStatic(org.eclipse.microprofile.config.ConfigProvider.class);
+             var directories = org.mockito.Mockito.mockConstruction(java.io.File.class, (directory, context) -> {
+                 when(directory.isDirectory()).thenReturn(true);
+                 when(directory.listFiles()).thenReturn(null);
+             })) {
+            provider.when(org.eclipse.microprofile.config.ConfigProvider::getConfig).thenReturn(config);
+            assertEquals(java.util.Set.of(), method.invoke(null));
+        }
+    }
+
 }

@@ -260,4 +260,15 @@ class Gs1ElementTest {
         assertNotEquals(null, one);
         assertNotEquals("09526000134367", one);
     }
+    /** LC-11-03: the fifty-year date window crosses into the next century after the current century's midpoint. */
+    @Test
+    void dateWindowCanResolveTheNextCentury() {
+        java.time.LocalDate future = java.time.LocalDate.of(2076, 1, 1);
+        java.time.LocalDate expected = java.time.LocalDate.of(2101, 1, 1);
+        try (var dates = org.mockito.Mockito.mockStatic(java.time.LocalDate.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+            dates.when(java.time.LocalDate::now).thenReturn(future);
+            assertEquals(expected, new Gs1Element("17", null, "010101", 0).asDate());
+        }
+    }
+
 }

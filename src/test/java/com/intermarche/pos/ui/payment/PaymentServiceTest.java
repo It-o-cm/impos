@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.valuation.ValuationReconciler;
 import com.intermarche.pos.ui.valuation.ValuationService;
@@ -22,9 +23,11 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
@@ -142,10 +145,16 @@ class PaymentServiceTest {
         // below.
         invoiceService = mock(com.intermarche.pos.ui.invoice.InvoiceService.class);
         service.invoiceService = invoiceService;
+        // BO-10-01-26: the commercial management tool's document after its
+        // settlement; the stand-in prints nothing, as no such document is loaded.
+        service.channelDocumentPrinter = mock(com.intermarche.pos.ui.recall.ChannelDocumentPrinter.class);
         // The drawer-open-on-payment rule defaults to ON, the pre-existing
         // behavior every physical-tender case here relies on (BO-10-02-12).
         posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(posSettingsService.drawerOpenOnPayment()).thenReturn(true);
+        when(posSettingsService.donationRoundingStepCents()).thenReturn(100);
+        // BO-03-02-34: the card receipt is printed, as it always was.
+        when(posSettingsService.cardReceiptPrinted()).thenReturn(true);
         service.posSettingsService = posSettingsService;
         // The administered tender rules (BO-03-02): the stand-in answers as a
         // shop that administered NO tender — no bound is opposed, change is
@@ -192,6 +201,8 @@ class PaymentServiceTest {
         // stand-ins let each new tender's arms be driven explicitly per test.
         restoFlashClient = mock(RestoFlashClient.class);
         service.restoFlashClient = restoFlashClient;
+        chequeGuaranteeClient = mock(ChequeGuaranteeClient.class);
+        service.chequeGuaranteeClient = chequeGuaranteeClient;
         giftCardIssuerClient = mock(GiftCardIssuerClient.class);
         service.giftCardIssuerClient = giftCardIssuerClient;
         sogecCompensationService = mock(SogecCompensationService.class);
@@ -201,11 +212,37 @@ class PaymentServiceTest {
         // survey — the default of every case below.
         service.surveyTriggerService =
                 mock(com.intermarche.pos.ui.supervision.SurveyTriggerService.class);
+        // LC-07-15 / LC-13-01-01: the cash changer and the safe transfer. The
+        // stand-ins answer as a till without a cash changer — no alert, nothing
+        // to transfer — which is what every pre-existing case was written for.
+        cashChangerService = mock(com.intermarche.pos.ui.hardware.CashChangerService.class);
+        service.cashChangerService = cashChangerService;
+        service.cashMovementService = mock(com.intermarche.pos.service.CashMovementService.class);
+        service.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
+        // LC-08-01-05: the Portuguese documents; a mock states nothing, which is
+        // every register outside Portugal.
+        service.portugueseFiscalService = mock(com.intermarche.pos.ui.invoice.PortugueseFiscalService.class);
+        // LC-07-11-01 / LC-02-09-03: the payment hub is not administered and no
+        // article was activated — every pre-existing case; the gift-card slip is
+        // printed, as the back office has it by default (LC-07-11-03).
+        nexoHubClient = mock(NexoHubClient.class);
+        service.nexoHubClient = nexoHubClient;
+        service.dematerialisedService = mock(com.intermarche.pos.ui.ticket.DematerialisedService.class);
+        when(posSettingsService.giftCardPaymentTicket()).thenReturn(true);
         state = new PosState();
     }
 
+    /** The payment hub (LC-07-11-01). */
+    private NexoHubClient nexoHubClient;
+
+    /** The cash changer seam (LC-07-15). */
+    private com.intermarche.pos.ui.hardware.CashChangerService cashChangerService;
+
     /** The Resto Flash mobile-voucher seam (EXP-67). */
     private RestoFlashClient restoFlashClient;
+
+    /** The mocked cheque-guarantee service (BO-03-02-24). */
+    private ChequeGuaranteeClient chequeGuaranteeClient;
 
     /** The supplier gift-card issuer registry seam (EXP-66). */
     private GiftCardIssuerClient giftCardIssuerClient;
@@ -329,6 +366,215 @@ class PaymentServiceTest {
     // toggleDonationRoundup
     // --------------------------------------------------
 
+    /** LC-07-16-01: a part payment cannot open the settlement drawer. */
+    @Test
+    void drawerWaitsForCompletedSale() {
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** LC-07-16-01, BO-10-02-12: training sends no opening order when the shop keeps the drawer shut in training. */
+    @Test
+    void settlementDrawerTraining() {
+        state.trainingMode = true;
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        when(posSettingsService.drawerOpenInTraining()).thenReturn(false);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** BO-10-02-12: a training cash sale opens the drawer like a real one where the shop administers it. */
+    @Test
+    void settlementDrawerTrainingOpensWhenAdministered() {
+        state.trainingMode = true;
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        when(posSettingsService.drawerOpenInTraining()).thenReturn(true);
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(true);
+        when(tenderRulesService.opensDrawer("CASH", false, false, true)).thenReturn(true);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService).openDrawer();
+    }
+
+    /** LC-07-16-01: a sale sends at most one opening order across both moments. */
+    @Test
+    void settlementDrawerOpensOnlyOnce() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        service.openSettlementDrawer(state, false);
+        service.openSettlementDrawer(state, true);
+        verify(hardwareService, times(1)).openDrawer();
+    }
+
+    /** LC-07-16-01: an administered card tender can request drawer opening. */
+    @Test
+    void administeredCardCanOpenDrawer() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        when(tenderRulesService.opensDrawer("CARD", false, false, false)).thenReturn(true);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService).openDrawer();
+    }
+
+    /** LC-07-16-01: a virtual tender without administration retains a closed drawer. */
+    @Test
+    void defaultCardKeepsDrawerClosed() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** LC-07-16-01: the receipt moment is passed to the administered rule. */
+    @Test
+    void administeredReceiptMoment() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CHEQUE", BigDecimal.ONE);
+        when(tenderRulesService.opensDrawer("CHEQUE", false, true, false)).thenReturn(true);
+        service.openSettlementDrawer(state, true);
+        verify(hardwareService).openDrawer();
+    }
+
+    /** LC-07-16-01: a null change amount means no change is due. */
+    @Test
+    void drawerWithNullChange() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.lastChangeAmount = null;
+        service.openSettlementDrawer(state, false);
+        verify(tenderRulesService).opensDrawer("CARD", false, false, false);
+    }
+
+    /** LC-07-16-01: zero change takes the second false leg of the change rule. */
+    @Test
+    void drawerWithZeroChange() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.lastChangeAmount = BigDecimal.ZERO;
+        service.openSettlementDrawer(state, false);
+        verify(tenderRulesService).opensDrawer("CARD", false, false, false);
+    }
+
+    /** LC-07-16-01: positive change is forwarded to the tender rule. */
+    @Test
+    void drawerWithPositiveChange() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.lastChangeAmount = BigDecimal.ONE;
+        service.openSettlementDrawer(state, false);
+        verify(tenderRulesService).opensDrawer("CARD", true, false, false);
+    }
+
+    /** LC-07-16-01: the global default can keep unadministered physical tenders shut. */
+    @Test
+    void physicalDrawerGlobalDefaultOff() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** LC-07-16-01: an incomplete recovery entry cannot prevent other rules. */
+    @Test
+    void drawerSkipsUnknownEntryAndChecksOtherTenders() {
+        state.payment.transactionComplete = true;
+        state.payment.addPayment(null, BigDecimal.ONE);
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        service.openSettlementDrawer(state, false);
+        verify(tenderRulesService).opensDrawer("CARD", false, false, false);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** LC-07-05-05: a deferred manual cheque keeps a distinct accounting key. */
+    @Test
+    void deferredChequeRegistersOnce() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 42L;
+        service.processDeferredCheque(state, BigDecimal.TEN);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CHEQUE_DEFERRED", state.payment.payments.get(0).method);
+        assertEquals(BigDecimal.TEN, state.payment.payments.get(0).amount);
+        verify(ticketPersistenceService, times(1)).addPaymentToTicket(eq(42L), any());
+        verifyNoInteractions(terminal, chequeReadingService);
+    }
+
+    /** LC-07-05-05: a null amount uses the unpaid remainder (first guard leg). */
+    @Test
+    void deferredChequeNullAmountUsesRemainder() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processDeferredCheque(state, null);
+        assertEquals(new BigDecimal("10.00"), state.payment.payments.get(0).amount);
+    }
+
+    /** LC-07-05-05: zero uses the remainder (second guard leg). */
+    @Test
+    void deferredChequeZeroAmountUsesRemainder() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processDeferredCheque(state, BigDecimal.ZERO);
+        assertEquals(new BigDecimal("10.00"), state.payment.payments.get(0).amount);
+    }
+
+    /** LC-07-05-05: a negative input also requests the remainder. */
+    @Test
+    void deferredChequeNegativeAmountUsesRemainder() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processDeferredCheque(state, BigDecimal.ONE.negate());
+        assertEquals(new BigDecimal("10.00"), state.payment.payments.get(0).amount);
+    }
+
+    /** LC-07-05-05: nothing is taken when no unpaid amount remains. */
+    @Test
+    void deferredChequeWithNoRemainderDoesNothing() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processDeferredCheque(state, null);
+        assertTrue(state.payment.payments.isEmpty());
+        verifyNoInteractions(hardwareService, terminal, chequeReadingService);
+    }
+
+    /** LC-07-05-05: a refused tender bound leaves the sale unpaid. */
+    @Test
+    void deferredChequeHonoursTenderRefusal() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        TenderRulesService.Verdict refusal = new TenderRulesService.Verdict(
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING, "limit");
+        when(tenderRulesService.check(eq("CHEQUE_DEFERRED"), any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(refusal);
+        service.processDeferredCheque(state, BigDecimal.ONE);
+        assertTrue(state.payment.payments.isEmpty());
+        verifyNoInteractions(hardwareService);
+    }
+
+    /** LC-07-05-05: training takes the cheque without opening the physical drawer. */
+    @Test
+    void deferredChequeTrainingKeepsDrawerClosed() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processDeferredCheque(state, BigDecimal.ONE);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** LC-07-05-05: the administered deferred-tender drawer rule is obeyed. */
+    @Test
+    void deferredChequeCanKeepDrawerClosed() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        when(tenderRulesService.opensDrawer(eq("CHEQUE_DEFERRED"), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(false);
+        service.processDeferredCheque(state, BigDecimal.ONE);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /** LC-07-05-05: an ordinary physical cheque opens the drawer when requested. */
+    @Test
+    void deferredChequeOpensDrawer() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processDeferredCheque(state, BigDecimal.TEN);
+        assertTrue(state.payment.transactionComplete);
+        verify(hardwareService).openDrawer();
+    }
+
     /**
      * {@code toggleDonationRoundup} does nothing on a completed transaction
      * ({@code transactionComplete} true arm).
@@ -385,6 +631,36 @@ class PaymentServiceTest {
         assertEquals(state.lastEnteredItemId, state.donationLineUid);
         assertEquals(0, new BigDecimal("0.70").compareTo(state.ticket.items.get(0).unitPrice));
         verify(ticketPersistenceService).syncDraft(state);
+    }
+
+    /** LC-07-17-02: an upper tenth-step produces a five-cent donation. */
+    @Test
+    void donationUsesAdministeredUpperStep() {
+        when(posSettingsService.donationRoundingStepCents()).thenReturn(10);
+        state.ticket.totalAmount = new BigDecimal("4.35");
+        service.toggleDonationRoundup(state);
+        assertEquals(0, new BigDecimal("0.05").compareTo(state.ticket.items.get(0).unitPrice));
+    }
+
+    /** LC-07-17-02: nearest five-cent rounding can suggest a positive donation. */
+    @Test
+    void donationUsesNearestStepUp() {
+        when(posSettingsService.donationRoundingStepCents()).thenReturn(5);
+        when(posSettingsService.donationRoundingNearest()).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal("4.33");
+        service.toggleDonationRoundup(state);
+        assertEquals(0, new BigDecimal("0.02").compareTo(state.ticket.items.get(0).unitPrice));
+    }
+
+    /** LC-07-17-02: nearest-step rounding down never books a negative donation. */
+    @Test
+    void donationNearestStepDownAddsNothing() {
+        when(posSettingsService.donationRoundingStepCents()).thenReturn(5);
+        when(posSettingsService.donationRoundingNearest()).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal("4.32");
+        service.toggleDonationRoundup(state);
+        assertNull(state.donationLineUid);
+        verify(ticketPersistenceService, never()).syncDraft(any());
     }
 
     // --------------------------------------------------
@@ -458,8 +734,9 @@ class PaymentServiceTest {
         assertTrue(service.cancelOnePayment(state, 0));
         assertEquals(1, state.payment.payments.size());
         assertEquals("CARD", state.payment.payments.get(0).method);
-        verify(ticketPersistenceService).removePaymentsFromTicket(5L);
+        verify(ticketPersistenceService).removePaymentsFromTicket(5L, false);
         verify(ticketPersistenceService).addPaymentToTicket(eq(5L), any());
+        verify(ticketPersistenceService).journalCancelledPayment(5L, "CASH", new BigDecimal("10.00"));
     }
 
     /**
@@ -671,6 +948,59 @@ class PaymentServiceTest {
         service.processSupplierGiftCard(state, "0000", new BigDecimal("30.00"));
         verify(ticketPrinterService, never()).printGiftCardPaymentReceipt(
                 any(), any(), any(), any());
+    }
+
+    /** LC-07-05-03: the administered cheque carries words and the actual ticket number. */
+    @Test
+    void chequePrintsWordsAndTicketIdentity() {
+        when(posSettingsService.chequeEndorsementLines()).thenReturn("{montant-lettres};{ticket}");
+        state.payment.ticketDbId = 42L;
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        Ticket ticket = new Ticket();
+        ticket.ticketNumber = "C04-000042";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(42L)).thenReturn(ticket);
+            service.processCheque(state, new BigDecimal("20.00"));
+        }
+        org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(chequeReadingService).read(text.capture(), any(), any());
+        assertEquals("vingt euros et zéro centimes\nC04-000042", text.getValue());
+    }
+
+    /** LC-07-05-03: a missing draft id renders no invented ticket identity. */
+    @Test
+    void chequeTicketTokenWithoutDraft() {
+        when(posSettingsService.chequeEndorsementLines()).thenReturn("TICKET {ticket}");
+        state.payment.ticketDbId = null;
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processCheque(state, BigDecimal.TEN);
+        verify(chequeReadingService).read(eq("TICKET"), any(), any());
+    }
+
+    /** LC-07-05-03: a missing database row also renders no invented identity. */
+    @Test
+    void chequeTicketTokenWithMissingDraft() {
+        when(posSettingsService.chequeEndorsementLines()).thenReturn("TICKET {ticket}");
+        state.payment.ticketDbId = 42L;
+        state.ticket.totalAmount = BigDecimal.TEN;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(42L)).thenReturn(null);
+            service.processCheque(state, BigDecimal.TEN);
+        }
+        verify(chequeReadingService).read(eq("TICKET"), any(), any());
+    }
+
+    /** LC-07-05-03: an unnumbered draft leaves the ticket token empty. */
+    @Test
+    void chequeTicketTokenWithUnnumberedDraft() {
+        when(posSettingsService.chequeEndorsementLines()).thenReturn("TICKET {ticket}");
+        state.payment.ticketDbId = 42L;
+        state.ticket.totalAmount = BigDecimal.TEN;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(42L)).thenReturn(new Ticket());
+            service.processCheque(state, BigDecimal.TEN);
+        }
+        verify(chequeReadingService).read(eq("TICKET"), any(), any());
     }
 
     /**
@@ -964,7 +1294,8 @@ class PaymentServiceTest {
         service.processCash(state, new BigDecimal("5"));
         verify(hardwareService).displayMessage("ESPECES   5,00 E");
         verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
-        verify(hardwareService).openDrawer();
+        // LC-07-16-01: a partial settlement waits for the end of the sale.
+        verify(hardwareService, never()).openDrawer();
         assertFalse(state.payment.transactionComplete);
     }
 
@@ -1051,6 +1382,519 @@ class PaymentServiceTest {
         verify(hardwareService).displayMessage("CARTE     10,00 E");
         verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
         verify(hardwareService, never()).openDrawer();
+    }
+
+    // --------------------------------------------------
+    // cash changer (LC-07-15-01 to -04, LC-13-01-01)
+    // --------------------------------------------------
+
+    /**
+     * Turns the cash changer on for a sale of the given total, draft 3.
+     *
+     * @param total the sale total
+     */
+    private void cashChangerSale(String total) {
+        when(posSettingsService.hardwareEnabled("cashchanger")).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal(total);
+        state.payment.ticketDbId = 3L;
+    }
+
+    /**
+     * Starts a deposit and captures the three callbacks handed to the cash
+     * changer.
+     *
+     * @return the progress, outcome and failure callbacks, in that order
+     */
+    @SuppressWarnings("unchecked")
+    private Object[] startDeposit() {
+        service.processCashChanger(state);
+        ArgumentCaptor<java.util.function.Consumer<BigDecimal>> progress =
+                ArgumentCaptor.forClass(java.util.function.Consumer.class);
+        ArgumentCaptor<java.util.function.Consumer<com.intermarche.pos.ui.hardware.CashChangerService.Deposit>> done =
+                ArgumentCaptor.forClass(java.util.function.Consumer.class);
+        ArgumentCaptor<java.util.function.Consumer<String>> error =
+                ArgumentCaptor.forClass(java.util.function.Consumer.class);
+        verify(cashChangerService).deposit(any(), progress.capture(), done.capture(), error.capture());
+        return new Object[] {progress.getValue(), done.getValue(), error.getValue()};
+    }
+
+    /**
+     * LC-07-15-01: a till without a cash changer refuses the key and starts
+     * nothing.
+     */
+    @Test
+    void processCashChangerRefusedWithoutACashChanger() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processCashChanger(state);
+        assertEquals("MONNAYEUR NON ACTIVÉ SUR CETTE CAISSE", state.ticket.transientError);
+        verifyNoInteractions(cashChangerService);
+    }
+
+    /**
+     * LC-07-15-01: a deposit already running, or nothing left to pay, starts
+     * nothing.
+     */
+    @Test
+    void processCashChangerIgnoredWhileRunningOrWithNothingDue() {
+        cashChangerSale("10.00");
+        state.payment.cashChangerDue = BigDecimal.ONE;
+        service.processCashChanger(state);
+        state.payment.cashChangerDue = null;
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processCashChanger(state);
+        verifyNoInteractions(cashChangerService);
+    }
+
+    /**
+     * LC-07-15-01: an administered cash rule that refuses is said BEFORE the
+     * machine takes any money.
+     */
+    @Test
+    void processCashChangerOpposesTheCashRulesFirst() {
+        cashChangerSale("40.00");
+        when(tenderRulesService.check(eq("CASH"), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                        "MONTANT SUPERIEUR AU PLAFOND (25,00 E)"));
+        service.processCashChanger(state);
+        assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", state.ticket.transientError);
+        assertNull(state.payment.cashChangerDue);
+        verifyNoInteractions(cashChangerService);
+    }
+
+    /**
+     * LC-07-15-01/02: the machine is asked for the remaining due, rounded where
+     * the shop rounds; each insertion is shown on the screens and the line
+     * display; the outcome and the failure are only deposited for the next
+     * request; an insertion reported after the deposit ended shows nothing.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void processCashChangerStartsTheDepositAndShowsTheInsertions() {
+        cashChangerSale("24.62");
+        state.cashRoundingStepCents = 5;
+        Object[] callbacks = startDeposit();
+        verify(cashChangerService).deposit(eq(new BigDecimal("24.60")), any(), any(), any());
+        assertEquals(new BigDecimal("24.60"), state.payment.cashChangerDue);
+        assertEquals("24,60", state.payment.getCashChangerDueFormatted());
+        assertEquals("0,00", state.payment.getCashChangerInsertedFormatted());
+        verify(hardwareService).displayMessage("MONNAYEUR 24,60 E");
+        ((java.util.function.Consumer<BigDecimal>) callbacks[0]).accept(new BigDecimal("20.00"));
+        assertEquals("20,00", state.payment.getCashChangerInsertedFormatted());
+        verify(hardwareService).displayMessage("INSERE    20,00 E");
+        com.intermarche.pos.ui.hardware.CashChangerService.Deposit outcome =
+                new com.intermarche.pos.ui.hardware.CashChangerService.Deposit(
+                        new BigDecimal("25.00"), new BigDecimal("0.40"));
+        ((java.util.function.Consumer<com.intermarche.pos.ui.hardware.CashChangerService.Deposit>) callbacks[1])
+                .accept(outcome);
+        assertEquals(outcome, state.payment.cashChangerOutcome);
+        ((java.util.function.Consumer<String>) callbacks[2]).accept("JAM");
+        assertEquals("JAM", state.payment.cashChangerFailure);
+        assertTrue(state.payment.payments.isEmpty());
+        state.payment.cashChangerDue = null;
+        ((java.util.function.Consumer<BigDecimal>) callbacks[0]).accept(new BigDecimal("24.00"));
+        assertEquals("20,00", state.payment.getCashChangerInsertedFormatted());
+    }
+
+    /**
+     * LC-07-15-03: the deposit the machine closed is registered as CASH on the
+     * next request, rounding first; the change it gave back is shown, the
+     * drawer stays shut and the sale completes.
+     */
+    @Test
+    void settlePendingCashChangerRegistersTheCashAndTheChange() {
+        cashChangerSale("24.62");
+        state.cashRoundingStepCents = 5;
+        startDeposit();
+        state.payment.cashChangerOutcome = new com.intermarche.pos.ui.hardware.CashChangerService.Deposit(
+                new BigDecimal("25.00"), new BigDecimal("0.40"));
+        service.settlePendingCashChanger(state);
+        assertNull(state.payment.cashChangerDue);
+        assertNull(state.payment.cashChangerOutcome);
+        assertEquals("", state.payment.getCashChangerInsertedFormatted());
+        PaymentState.PaymentEntry cash = state.payment.payments.get(1);
+        assertEquals("ARRONDI", state.payment.payments.get(0).method);
+        assertEquals("CASH", cash.method);
+        assertEquals(new BigDecimal("24.60"), cash.amount);
+        assertEquals(new BigDecimal("25.00"), cash.tenderedAmount);
+        assertTrue(cash.cashChanger);
+        assertEquals(new BigDecimal("0.40"), state.payment.lastChangeAmount);
+        assertTrue(state.payment.transactionComplete);
+        verify(ticketPersistenceService).addPaymentToTicket(3L, cash);
+        verify(hardwareService).displayMessage("DONNE 25,00 RENDU 0,40");
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * LC-07-15-01: a deposit closed on what was inserted settles that part as
+     * cash, without change, and leaves the rest due.
+     */
+    @Test
+    void settlePendingCashChangerRegistersAPartialDeposit() {
+        cashChangerSale("10.00");
+        startDeposit();
+        state.payment.cashChangerOutcome = new com.intermarche.pos.ui.hardware.CashChangerService.Deposit(
+                new BigDecimal("5.00"), BigDecimal.ZERO);
+        service.settlePendingCashChanger(state);
+        assertEquals(new BigDecimal("5.00"), state.payment.payments.get(0).amount);
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.lastChangeAmount));
+        assertFalse(state.payment.transactionComplete);
+        verify(hardwareService).displayMessage("ESPECES   5,00 E");
+    }
+
+    /**
+     * A deposit given back whole settles nothing and says so.
+     */
+    @Test
+    void settlePendingCashChangerReportsAMoneyGivenBack() {
+        cashChangerSale("10.00");
+        startDeposit();
+        state.payment.cashChangerOutcome = new com.intermarche.pos.ui.hardware.CashChangerService.Deposit(
+                new BigDecimal("5.00"), new BigDecimal("5.00"));
+        service.settlePendingCashChanger(state);
+        assertTrue(state.payment.payments.isEmpty());
+        assertNull(state.payment.cashChangerDue);
+        assertEquals("MONNAYEUR : MONTANT RENDU AU CLIENT", state.ticket.transientError);
+    }
+
+    /**
+     * A failed deposit ends the wait and says why; with nothing deposited, the
+     * poll changes nothing.
+     */
+    @Test
+    void settlePendingCashChangerReportsTheFailure() {
+        cashChangerSale("10.00");
+        service.settlePendingCashChanger(state);
+        assertNull(state.ticket.transientError);
+        startDeposit();
+        state.payment.cashChangerFailure = "MONNAYEUR INJOIGNABLE";
+        service.settlePendingCashChanger(state);
+        assertNull(state.payment.cashChangerDue);
+        assertNull(state.payment.cashChangerFailure);
+        assertEquals("MONNAYEUR INJOIGNABLE", state.ticket.transientError);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * In training no machine is touched: the amount due is settled as if it
+     * had been inserted exactly, and nothing is persisted.
+     */
+    @Test
+    void processCashChangerInTrainingSettlesWithoutTheMachine() {
+        cashChangerSale("10.00");
+        state.trainingMode = true;
+        service.processCashChanger(state);
+        assertEquals(new BigDecimal("10.00"), state.payment.payments.get(0).amount);
+        assertTrue(state.payment.payments.get(0).cashChanger);
+        assertTrue(state.payment.transactionComplete);
+        verifyNoInteractions(cashChangerService, ticketPersistenceService);
+    }
+
+    /**
+     * Closing and cancelling reach the machine only while a deposit runs.
+     */
+    @Test
+    void finishAndCancelReachTheMachineOnlyWhileADepositRuns() {
+        service.finishCashChanger(state);
+        service.cancelCashChanger(state);
+        verifyNoInteractions(cashChangerService);
+        state.payment.cashChangerDue = BigDecimal.ONE;
+        service.finishCashChanger(state);
+        service.cancelCashChanger(state);
+        verify(cashChangerService).fix();
+        verify(cashChangerService).cancel();
+    }
+
+    /**
+     * LC-07-15-04 and LC-13-01-01: closing a sale transfers the cash the
+     * machine took to the safe, then says what the machine flags.
+     */
+    @Test
+    void finalizeTransactionTransfersTheCashChangerCashAndSaysTheLevels() {
+        state.payment.ticketDbId = 9L;
+        state.auth.operatorId = 4L;
+        state.payment.addCashPayment(new BigDecimal("12.00"), new BigDecimal("12.00"));
+        state.payment.payments.get(0).cashChanger = true;
+        state.payment.addCashPayment(new BigDecimal("3.00"), new BigDecimal("3.00"));
+        com.intermarche.pos.domain.session.CashSession session = mock(com.intermarche.pos.domain.session.CashSession.class);
+        when(service.cashSessionService.getOpenSession()).thenReturn(session);
+        com.intermarche.pos.domain.people.Employee cashier = mock(com.intermarche.pos.domain.people.Employee.class);
+        when(cashChangerService.levelAlert()).thenReturn("MONNAYEUR : PRESQUE VIDE");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.people.Employee.findById(4L)).thenReturn(cashier);
+            service.finalizeTransaction(state);
+        }
+        verify(service.cashMovementService).recordCashChangerTransfer(session, cashier, new BigDecimal("12.00"));
+        assertEquals("MONNAYEUR : PRESQUE VIDE", state.ticket.transientError);
+        assertTrue(state.ticket.transientWarn);
+    }
+
+    /**
+     * LC-07-15-04: a sale without the machine transfers nothing; a sale on the
+     * machine without an operator transfers with no cashier.
+     */
+    @Test
+    void finalizeTransactionTransfersOnlyTheCashChangerCash() {
+        state.payment.ticketDbId = 9L;
+        state.payment.addCashPayment(new BigDecimal("3.00"), new BigDecimal("3.00"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(service.cashMovementService, never()).recordCashChangerTransfer(any(), any(), any());
+        state.payment.ticketDbId = 10L;
+        state.payment.addCashPayment(new BigDecimal("5.00"), new BigDecimal("5.00"));
+        state.payment.payments.get(0).cashChanger = true;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 10L);
+            service.finalizeTransaction(state);
+        }
+        verify(service.cashMovementService).recordCashChangerTransfer(null, null, new BigDecimal("5.00"));
+    }
+
+    /**
+     * LC-08-01-05: the closing sale is stated on its Portuguese documents before
+     * it is frozen as printed.
+     */
+    @Test
+    void finalizeTransactionStatesTheSaleOnItsPortugueseDocuments() {
+        state.payment.ticketDbId = 9L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(service.portugueseFiscalService).issueSaleDocuments(9L);
+    }
+
+    // --------------------------------------------------
+    // processSocialCard (LC-08-01-06)
+    // --------------------------------------------------
+
+    /**
+     * Rings a 30 euro sale whose first 8 euros are eligible to the social card.
+     */
+    private void socialCardSale() {
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        com.intermarche.pos.ui.ticket.TicketState.TicketItem eligible =
+                new com.intermarche.pos.ui.ticket.TicketState.TicketItem("1", null, "A",
+                        new BigDecimal("8.00"), BigDecimal.ONE, new BigDecimal("0.06"));
+        eligible.restrictedTenders = com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.SOCIAL_CARD_ELIGIBLE;
+        state.ticket.items.add(eligible);
+        state.ticket.items.add(new com.intermarche.pos.ui.ticket.TicketState.TicketItem("2", null, "B",
+                new BigDecimal("22.00"), BigDecimal.ONE, new BigDecimal("0.23")));
+    }
+
+    /**
+     * LC-08-01-06: a sale with nothing eligible left is refused the social card,
+     * on the display and on the screen.
+     */
+    @Test
+    void processSocialCardRefusesWithoutEligibleLines() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        state.ticket.items.add(new com.intermarche.pos.ui.ticket.TicketState.TicketItem("2", null, "B",
+                new BigDecimal("10.00"), BigDecimal.ONE, new BigDecimal("0.23")));
+        service.processSocialCard(state, new BigDecimal("5"));
+        verify(hardwareService).displayMessage("CAS: AUCUN ARTICLE ELIGIBLE");
+        assertEquals("CAS: AUCUN ARTICLE ELIGIBLE", state.ticket.transientError);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * LC-08-01-06: no amount typed pays what the card may — the eligible lines —
+     * and a second card finds the eligible base already paid.
+     */
+    @Test
+    void processSocialCardPaysTheEligibleBaseOnce() {
+        socialCardSale();
+        state.payment.addCashPayment(new BigDecimal("1.00"), new BigDecimal("1.00"));
+        service.processSocialCard(state, null);
+        assertEquals("CAS", state.payment.payments.get(1).method);
+        assertEquals(0, new BigDecimal("8.00").compareTo(state.payment.payments.get(1).amount));
+        service.processSocialCard(state, BigDecimal.ZERO);
+        verify(hardwareService).displayMessage("CAS: AUCUN ARTICLE ELIGIBLE");
+        assertEquals(2, state.payment.payments.size());
+    }
+
+    /**
+     * LC-08-01-06: an amount beyond the eligible base is capped to it; one within
+     * it is paid as typed.
+     */
+    @Test
+    void processSocialCardCapsToTheEligibleBase() {
+        socialCardSale();
+        service.processSocialCard(state, new BigDecimal("3.00"));
+        assertEquals(0, new BigDecimal("3.00").compareTo(state.payment.payments.get(0).amount));
+        service.processSocialCard(state, new BigDecimal("20"));
+        verify(hardwareService).displayMessage("CAS PLAFONNE  5,00 E");
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.payments.get(1).amount));
+    }
+
+    /**
+     * LC-08-01-06: a negative amount reads as no amount: the card pays what it may.
+     */
+    @Test
+    void processSocialCardReadsANegativeAmountAsNone() {
+        socialCardSale();
+        service.processSocialCard(state, new BigDecimal("-1"));
+        assertEquals(0, new BigDecimal("8.00").compareTo(state.payment.payments.get(0).amount));
+    }
+
+    /**
+     * LC-08-01-06: the card never pays beyond what remains due.
+     */
+    @Test
+    void processSocialCardNeverPaysBeyondTheRemainingDue() {
+        socialCardSale();
+        state.payment.addCashPayment(new BigDecimal("25.00"), new BigDecimal("25.00"));
+        service.processSocialCard(state, null);
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.payments.get(1).amount));
+    }
+
+    // --------------------------------------------------
+    // card cashback (LC-07-04-07/08)
+    // --------------------------------------------------
+
+    /**
+     * Turns the cashback on with the given ceiling, for a 50 euro sale.
+     *
+     * @param ceiling the administered ceiling, "0" for none
+     */
+    private void cashbackStore(String ceiling) {
+        when(posSettingsService.cashbackEnabled()).thenReturn(true);
+        when(posSettingsService.cashbackMax()).thenReturn(new BigDecimal(ceiling));
+        state.ticket.totalAmount = new BigDecimal("50.00");
+        state.payment.ticketDbId = 3L;
+    }
+
+    /**
+     * LC-07-04-07: with cashback offered, a card amount above the remaining
+     * due is debited whole, within the ceiling.
+     */
+    @Test
+    void processCardAboveRemainingDebitsTheWholeAmountWhenCashbackIsOffered() {
+        cashbackStore("60.00");
+        service.processCard(state, new BigDecimal("70"));
+        assertEquals(new BigDecimal("70.00"), state.payment.pendingCardAmount);
+        verify(terminal).requestDebit(eq(new BigDecimal("70.00")), any());
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * LC-07-04-07: a cashback above the ceiling is refused before the
+     * terminal is asked anything.
+     */
+    @Test
+    void processCardRefusesACashbackAboveTheCeiling() {
+        cashbackStore("10.00");
+        service.processCard(state, new BigDecimal("70"));
+        assertEquals("CASHBACK REFUSÉ : PLAFOND 10,00 €", state.ticket.transientError);
+        assertNull(state.payment.pendingCardAmount);
+        verifyNoInteractions(terminal);
+    }
+
+    /**
+     * LC-07-04-07: a zero ceiling bounds nothing.
+     */
+    @Test
+    void processCardZeroCeilingBoundsNoCashback() {
+        cashbackStore("0");
+        service.processCard(state, new BigDecimal("250"));
+        verify(terminal).requestDebit(eq(new BigDecimal("250.00")), any());
+    }
+
+    /**
+     * LC-07-04-07: a store that does not offer cashback keeps capping the
+     * card at the remaining due.
+     */
+    @Test
+    void processCardAboveRemainingIsCappedWithoutCashback() {
+        state.ticket.totalAmount = new BigDecimal("50.00");
+        service.processCard(state, new BigDecimal("70"));
+        verify(terminal).requestDebit(eq(new BigDecimal("50.00")), any());
+        verify(posSettingsService, never()).cashbackMax();
+    }
+
+    /**
+     * LC-07-04-07: the combined meal-voucher debit never carries a cashback,
+     * even where the store offers one.
+     */
+    @Test
+    void processCardCombinedNeverCarriesACashback() {
+        cashbackStore("60.00");
+        service.processCard(state, new BigDecimal("70"), true);
+        verify(posSettingsService, never()).cashbackMax();
+    }
+
+    /**
+     * LC-07-04-07/08: once the bank accepts, the card keeps the whole debit
+     * and the difference is given back as a negative cash settlement, shown
+     * as change; the sale is complete.
+     */
+    @Test
+    void acceptedCashbackGivesTheDifferenceBackInCash() {
+        cashbackStore("60.00");
+        service.processCard(state, new BigDecimal("70"));
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestDebit(any(), captor.capture());
+        captor.getValue().onAccepted(TerminalOutcome.ofAmount(new BigDecimal("70.00")));
+        assertEquals(2, state.payment.payments.size());
+        PaymentState.PaymentEntry card = state.payment.payments.get(0);
+        PaymentState.PaymentEntry cash = state.payment.payments.get(1);
+        assertEquals("CARD", card.method);
+        assertEquals(new BigDecimal("70.00"), card.amount);
+        assertFalse(card.cashback);
+        assertEquals("CASH", cash.method);
+        assertEquals(new BigDecimal("-20.00"), cash.amount);
+        assertNull(cash.tenderedAmount);
+        assertTrue(cash.cashback);
+        assertEquals(new BigDecimal("20.00"), state.payment.lastChangeAmount);
+        assertEquals(0, state.getRemaining().signum());
+        assertTrue(state.payment.transactionComplete);
+        verify(hardwareService).displayMessage("CASHBACK 20,00 E");
+        verify(ticketPersistenceService).addPaymentToTicket(3L, card);
+        verify(ticketPersistenceService).addPaymentToTicket(3L, cash);
+    }
+
+    /**
+     * LC-07-04-08: the cashier keys the cash wanted, the register debits the
+     * card for the remaining due plus that amount.
+     */
+    @Test
+    void processCardCashbackDebitsRemainingPlusTheCashWanted() {
+        cashbackStore("60.00");
+        service.processCardCashback(state, new BigDecimal("20.00"));
+        verify(terminal).requestDebit(eq(new BigDecimal("70.00")), any());
+    }
+
+    /**
+     * LC-07-04-08: the CASHBACK key of a store that does not offer it says so
+     * and debits nothing.
+     */
+    @Test
+    void processCardCashbackRefusedWhereNotOffered() {
+        state.ticket.totalAmount = new BigDecimal("50.00");
+        service.processCardCashback(state, new BigDecimal("20.00"));
+        assertEquals("CASHBACK NON PROPOSÉ DANS CE MAGASIN", state.ticket.transientError);
+        verifyNoInteractions(terminal);
+    }
+
+    /**
+     * LC-07-04-08: no amount, a zero amount, or nothing left to pay debits
+     * nothing.
+     */
+    @Test
+    void processCardCashbackIgnoresEmptyAmountsAndSettledSales() {
+        cashbackStore("60.00");
+        service.processCardCashback(state, null);
+        service.processCardCashback(state, BigDecimal.ZERO);
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processCardCashback(state, new BigDecimal("20.00"));
+        verifyNoInteractions(terminal);
+        assertNull(state.ticket.transientError);
     }
 
     // --------------------------------------------------
@@ -1225,6 +2069,21 @@ class PaymentServiceTest {
     }
 
     /**
+     * BO-02-03-06: where the shop admits the meal voucher on eligible articles
+     * only, a ticket carrying none refuses it in local mode.
+     */
+    @Test
+    void processTicketRestoRefusedWithoutEligibleArticleWhenTheShopRequiresOne() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.valuationStatus = "LOCAL";
+        when(posSettingsService.mealVoucherEligibleOnly()).thenReturn(true);
+        service.processTicketResto(state, new BigDecimal("5"));
+        verify(hardwareService).displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
+        verify(hardwareService, never()).openDrawer();
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
      * {@code processTicketResto} under an engine cap with a threshold allows
      * up to {@code min(base, threshold)} and registers a fitting request as-is,
      * leaving the engine base untouched — it is a basket hint, not a counter
@@ -1242,7 +2101,11 @@ class PaymentServiceTest {
         service.processTicketResto(state, new BigDecimal("5"));
         assertEquals(0, new BigDecimal("10").compareTo(state.payment.valuationMealEligible));
         verify(hardwareService).displayMessage("TICKET    5,00 E");
+        // LC-07-16-01: a partial settlement waits for the end of the sale.
+        verify(hardwareService, never()).openDrawer();
+        service.processCash(state, new BigDecimal("15.00"));
         verify(hardwareService).openDrawer();
+        assertTrue(state.payment.transactionComplete);
     }
 
     /**
@@ -1628,7 +2491,11 @@ class PaymentServiceTest {
         service.processTicketResto(state, new BigDecimal("5"));
         assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("TICKET    5,00 E");
+        // LC-07-16-01: a partial settlement waits for the end of the sale.
+        verify(hardwareService, never()).openDrawer();
+        service.processCash(state, new BigDecimal("15.00"));
         verify(hardwareService).openDrawer();
+        assertTrue(state.payment.transactionComplete);
     }
 
     /**
@@ -1840,6 +2707,48 @@ class PaymentServiceTest {
     // processFidelity
     // --------------------------------------------------
 
+    /** LC-07-10-05: a granted reservation prints a slip and does not yet pay. */
+    @Test
+    void loyaltyWaitsForHandwrittenSignature() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        FidelityService.BurnVerdict granted = grant("4");
+        when(fidelityService.reserveLease(eq(state), any(), any())).thenReturn(granted);
+        service.processFidelity(state, new BigDecimal("4"));
+        assertEquals(new BigDecimal("4"), state.payment.pendingFidelitySignatureAmount);
+        assertTrue(state.payment.payments.isEmpty());
+        verify(ticketPrinterService).printFidelitySignatureSlip(new BigDecimal("4"), state.fidelity.label);
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
+    }
+
+    /** LC-07-10-05: a duplicate request cannot replace the unsigned amount. */
+    @Test
+    void loyaltyDoesNotReplaceUnsignedRequest() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        state.payment.pendingFidelitySignatureAmount = BigDecimal.ONE;
+        service.processFidelity(state, BigDecimal.TEN);
+        assertEquals(BigDecimal.ONE, state.payment.pendingFidelitySignatureAmount);
+        verifyNoInteractions(fidelityService, ticketPrinterService);
+    }
+
+    /** LC-07-10-05: refusing to sign releases the lease without a settlement. */
+    @Test
+    void loyaltySignatureRefusalReleasesReservation() {
+        state.payment.pendingFidelitySignatureAmount = BigDecimal.ONE;
+        service.confirmFidelitySignature(state, false);
+        assertNull(state.payment.pendingFidelitySignatureAmount);
+        assertTrue(state.payment.payments.isEmpty());
+        verify(fidelityService).releaseLease(state);
+        verifyNoInteractions(hardwareService);
+    }
+
+    /** LC-07-10-05: an unsolicited or repeated confirmation cannot create money. */
+    @Test
+    void loyaltySignatureWithoutPendingAmountDoesNothing() {
+        service.confirmFidelitySignature(state, true);
+        assertTrue(state.payment.payments.isEmpty());
+        verifyNoInteractions(fidelityService, hardwareService);
+    }
+
     /**
      * {@code processFidelity} returns on a settled ticket: nothing is due, so
      * no lease is even requested (first guard true).
@@ -1907,6 +2816,8 @@ class PaymentServiceTest {
         when(fidelityService.reserveLease(eq(state), any(), any()))
                 .thenReturn(grant("10.00"));
         service.processFidelity(state, BigDecimal.ZERO);
+        assertTrue(state.payment.payments.isEmpty());
+        service.confirmFidelitySignature(state, true);
         assertEquals(0, new BigDecimal("10.00").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("FIDELITE  10,00 E");
         verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
@@ -1926,6 +2837,8 @@ class PaymentServiceTest {
         when(fidelityService.reserveLease(eq(state), any(), any()))
                 .thenReturn(grant("4"));
         service.processFidelity(state, new BigDecimal("4"));
+        assertTrue(state.payment.payments.isEmpty());
+        service.confirmFidelitySignature(state, true);
         assertEquals(0, new BigDecimal("4").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("FIDELITE  4,00 E");
         assertFalse(state.payment.transactionComplete);
@@ -2033,7 +2946,8 @@ class PaymentServiceTest {
 
     /**
      * A decision naming the sale ticket prints it — and only it
-     * (LC-08-03-03).
+     * (LC-08-03-03) — with the detail of its returns where it has one
+     * (LC-05-07-02).
      */
     @Test
     void applyPrintChoicePrintsTheSaleTicket() {
@@ -2041,8 +2955,16 @@ class PaymentServiceTest {
         stubDecision(true, false, false);
         applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.SALE_TICKET);
         verify(ticketPrinterService).printTicket(9L);
+        verify(ticketPrinterService).printReturnDetail(9L);
         verify(ticketPrinterService, never()).printCardReceipt(any(),
                 org.mockito.ArgumentMatchers.anyBoolean(), any());
+        // BO-03-03-26/-27/-35: the loyalty zone is frozen before the receipt
+        // is printed, ahead of the closing.
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(fidelityService, ticketPersistenceService,
+                ticketPrinterService);
+        order.verify(fidelityService).refreshPotBalances(state);
+        order.verify(ticketPersistenceService).storeFidelityMessages(eq(9L), any());
+        order.verify(ticketPrinterService).printTicket(9L);
         assertTrue(state.payment.printApplied);
     }
 
@@ -2076,6 +2998,48 @@ class PaymentServiceTest {
     }
 
     /**
+     * LC-13-06-13: the exit ticket and the sale receipt are both laid out in the
+     * language the customer chose on the customer display; the cashier's labels
+     * stay French around them.
+     */
+    @Test
+    void applyPrintChoicePrintsTheCustomersPaperInTheirLanguage() {
+        service.i18n = TestMessages.french(state);
+        state.customerLanguage = "nl";
+        state.payment.ticketDbId = 9L;
+        stubDecision(true, false, false);
+        java.util.List<String> languages = new java.util.ArrayList<>();
+        org.mockito.Mockito.when(ticketPrinterService.printExitTicket(9L)).thenAnswer(call -> {
+            languages.add(service.i18n.getLang());
+            return 0;
+        });
+        org.mockito.Mockito.doAnswer(call -> languages.add(service.i18n.getLang()))
+                .when(ticketPrinterService).printTicket(9L);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.SALE_TICKET);
+        assertEquals(java.util.List.of("nl", "nl"), languages);
+        assertEquals("fr", service.i18n.getLang());
+    }
+
+    /**
+     * LC-13-06-13: the sale receipt kept attached to the card frame is laid out
+     * in the customer's language too — the other arm of the attachment policy.
+     */
+    @Test
+    void theAttachedReceiptIsPrintedInTheCustomersLanguage() {
+        service.i18n = TestMessages.french(state);
+        state.customerLanguage = "pt";
+        when(posSettingsService.cardReceiptAttached()).thenReturn(true);
+        PaymentState.PaymentEntry card = new PaymentState.PaymentEntry("CARD", new BigDecimal("5.00"));
+        card.customerReceiptFrame = "FRAME";
+        state.payment.payments.add(card);
+        java.util.List<String> languages = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(call -> languages.add(service.i18n.getLang()))
+                .when(ticketPrinterService).printTicket(9L, false);
+        service.printTicketWithMoneticFrames(state, 9L);
+        assertEquals(java.util.List.of("pt"), languages);
+    }
+
+    /**
      * A decision naming the card receipt prints it — and only it
      * (LC-08-03-04).
      */
@@ -2099,6 +3063,7 @@ class PaymentServiceTest {
         stubDecision(false, false, false);
         applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.NONE);
         verify(ticketPrinterService, never()).printTicket(any());
+        verify(ticketPrinterService, never()).printReturnDetail(any());
         verify(ticketPrinterService, never()).printCardReceipt(any(),
                 org.mockito.ArgumentMatchers.anyBoolean(), any());
         assertTrue(state.payment.printApplied);
@@ -2207,6 +3172,7 @@ class PaymentServiceTest {
     @Test
     void finalizeTransactionValidatesDraft() {
         state.payment.ticketDbId = 9L;
+        state.fidelity.holderEmail = "client@example.test";
         // The fiscal moment looks up the gift cards ISSUED by this sale to
         // print their vouchers: a Panache call, neutralized here (plain
         // mvn test leaves entities un-enhanced). No card issued = no voucher.
@@ -2218,6 +3184,8 @@ class PaymentServiceTest {
         }
         verify(ticketPersistenceService).validateTicket(9L);
         assertEquals(9L, state.lastClosedTicketId);
+        assertEquals("client@example.test", state.lastClosedTicketEmail);
+        assertNull(state.fidelity.holderEmail);
         verify(hardwareService).displayMessage("MERCI A BIENTOT");
         assertNull(state.payment.ticketDbId);
     }
@@ -2244,6 +3212,48 @@ class PaymentServiceTest {
         }
         verify(documentClient).settleOrder("C04-CMD000001");
         assertNull(state.recalledOrderCode);
+    }
+
+    /**
+     * LC-06-02-12: the closing of a sale loaded from several documents settles
+     * each of them once, the remembered order included, and clears the list.
+     */
+    @Test
+    void finalizeTransactionSettlesEveryDocumentOfTheSale() {
+        com.intermarche.pos.ui.recall.BackOfficeDocumentClient documentClient =
+                mock(com.intermarche.pos.ui.recall.BackOfficeDocumentClient.class);
+        service.documentClient = documentClient;
+        state.payment.ticketDbId = 9L;
+        state.recalledDocumentCodes.add("BV-1");
+        state.recalledDocumentCodes.add("BV-2");
+        state.recalledOrderCode = "BV-2";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(documentClient).settleOrder("BV-1");
+        verify(documentClient).settleOrder("BV-2");
+        assertTrue(state.recalledDocumentCodes.isEmpty());
+    }
+
+    /**
+     * LC-13-05-06: a training sale ending reaches the back office's journal in
+     * its own table; a sale without draft outside training mode keeps nothing.
+     */
+    @Test
+    void finalizeTransactionKeepsTheTrainingSale() {
+        service.trainingTicketService = mock(TrainingTicketService.class);
+        service.documentClient = mock(com.intermarche.pos.ui.recall.BackOfficeDocumentClient.class);
+        state.payment.ticketDbId = null;
+        state.trainingMode = true;
+        service.finalizeTransaction(state);
+        verify(service.trainingTicketService).record(state);
+        state.trainingMode = false;
+        state.payment.ticketDbId = null;
+        service.finalizeTransaction(state);
+        verify(service.trainingTicketService, org.mockito.Mockito.times(1)).record(any());
     }
 
     /**
@@ -2395,6 +3405,11 @@ class PaymentServiceTest {
         state.fidelity.earnEntries.add(
                 new com.intermarche.pos.ui.fidelity.FidelityState.EarnLine(
                         "SOCLE", "Cagnotte socle", new java.math.BigDecimal("0.28")));
+        com.intermarche.pos.ui.fidelity.ImfidClient.PotBalance pot =
+                new com.intermarche.pos.ui.fidelity.ImfidClient.PotBalance();
+        pot.label = "Cagnotte";
+        pot.balance = new java.math.BigDecimal("5.00");
+        state.fidelity.potBalances.add(pot);
         when(fidelityService.isUnavailable()).thenReturn(true);
         com.intermarche.pos.domain.sale.Ticket closed =
                 org.mockito.Mockito.mock(com.intermarche.pos.domain.sale.Ticket.class);
@@ -2416,6 +3431,8 @@ class PaymentServiceTest {
         assertEquals("SOCLE", frozen.getValue().get(0).ruleCode);
         assertEquals("Cagnotte socle", frozen.getValue().get(0).label);
         assertEquals(new java.math.BigDecimal("0.28"), frozen.getValue().get(0).amount);
+        // BO-10-02-33: the pot balances of the fiscal moment are frozen too.
+        verify(ticketPersistenceService).storePotBalances(9L, "Cagnotte\t5.00");
     }
 
     /**
@@ -2437,6 +3454,8 @@ class PaymentServiceTest {
         verify(ticketPersistenceService).storeFidelity(eq(9L), eq(null), eq(null),
                 eq(false), frozen.capture(), eq(null), eq(null), eq(false));
         assertTrue(frozen.getValue().isEmpty());
+        // BO-10-02-33: no pot read, nothing to freeze.
+        verify(ticketPersistenceService).storePotBalances(9L, null);
     }
 
     /**
@@ -3733,21 +4752,16 @@ class PaymentServiceTest {
     }
 
     /**
-     * Invokes the private {@code opensDrawerFor} on a fresh state whose
-     * {@code lastChangeAmount} is still null: the {@code lastChangeAmount != null}
-     * false arm of the change-due computation, unreachable through the public API
-     * (every settlement sets the field before the drawer is consulted).
-     *
-     * @throws Exception if reflective invocation fails
+     * LC-07-16-01: a completed cash sale with null change consults the physical
+     * fallback and sends the opening order through the public completion flow.
      */
     @Test
-    void opensDrawerForWithNullLastChangeAmount() throws Exception {
+    void opensDrawerForWithNullLastChangeAmount() {
         state.payment.lastChangeAmount = null;
-        Method m = PaymentService.class.getDeclaredMethod(
-                "opensDrawerFor", PosState.class, String.class);
-        m.setAccessible(true);
-        Object result = m.invoke(service, state, "CASH");
-        assertEquals(Boolean.TRUE, result);
+        state.payment.transactionComplete = true;
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        service.openSettlementDrawer(state, false);
+        verify(hardwareService).openDrawer();
         verify(tenderRulesService).opensDrawer("CASH", false, false, true);
     }
 
@@ -3804,5 +4818,2251 @@ class PaymentServiceTest {
         assertEquals(0, state.getRemaining().compareTo(BigDecimal.ZERO));
         assertTrue(state.payment.transactionComplete);
         verify(hardwareService).displayMessage("REMBOURSEMENT 5,00 E");
+    }
+    /** LC-07-04-10/-11: terminal frames replace generated slips and stay attached when administered. */
+    @Test
+    void applyPrintChoiceUsesExactTerminalFramesWithAttachment() {
+        state.payment.ticketDbId = 9L;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        var entry = state.payment.payments.get(0);
+        entry.customerReceiptFrame = " CLIENT\n";
+        entry.merchantReceiptFrame = " MERCHANT\n";
+        when(posSettingsService.cardReceiptAttached()).thenReturn(true);
+        stubDecision(true, true, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.ALL);
+        verify(ticketPrinterService).printTicket(9L, false);
+        verify(ticketPrinterService).printTerminalFrame(" CLIENT\n", null);
+        verify(ticketPrinterService).printTerminalFrame(" MERCHANT\n", null);
+        verify(ticketPrinterService).archiveCustomerDocument(
+                com.intermarche.pos.domain.sale.CustomerDocument.Kind.CARD, 9L, " CLIENT\n");
+        verify(ticketPrinterService, never()).archiveCustomerDocument(any(), any(), eq(" MERCHANT\n"));
+        verify(ticketPrinterService, never()).printCardReceipt(any(), anyBoolean(), any());
+    }
+
+    /** LC-07-04-11: separate policy retains the normal sale cut and supports a merchant-only frame. */
+    @Test
+    void applyPrintChoiceKeepsSeparateTerminalFrames() {
+        state.payment.ticketDbId = 9L;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.payments.get(0).merchantReceiptFrame = "MERCHANT";
+        stubDecision(true, true, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.ALL);
+        verify(ticketPrinterService).printTicket(9L);
+        verify(ticketPrinterService).printTerminalFrame("MERCHANT", null);
+        verify(ticketPrinterService, never()).printTicket(9L, false);
+        verify(ticketPrinterService, never()).printCardReceipt(any(), anyBoolean(), any());
+    }
+
+    /** LC-07: a card refund remains unpaid until the terminal approves, and duplicate callbacks do not pay twice. */
+    @Test
+    void cardRefundRequiresTerminalAcceptance() {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        assertTrue(service.processNetRefund(state, "CARD"));
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        assertFalse(state.payment.transactionComplete);
+        assertFalse(service.processNetRefund(state, "CARD"));
+        var callback = org.mockito.ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+        verify(terminal).requestCredit(eq(new BigDecimal("5.00")), callback.capture());
+        var outcome = com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(new BigDecimal("5.00"));
+        outcome.server = "2";
+        callback.getValue().onAccepted(outcome);
+        callback.getValue().onAccepted(outcome);
+        assertEquals(new BigDecimal("-5.00"), state.payment.paidAmount);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("2", state.payment.payments.get(0).moneticServer);
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /** LC-07: a refused credit and a transport failure both leave the refund due. */
+    @Test
+    void cardRefundRefusalAndFailureRemainUnpaid() {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        service.processNetRefund(state, "CARD");
+        var callback = org.mockito.ArgumentCaptor.forClass(com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback.class);
+        verify(terminal).requestCredit(eq(new BigDecimal("5.00")), callback.capture());
+        callback.getValue().onRefused(null);
+        assertNull(state.payment.pendingCardAmount);
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        service.processNetRefund(state, "CARD");
+        verify(terminal, times(2)).requestCredit(eq(new BigDecimal("5.00")), callback.capture());
+        callback.getValue().onError("UNREACHABLE");
+        assertNull(state.payment.pendingCardAmount);
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /** LC-07-06-02: one combined key sends the engine allowance without recording an assumed payment. */
+    @Test
+    void combinedCardUsesEligibleAllowance() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("8.00");
+        service.processCard(state, BigDecimal.ZERO, true);
+        verify(terminal).requestCombinedDebit(eq(new BigDecimal("20.00")), eq(new BigDecimal("8.00")), any());
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+    }
+
+    /** LC-07-06-02/-07-04: the actual partial D10 and mapped tender are recorded, with the selected server. */
+    @Test
+    void actualTerminalAmountAndMappedTender() {
+        var callback = captureCallback("15.00");
+        when(posSettingsService.verifoneMethodMap()).thenReturn("D16:3F=TRD");
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("5.00"));
+        outcome.meanCode = "3F";
+        outcome.server = "2";
+        callback.onAccepted(outcome);
+        assertEquals(new BigDecimal("5.00"), state.payment.paidAmount);
+        assertEquals("TRD", state.payment.payments.get(0).method);
+        assertEquals("2", state.payment.payments.get(0).moneticServer);
+        assertFalse(state.payment.transactionComplete);
+        assertNull(state.payment.pendingMoneticServer);
+    }
+
+    /** LC-07: a zero settled amount never creates a false accepted card payment. */
+    @Test
+    void zeroTerminalAmountIsNotBooked() {
+        var callback = captureCallback("15.00");
+        callback.onAccepted(TerminalOutcome.ofAmount(BigDecimal.ZERO));
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        assertNull(state.payment.pendingCardAmount);
+    }
+
+    /** LC-07-05-06/-07: the front uses actual amount words and optional PDV fields, without booking a cheque. */
+    @Test
+    void chequeFrontUsesAdministeredDataAndCallbacks() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        when(posSettingsService.value("cheque.front-lines"))
+                .thenReturn("{montant-lettres};{montant};{beneficiaire};{lieu};{banque};{compte}");
+        when(posSettingsService.value("cheque.beneficiary")).thenReturn("SHOP");
+        when(posSettingsService.value("cheque.place")).thenReturn("PARIS");
+        when(posSettingsService.value("cheque.bank-reference")).thenReturn("BANK");
+        when(posSettingsService.value("cheque.account-number")).thenReturn("ACCOUNT");
+        service.printChequeFront(state, null);
+        assertTrue(state.payment.chequeFrontPrinting);
+        var text = ArgumentCaptor.forClass(String.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.function.Consumer<String>> success = ArgumentCaptor.forClass(java.util.function.Consumer.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.function.Consumer<String>> error = ArgumentCaptor.forClass(java.util.function.Consumer.class);
+        verify(chequeReadingService).printFront(text.capture(), success.capture(), error.capture());
+        assertTrue(text.getValue().contains("dix"));
+        assertTrue(text.getValue().contains("10,00"));
+        assertTrue(text.getValue().contains("SHOP\nPARIS\nBANK\nACCOUNT"));
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        success.getValue().accept("");
+        assertFalse(state.payment.chequeFrontPrinting);
+        error.getValue().accept("PRINT FAILED");
+        assertFalse(state.payment.chequeFrontPrinting);
+        assertEquals("PRINT FAILED", state.ticket.transientError);
+    }
+
+    /** LC-07-05-06: concurrent print/read guards and nonpositive amounts never request paper. */
+    @Test
+    void chequeFrontGuards() {
+        state.payment.chequeFrontPrinting = true;
+        service.printChequeFront(state, BigDecimal.ONE);
+        service.processCheque(state, BigDecimal.ONE);
+        state.payment.chequeFrontPrinting = false;
+        state.payment.pendingChequeAmount = BigDecimal.ONE;
+        service.printChequeFront(state, BigDecimal.ONE);
+        state.payment.pendingChequeAmount = null;
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.printChequeFront(state, BigDecimal.ZERO);
+        verifyNoInteractions(chequeReadingService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /** LC-07-05-06: training simulates printing and never reaches the physical station. */
+    @Test
+    void trainingFrontPrintIsSimulated() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = BigDecimal.ONE;
+        service.printChequeFront(state, BigDecimal.ONE);
+        verifyNoInteractions(chequeReadingService);
+        assertFalse(state.payment.chequeFrontPrinting);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /** LC-07-17-05: a terminal-controlled donation receipt is printed, without adding a second POS donation. */
+    @Test
+    void additionalMoneticFramesArePrinted() {
+        state.payment.ticketDbId = 9L;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.payments.get(0).additionalReceiptFrames = java.util.List.of("DONATION\n");
+        assertTrue(service.hasMoneticFrames(state));
+        stubDecision(false, true, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.CARD_RECEIPT);
+        verify(ticketPrinterService).printTerminalFrame("DONATION\n", null);
+        verify(ticketPrinterService, never()).printCardReceipt(any(), anyBoolean(), any());
+        assertNull(state.donationLineUid);
+    }
+
+    /** LC-07-17-05: missing or empty additional frames never fabricate a monetic receipt. */
+    @Test
+    void absentAdditionalFramesStayAbsent() {
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        assertFalse(service.hasMoneticFrames(state));
+        state.payment.payments.get(0).additionalReceiptFrames = java.util.List.of();
+        assertFalse(service.hasMoneticFrames(state));
+    }
+
+    /** LC-07-04-10: either primary frame makes the vendor print path available independently. */
+    @Test
+    void primaryMoneticFramesAreDetectedIndependently() {
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        var entry = state.payment.payments.get(0);
+        entry.customerReceiptFrame = "CLIENT";
+        assertTrue(service.hasMoneticFrames(state));
+        entry.customerReceiptFrame = null;
+        entry.merchantReceiptFrame = "MERCHANT";
+        assertTrue(service.hasMoneticFrames(state));
+    }
+
+    /** LC-07-06-02: absent meal eligibility sends zero eligible cents rather than assuming the full basket. */
+    @Test
+    void combinedCardWithoutEligibilitySendsZero() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCard(state, BigDecimal.ZERO, true);
+        verify(terminal).requestCombinedDebit(eq(new BigDecimal("20.00")), eq(BigDecimal.ZERO), any());
+    }
+
+    /** LC-07: a blocked card control never starts a monetary exchange. */
+    @Test
+    void blockedCardControlNeverReachesTerminal() {
+        when(endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.CARD_PAYMENT))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.BLOCK);
+        service.processCard(state, BigDecimal.ONE);
+        verifyNoInteractions(terminal);
+        assertNull(state.payment.pendingCardAmount);
+    }
+
+    /** LC-07-04-12: supplementary TNA frames are printed only after an actual refused result. */
+    @Test
+    void refusedTerminalAdditionalFramesArePrinted() {
+        var callback = captureCallback("15.00");
+        when(printPolicy.isTnaReceiptForced()).thenReturn(true);
+        var outcome = TerminalOutcome.ofAmount(new BigDecimal("15.00"));
+        outcome.tnaFrame = "TNA";
+        outcome.additionalReceiptFrames.add("TNA EXTRA");
+        callback.onRefused(outcome);
+        verify(ticketPrinterService).printCardTnaReceipt(new BigDecimal("15.00"), "TNA");
+        verify(ticketPrinterService).printTerminalFrame("TNA EXTRA");
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+    }
+
+    /** LC-07: legacy terminal outcomes without a returned amount retain the requested amount. */
+    @Test
+    void acceptedOutcomeWithoutAmountUsesRequested() {
+        var callback = captureCallback("15.00");
+        callback.onAccepted(TerminalOutcome.ofAmount(null));
+        assertEquals(new BigDecimal("15.00"), state.payment.paidAmount);
+    }
+
+    /** LC-07-07-04: an already accepted bank decision cannot be discarded by a later local rule change. */
+    @Test
+    void acceptedBankDecisionSurvivesLaterRuleChange() {
+        var callback = captureCallback("15.00");
+        when(tenderRulesService.check(any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING, "BLOCKED"));
+        callback.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals(new BigDecimal("15.00"), state.payment.paidAmount);
+        verify(ticketPersistenceService).addPaymentToTicket(eq(3L), any());
+    }
+
+    /** LC-07-04-11: merchant-only frames cannot suppress the sale cut even when attachment is enabled. */
+    @Test
+    void merchantOnlyFrameCannotAttachToSale() {
+        state.payment.ticketDbId = 9L;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.payments.get(0).merchantReceiptFrame = "MERCHANT";
+        when(posSettingsService.cardReceiptAttached()).thenReturn(true);
+        stubDecision(true, true, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.ALL);
+        verify(ticketPrinterService).printTicket(9L);
+        verify(ticketPrinterService).printTerminalFrame("MERCHANT", null);
+    }
+
+    /** LC-07-04-11: the legacy print button uses exact frames and marks them already printed for closing. */
+    @Test
+    void legacyPrintButtonUsesAttachedFrames() {
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.payments.get(0).customerReceiptFrame = "CLIENT";
+        when(posSettingsService.cardReceiptAttached()).thenReturn(true);
+        service.printTicketWithMoneticFrames(state, 9L);
+        verify(ticketPrinterService).printTicket(9L, false);
+        verify(ticketPrinterService).printTerminalFrame("CLIENT", null);
+        assertTrue(state.payment.printApplied);
+    }
+
+    /** LC-07: tender ceilings are opposed before the bank is asked and cashback is never requested. */
+    @Test
+    void cardPreflightBlocksBeforeBankAndCapsAmount() {
+        state.ticket.totalAmount = new BigDecimal("5.00");
+        when(tenderRulesService.check(any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING, "BLOCKED"));
+        service.processCard(state, new BigDecimal("10.00"));
+        verifyNoInteractions(terminal);
+        assertNull(state.payment.pendingCardAmount);
+        when(tenderRulesService.check(any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(TenderRulesService.Verdict.silent());
+        service.processCard(state, new BigDecimal("10.00"));
+        verify(terminal).requestDebit(eq(new BigDecimal("5.00")), any());
+    }
+
+    /** LC-07: a positive explicit debit on an already settled basket never reaches the terminal. */
+    @Test
+    void cardOnSettledBasketDoesNotStart() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processCard(state, BigDecimal.ONE);
+        verifyNoInteractions(terminal);
+    }
+
+    /** LC-07-06-02: a held combined key is replayed to the terminal after approval, without local booking. */
+    @Test
+    void supervisorReplaysCombinedCardToTerminal() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        when(tenderRulesService.check(any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR, "SUPERVISOR"));
+        service.processCard(state, BigDecimal.ZERO, true);
+        verifyNoInteractions(terminal);
+        assertEquals("CARD", state.payment.tenderHeldMethod);
+        assertTrue(state.payment.tenderHeldCombined);
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+        assertTrue(service.authorizeHeldTender(state, "", ""));
+        verify(terminal).requestCombinedDebit(eq(new BigDecimal("10.00")), eq(BigDecimal.ZERO), any());
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        assertNull(state.payment.tenderHeldMethod);
+    }
+
+    /** LC-07: synchronous simulator acceptance counts as a completed authorized card request. */
+    @Test
+    void supervisorCardSynchronousAcceptance() {
+        state.ticket.totalAmount = BigDecimal.ONE;
+        state.payment.tenderHeldMethod = "CARD";
+        state.payment.tenderHeldAmount = BigDecimal.ONE;
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+        service.terminal = new AutoAcceptTerminalClient();
+        assertTrue(service.authorizeHeldTender(state, "", ""));
+        assertEquals(new BigDecimal("1.00"), state.payment.paidAmount);
+        assertNull(state.payment.pendingCardAmount);
+    }
+
+    /** LC-07: synchronous refusal after endorsement cannot be reported as a registered payment. */
+    @Test
+    void supervisorCardSynchronousRefusal() {
+        state.ticket.totalAmount = BigDecimal.ONE;
+        state.payment.tenderHeldMethod = "CARD";
+        state.payment.tenderHeldAmount = BigDecimal.ONE;
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+        doAnswer(invocation -> {
+            invocation.getArgument(1, TerminalTransactionCallback.class).onRefused(null);
+            return null;
+        }).when(terminal).requestDebit(any(), any());
+        assertFalse(service.authorizeHeldTender(state, "", ""));
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+    }
+
+    /** LC-07-12-04: a positive out-of-range index preserves the existing settlement. */
+    @Test
+    void cancellationAboveLastIndexPreservesPayment() {
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        assertFalse(service.cancelOnePayment(state, 1));
+        assertEquals(1, state.payment.payments.size());
+        verifyNoInteractions(ticketPrinterService);
+    }
+
+    /** LC-07-12-04: null entries and absent printers produce no cancellation slip. */
+    @Test
+    void cancellationSlipMissingEntryOrPrinter() throws Exception {
+        invokePaymentHelper("printCancellationSlip", new Class<?>[]{Long.class, PaymentState.PaymentEntry.class}, null, null);
+        service.ticketPrinterService = null;
+        invokePaymentHelper("printCancellationSlip", new Class<?>[]{Long.class, PaymentState.PaymentEntry.class}, null,
+                new PaymentState.PaymentEntry("CHEQUE", BigDecimal.ONE));
+        verifyNoInteractions(ticketPrinterService);
+    }
+
+    /** LC-07-12-04: every administered-label null/blank leg falls back to the settlement key. */
+    @Test
+    void cancellationSlipUsesAdministeredLabelOnlyWhenPresent() throws Exception {
+        var entry = new PaymentState.PaymentEntry("CHEQUE", BigDecimal.ONE);
+        try (var tenders = mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class);
+             var tickets = mockStatic(PanacheEntityBase.class)) {
+            var tender = new com.intermarche.pos.domain.payment.TenderDefinition();
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition.findByCode("CHEQUE"))
+                    .thenReturn(tender);
+            for (String label : new String[]{null, " ", "STORE CHEQUE"}) {
+                tender.label = label;
+                invokePaymentHelper("printCancellationSlip", new Class<?>[]{Long.class, PaymentState.PaymentEntry.class}, null, entry);
+            }
+            verify(ticketPrinterService, times(2)).printPaymentCancellation(null, "CHEQUE", BigDecimal.ONE);
+            verify(ticketPrinterService).printPaymentCancellation(null, "STORE CHEQUE", BigDecimal.ONE);
+            Ticket ticket = new Ticket();
+            ticket.ticketNumber = "C04-T00001";
+            tickets.when(() -> PanacheEntityBase.findById(8L)).thenReturn(ticket);
+            invokePaymentHelper("printCancellationSlip", new Class<?>[]{Long.class, PaymentState.PaymentEntry.class}, 8L, entry);
+            verify(ticketPrinterService).printPaymentCancellation("C04-T00001", "STORE CHEQUE", BigDecimal.ONE);
+            invokePaymentHelper("printCancellationSlip", new Class<?>[]{Long.class, PaymentState.PaymentEntry.class}, 9L, entry);
+            verify(ticketPrinterService, times(2)).printPaymentCancellation(null, "STORE CHEQUE", BigDecimal.ONE);
+        }
+    }
+
+    /** BO-03-03-11: absent balances and vanished drafts are printed as unknown, not invented zeros. */
+    @Test
+    void giftSlipUnknownBalanceAndDraftLegs() throws Exception {
+        Class<?>[] types = {PosState.class, String.class, BigDecimal.class, BigDecimal.class};
+        invokePaymentHelper("printGiftCardPaymentSlip", types, state, "CARD", BigDecimal.ONE, null);
+        verify(ticketPrinterService).printGiftCardPaymentReceipt(null, "CARD", BigDecimal.ONE, null);
+        state.payment.ticketDbId = 8L;
+        try (var tickets = mockStatic(PanacheEntityBase.class)) {
+            Ticket ticket = new Ticket();
+            ticket.ticketNumber = "C04-T00001";
+            tickets.when(() -> PanacheEntityBase.findById(8L)).thenReturn(ticket);
+            invokePaymentHelper("printGiftCardPaymentSlip", types, state, "CARD", BigDecimal.ONE, BigDecimal.TEN);
+            verify(ticketPrinterService).printGiftCardPaymentReceipt("C04-T00001", "CARD", BigDecimal.ONE, new BigDecimal("9"));
+            state.payment.ticketDbId = 9L;
+            invokePaymentHelper("printGiftCardPaymentSlip", types, state, "CARD", BigDecimal.ONE, BigDecimal.TEN);
+            verify(ticketPrinterService).printGiftCardPaymentReceipt(null, "CARD", BigDecimal.ONE, new BigDecimal("9"));
+        }
+        service.ticketPrinterService = null;
+        invokePaymentHelper("printGiftCardPaymentSlip", types, state, "OTHER", BigDecimal.ONE, null);
+        verify(ticketPrinterService, never()).printGiftCardPaymentReceipt(any(), eq("OTHER"), any(), any());
+    }
+
+    /** LC-07-05-03: absent settings retain the legacy date/amount endorsement. */
+    @Test
+    void endorsementWithoutSettingsUsesFallback() throws Exception {
+        service.posSettingsService = null;
+        String text = (String) invokePaymentHelper("endorsementText", new Class<?>[]{PosState.class, BigDecimal.class}, state, BigDecimal.ONE);
+        assertTrue(text.matches("\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}\\n1,00 EUR"));
+        assertEquals("", invokePaymentHelper("chequeParameter", new Class<?>[]{String.class}, "cheque.place"));
+    }
+
+    /** LC-07-05-03: blank templates and absent terminal/store identities never leak placeholders. */
+    @Test
+    void chequeBlankTemplateAndMissingIdentities() throws Exception {
+        Class<?>[] types = {PosState.class, BigDecimal.class, String.class};
+        String fallback = (String) invokePaymentHelper("chequeText", types, state, BigDecimal.ONE, " ");
+        assertTrue(fallback.endsWith("\n1,00 EUR"));
+        service.ticketNumberService = null;
+        service.pdvNumber = null;
+        assertEquals("X", invokePaymentHelper("chequeText", types, state, BigDecimal.ONE, "{caisse};{pdv};X"));
+    }
+
+    /** LC-07-06-02: engine nulls, local eligibility, thresholds and all three meal tenders reduce allowance. */
+    @Test
+    void combinedAllowanceCoversEverySourceAndRegisteredTender() throws Exception {
+        Class<?>[] types = {PosState.class};
+        state.payment.valuationStatus = "ENGINE";
+        assertNull(invokePaymentHelper("mealVoucherAllowance", types, state));
+        cartLine("20.00", true);
+        assertEquals(new BigDecimal("20.00"), invokePaymentHelper("mealVoucherAllowance", types, state));
+        state.payment.valuationMealEligible = new BigDecimal("15.00");
+        state.payment.valuationMealThreshold = new BigDecimal("10.00");
+        state.payment.addPayment("TR", BigDecimal.ONE);
+        state.payment.addPayment("TRD", BigDecimal.ONE);
+        state.payment.addPayment("RESTOFLASH", BigDecimal.ONE);
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        assertEquals(new BigDecimal("7.00"), invokePaymentHelper("mealVoucherAllowance", types, state));
+        state.payment.valuationStatus = "LOCAL";
+        assertEquals(new BigDecimal("17.00"), invokePaymentHelper("mealVoucherAllowance", types, state));
+    }
+
+    /** LC-07: warnings preserve the debit, and the popup suppression flag covers its independent leg. */
+    @Test
+    void cardWarningCanBeDisplayedOrSuppressed() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        when(endorsementService.check(state, com.intermarche.pos.ui.endorsement.ControlPoint.CARD_PAYMENT))
+                .thenReturn(com.intermarche.pos.ui.endorsement.ControlLevel.WARN);
+        when(endorsementService.controlMessage(com.intermarche.pos.ui.endorsement.ControlPoint.CARD_PAYMENT,
+                com.intermarche.pos.ui.endorsement.ControlLevel.WARN)).thenReturn("CARD WARNING");
+        service.processCard(state, BigDecimal.ONE);
+        assertEquals("CARD WARNING", state.ticket.transientError);
+        state.payment.pendingCardAmount = null;
+        state.ticket.transientError = null;
+        when(posSettingsService.islandBlockPaymentPopups()).thenReturn(true);
+        service.processCard(state, BigDecimal.ONE);
+        assertNull(state.ticket.transientError);
+        verify(terminal, times(2)).requestDebit(eq(new BigDecimal("1.00")), any());
+    }
+
+    /** BO-03-02-27/-29: a forbidden card on self-service never starts a combined bank exchange. */
+    @Test
+    void selfServiceCardGuardRunsBeforeBank() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        var lane = new com.intermarche.pos.domain.store.CheckoutPoint();
+        lane.tpvType = com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_DN;
+        var tender = new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.selfServiceAllowed = false;
+        service.ticketNumberService = null;
+        try (var points = mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class);
+             var tenders = mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(null)).thenReturn(lane);
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition.findByCode("CARD")).thenReturn(tender);
+            service.processCard(state, BigDecimal.ONE, true);
+            assertTrue(state.payment.tenderHeldCombined);
+            verifyNoInteractions(terminal);
+        }
+    }
+
+    /** BO-03-02-27/-29: missing tender, unwatched tender and an existing supervisor override each allow the card. */
+    @Test
+    void selfServiceCardAllowedLegs() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        var lane = new com.intermarche.pos.domain.store.CheckoutPoint();
+        lane.tpvType = com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_DN;
+        var tender = new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.selfServiceAllowed = true;
+        try (var points = mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class);
+             var tenders = mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(null)).thenReturn(lane);
+            service.processCard(state, BigDecimal.ONE);
+            state.payment.pendingCardAmount = null;
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition.findByCode("CARD")).thenReturn(tender);
+            service.processCard(state, BigDecimal.ONE);
+            state.payment.pendingCardAmount = null;
+            tender.selfServiceSupervision = true;
+            state.payment.tenderOverride = "CARD";
+            service.processCard(state, BigDecimal.ONE);
+            verify(terminal, times(3)).requestDebit(eq(new BigDecimal("1.00")), any());
+        }
+    }
+
+    /** LC-07: a negative basket is incomplete when a deliberately inconsistent payment over-refunds it. */
+    @Test
+    void negativeBasketOverRefundIsNotComplete() throws Exception {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        state.payment.paidAmount = new BigDecimal("-6.00");
+        invokePaymentHelper("checkCompletion", new Class<?>[]{PosState.class}, state);
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /** Invokes defensive private branches which public validation otherwise makes unreachable.
+     * @param name helper name
+     * @param types declared argument types
+     * @param arguments supplied arguments
+     * @return helper result
+     * @throws Exception if the helper cannot be invoked
+     */
+    private Object invokePaymentHelper(String name, Class<?>[] types, Object... arguments) throws Exception {
+        Method method = PaymentService.class.getDeclaredMethod(name, types);
+        method.setAccessible(true);
+        return method.invoke(service, arguments);
+    }
+
+    /** LC-07-12-04: a negative index short-circuits before reading any settlement. */
+    @Test
+    void cancellationNegativeIndexPreservesPayment() {
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        assertFalse(service.cancelOnePayment(state, -1));
+        assertEquals(1, state.payment.payments.size());
+    }
+
+    /** LC-07: the legacy card accounting helper retains the terminal traces without initiating a new debit. */
+    @Test
+    void legacyCardAccountingBranch() throws Exception {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        state.payment.pendingCardAuthNumber = "AUTH";
+        assertEquals(true, invokePaymentHelper("handlePaymentWithChange",
+                new Class<?>[]{PosState.class, String.class, String.class, BigDecimal.class}, state, "CARD", "CARD", BigDecimal.ONE));
+        assertEquals("CARD", state.payment.payments.get(0).method);
+        verifyNoInteractions(terminal);
+    }
+
+    /** BO-03-02-16: an issued credit note remains owed to the customer even when its paper is disabled. */
+    @Test
+    void changeNoteWithoutForcedPaper() throws Exception {
+        state.payment.changeAsCreditNote = BigDecimal.ONE;
+        when(ticketPersistenceService.issueChangeCreditNote(9L, BigDecimal.ONE)).thenReturn("NOTE-1");
+        invokePaymentHelper("issueChangeCreditNote", new Class<?>[]{PosState.class, Long.class}, state, 9L);
+        verify(ticketPersistenceService).issueChangeCreditNote(9L, BigDecimal.ONE);
+        verify(ticketPrinterService, never()).printChangeVoucher(any(), any());
+    }
+
+    /** LC-07-06: TRD null/zero requests default to the due; cap equal/below/zero/null legs preserve the allowed amount. */
+    @Test
+    void trdDefaultAmountAndCapLegs() {
+        state.ticket.totalAmount = new BigDecimal("100.00");
+        when(posSettingsService.trdCardCap()).thenReturn(null);
+        service.processTrdCard(state, BigDecimal.ZERO);
+        assertEquals(new BigDecimal("100.00"), state.payment.payments.get(0).amount);
+        state.clearPayments();
+        state.ticket.totalAmount = new BigDecimal("100.00");
+        when(posSettingsService.trdCardCap()).thenReturn(new BigDecimal("10.00"));
+        service.processTrdCard(state, BigDecimal.ONE);
+        assertEquals(BigDecimal.ONE, state.payment.payments.get(0).amount);
+        when(posSettingsService.trdCardCap()).thenReturn(BigDecimal.ZERO);
+        service.processTrdCard(state, BigDecimal.ONE);
+        assertEquals(2, state.payment.payments.size());
+    }
+
+    /** LC-07-06: a mobile-voucher zero request defaults to the due with no local eligible-base constraint. */
+    @Test
+    void mobileVoucherWithoutEligibleBaseUsesDue() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        when(restoFlashClient.confirm("TOKEN", new BigDecimal("10.00"))).thenReturn(true);
+        service.processRestoFlash(state, "TOKEN", BigDecimal.ZERO);
+        assertEquals(new BigDecimal("10.00"), state.payment.paidAmount);
+    }
+
+    /** LC-07-06: a mobile voucher below the known allowance retains the requested amount. */
+    @Test
+    void mobileVoucherBelowAllowanceIsNotCapped() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = BigDecimal.TEN;
+        when(restoFlashClient.confirm("TOKEN", BigDecimal.ONE)).thenReturn(true);
+        service.processRestoFlash(state, "TOKEN", BigDecimal.ONE);
+        assertEquals(BigDecimal.ONE, state.payment.paidAmount);
+    }
+
+    /** BO-03-02: TRD, mobile vouchers, issuer gift cards and SOGEC each respect a locally blocking tender rule. */
+    @Test
+    void specializedTendersCannotBypassBlockingRules() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        when(tenderRulesService.check(any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING, "BLOCKED"));
+        when(restoFlashClient.confirm("TOKEN", BigDecimal.ONE)).thenReturn(true);
+        when(giftCardIssuerClient.query("CARD")).thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, BigDecimal.TEN));
+        service.processTrdCard(state, BigDecimal.ONE);
+        service.processRestoFlash(state, "TOKEN", BigDecimal.ONE);
+        service.processSupplierGiftCard(state, "CARD", BigDecimal.ONE);
+        service.processSogec(state, "SG1", BigDecimal.ONE);
+        assertTrue(state.payment.payments.isEmpty());
+        verify(sogecCompensationService, never()).recordCompensation(any(), any());
+    }
+
+    /** BO-03-03-11: gift-card null/zero amounts default to the remainder, and a settled basket never queries the issuer. */
+    @Test
+    void giftCardDefaultAndSettledAmountLegs() {
+        service.processSupplierGiftCard(state, "NONE", BigDecimal.ZERO);
+        verifyNoInteractions(giftCardIssuerClient);
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        when(giftCardIssuerClient.query("CARD")).thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, new BigDecimal("10.00")));
+        service.processSupplierGiftCard(state, "CARD", null);
+        assertEquals(new BigDecimal("10.00"), state.payment.paidAmount);
+        state.clearPayments();
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        service.processSupplierGiftCard(state, "CARD", BigDecimal.ZERO);
+        assertEquals(new BigDecimal("10.00"), state.payment.paidAmount);
+    }
+
+    /** BO-03-03-11: unknown balances and known zero balances both refuse instead of fabricating funds. */
+    @Test
+    void giftCardNullAndZeroBalanceLegs() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        when(giftCardIssuerClient.query("UNKNOWN")).thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, null));
+        when(giftCardIssuerClient.query("EMPTY")).thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, BigDecimal.ZERO));
+        service.processSupplierGiftCard(state, "UNKNOWN", BigDecimal.ONE);
+        service.processSupplierGiftCard(state, "EMPTY", BigDecimal.ONE);
+        assertTrue(state.payment.payments.isEmpty());
+        verifyNoInteractions(ticketPrinterService);
+    }
+
+    /** LC-07-05-03: a present but empty store identity renders no literal Optional or placeholder. */
+    @Test
+    void chequeEmptyOptionalStore() throws Exception {
+        service.pdvNumber = java.util.Optional.empty();
+        assertEquals("X", invokePaymentHelper("chequeText", new Class<?>[]{PosState.class, BigDecimal.class, String.class},
+                state, BigDecimal.ONE, "{pdv};X"));
+    }
+
+    /** LC-07-04-10: closing prints unprinted vendor frames once and can force the associated collection/loyalty documents. */
+    @Test
+    void closingLegacyReceiptLegsAndAssociatedDocuments() {
+        when(printPolicy.isAssociatedDocumentPrinted(com.intermarche.pos.ui.hardware.PrintPolicy.DOCUMENT_COLLECTION)).thenReturn(true);
+        when(printPolicy.isAssociatedDocumentPrinted(com.intermarche.pos.ui.hardware.PrintPolicy.DOCUMENT_LOYALTY)).thenReturn(true);
+        for (int index = 0; index < 3; index++) {
+            long id = 9L + index;
+            state.payment.ticketDbId = id;
+            state.payment.addPayment("CARD", BigDecimal.ONE);
+            state.payment.payments.get(0).customerReceiptFrame = "CLIENT";
+            state.payment.printApplied = index == 1;
+            if (index == 2) state.payment.payments.get(0).customerReceiptFrame = null;
+            try (var panache = mockStatic(PanacheEntityBase.class)) {
+                stubNoGiftCards(panache, id);
+                service.finalizeTransaction(state);
+            }
+            verify(ticketPrinterService).printCollectionVoucher(id);
+            verify(ticketPrinterService).printLoyaltyReceipt(id);
+        }
+        verify(ticketPrinterService).printTerminalFrame("CLIENT", null);
+    }
+
+    /** LC-07: engine consumption carries the known store identity instead of dropping it as null. */
+    @Test
+    void closingEngineConsumptionWithStoreIdentity() {
+        state.payment.ticketDbId = 9L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationJson = "{}";
+        Ticket valued = mock(Ticket.class);
+        valued.ticketNumber = "C04-T00001";
+        valued.store = new com.intermarche.pos.domain.store.Store();
+        valued.store.code = "PDV";
+        try (var panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> PanacheEntityBase.findById(9L)).thenReturn(valued);
+            service.finalizeTransaction(state);
+        }
+        verify(service.consumptionService).enqueueSale("C04-T00001", "PDV", null, "{}");
+    }
+
+    /** LC-07-06: a mobile voucher exceeding the engine allowance confirms only the eligible amount. */
+    @Test
+    void mobileVoucherIsCappedBeforeConfirmation() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("2.00");
+        when(restoFlashClient.confirm("TOKEN", new BigDecimal("2.00"))).thenReturn(true);
+        service.processRestoFlash(state, "TOKEN", new BigDecimal("5.00"));
+        assertEquals(new BigDecimal("2.00"), state.payment.paidAmount);
+        verify(restoFlashClient).confirm("TOKEN", new BigDecimal("2.00"));
+    }
+    /** BO-03-02-27/-29: temporary lane or tender referential failures retain the documented manned-lane fallback. */
+    @Test
+    void unreadableSelfServiceReferentialsDoNotBlockTheCard() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.ticketNumberService = null;
+        try (var points = mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class);
+             var tenders = mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(null)).thenThrow(new IllegalStateException("lane unavailable"));
+            service.processCard(state, BigDecimal.ONE);
+            state.payment.pendingCardAmount = null;
+            var lane = new com.intermarche.pos.domain.store.CheckoutPoint();
+            lane.tpvType = com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_DN;
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(null)).thenReturn(lane);
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition.findByCode("CARD")).thenThrow(new IllegalStateException("tender unavailable"));
+            service.processCard(state, BigDecimal.ONE);
+            verify(terminal, times(2)).requestDebit(eq(BigDecimal.ONE.setScale(2)), any());
+        }
+    }
+    /** LC-07-08-01: terminal display frames update both operator lines without assuming a payment decision. */
+    @Test
+    void terminalDisplayFramesDoNotSettleThePendingCard() {
+        state.ticket.totalAmount = BigDecimal.TEN;
+        service.processCard(state, BigDecimal.ONE);
+        var callback = ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestDebit(any(), callback.capture());
+        callback.getValue().onDisplay("INSERT CARD", "PLEASE WAIT");
+        assertEquals("INSERT CARD", state.payment.terminalLine1);
+        assertEquals("PLEASE WAIT", state.payment.terminalLine2);
+        assertEquals(BigDecimal.ZERO, state.payment.paidAmount);
+        assertFalse(state.payment.transactionComplete);
+    }
+
+
+    // --------------------------------------------------
+    // LC-07-11-01 / -03: the gift card on the payment hub
+    // --------------------------------------------------
+
+    /**
+     * An accepted hub answer.
+     *
+     * @param amount the authorized amount, or null
+     * @param balance the balance, or null
+     * @param provider the provider, or null
+     * @return the answer
+     */
+    private NexoHubClient.HubResult hubOk(String amount, String balance, String provider) {
+        return new NexoHubClient.HubResult(true, null, null, "HUB7",
+                amount == null ? null : new BigDecimal(amount),
+                balance == null ? null : new BigDecimal(balance), provider, "P7");
+    }
+
+    /**
+     * Reads a card worth 30,00 on the hub for a sale of 12,40.
+     */
+    private void readCard() {
+        when(nexoHubClient.isConfigured()).thenReturn(true);
+        when(nexoHubClient.balance("6299")).thenReturn(hubOk(null, "30.00", "ILLICADO"));
+        state.ticket.totalAmount = new BigDecimal("12.40");
+        service.processSupplierGiftCard(state, " 6299 ", null);
+    }
+
+    /**
+     * Gift cards go through the hub only when it is administered and the
+     * register is not training.
+     */
+    @Test
+    void giftCardsGoThroughTheHubOutsideTrainingOnly() {
+        assertFalse(service.giftCardHubActive(state));
+        when(nexoHubClient.isConfigured()).thenReturn(true);
+        assertTrue(service.giftCardHubActive(state));
+        state.trainingMode = true;
+        assertFalse(service.giftCardHubActive(state));
+    }
+
+    /**
+     * LC-07-11-01: the card is first read on the hub — its balance shown on
+     * the register and the customer display, the amount proposed being the due
+     * or the balance when smaller — and the issuer registry is not asked.
+     */
+    @Test
+    void theCardIsFirstReadOnTheHub() {
+        readCard();
+        PaymentState.PendingGiftCard card = state.payment.pendingGiftCard;
+        assertEquals("6299", card.cardNumber);
+        assertEquals(0, new BigDecimal("30.00").compareTo(card.balance));
+        assertEquals("ILLICADO", card.provider);
+        assertEquals(0, new BigDecimal("12.40").compareTo(card.suggested));
+        verify(hardwareService).displayMessage("SOLDE CARTE  30,00 E");
+        verify(giftCardIssuerClient, never()).query(any());
+        when(nexoHubClient.balance("6299")).thenReturn(hubOk(null, "5.00", null));
+        service.inquireGiftCard(state, "6299");
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.pendingGiftCard.suggested));
+        assertTrue(state.version > 0);
+    }
+
+    /**
+     * A card without code, refused by the hub (its words, its condition, its
+     * absence) or carrying nothing is not kept, and the operator is told.
+     */
+    @Test
+    void anUnreadableCardIsNotKept() {
+        service.inquireGiftCard(state, null);
+        assertEquals("SCANNEZ OU SAISISSEZ LE CODE DE LA CARTE CADEAU", state.ticket.transientError);
+        service.inquireGiftCard(state, " ");
+        assertEquals("SCANNEZ OU SAISISSEZ LE CODE DE LA CARTE CADEAU", state.ticket.transientError);
+        when(nexoHubClient.balance("1")).thenReturn(NexoHubClient.HubResult.failure("InvalidCard", "CARTE INCONNUE"));
+        service.inquireGiftCard(state, "1");
+        assertEquals("CARTE CADEAU REFUSÉE (CARTE INCONNUE)", state.ticket.transientError);
+        when(nexoHubClient.balance("2")).thenReturn(NexoHubClient.HubResult.failure("InvalidCard", null));
+        service.inquireGiftCard(state, "2");
+        assertEquals("CARTE CADEAU REFUSÉE (InvalidCard)", state.ticket.transientError);
+        when(nexoHubClient.balance("3")).thenReturn(NexoHubClient.HubResult.failure(NexoHubClient.UNAVAILABLE, null));
+        service.inquireGiftCard(state, "3");
+        assertEquals("HUB DE PAIEMENT INJOIGNABLE", state.ticket.transientError);
+        when(nexoHubClient.balance("4")).thenReturn(hubOk(null, null, null));
+        service.inquireGiftCard(state, "4");
+        assertEquals("CARTE CADEAU SANS SOLDE", state.ticket.transientError);
+        when(nexoHubClient.balance("5")).thenReturn(hubOk(null, "0.00", null));
+        service.inquireGiftCard(state, "5");
+        assertEquals("CARTE CADEAU SANS SOLDE", state.ticket.transientError);
+        assertNull(state.payment.pendingGiftCard);
+    }
+
+    /**
+     * LC-07-11-01 / -03: paying the proposed amount debits the card on the hub,
+     * registers the settlement with what the hub answered, forgets the card read
+     * and prints the slip with the balances, the provider and its code.
+     */
+    @Test
+    void theProposedAmountIsPaidOnTheHub() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            readCard();
+            when(nexoHubClient.pay("GC1", "6299", new BigDecimal("12.40"))).thenReturn(hubOk("12.40", null, null));
+            service.payGiftCardOnHub(state, BigDecimal.ZERO);
+            assertNull(state.payment.pendingGiftCard);
+            PaymentState.PaymentEntry entry = state.payment.payments.get(0);
+            assertEquals("GIFTCARD", entry.method);
+            assertEquals(0, new BigDecimal("12.40").compareTo(entry.amount));
+            assertEquals("HUB7", entry.hubReference);
+            assertEquals("6299", entry.hubCardNumber);
+            assertEquals("ILLICADO", entry.hubProvider);
+            assertEquals("P7", entry.hubApproval);
+            assertEquals(0, new BigDecimal("30.00").compareTo(entry.hubBalanceBefore));
+            assertEquals(0, new BigDecimal("17.60").compareTo(entry.hubBalanceAfter));
+            verify(ticketPrinterService).printGiftCardPaymentReceipt(null, "6299", new BigDecimal("12.40"),
+                    new BigDecimal("30.00"), new BigDecimal("17.60"), "ILLICADO", "P7", "HUB7", null);
+        }
+    }
+
+    /**
+     * A chosen amount is paid as chosen, the provider the hub names wins, the
+     * slip is not printed where the back office does not want it, and the draft
+     * names the slip's ticket.
+     */
+    @Test
+    void aChosenAmountIsPaidAndTheSlipFollowsTheBackOffice() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            readCard();
+            when(posSettingsService.giftCardPaymentTicket()).thenReturn(false);
+            when(nexoHubClient.pay("GC1", "6299", new BigDecimal("5.00"))).thenReturn(hubOk(null, null, "HUBX"));
+            service.payGiftCardOnHub(state, new BigDecimal("5.00"));
+            PaymentState.PaymentEntry entry = state.payment.payments.get(0);
+            assertEquals(0, new BigDecimal("5.00").compareTo(entry.amount));
+            assertEquals("HUBX", entry.hubProvider);
+            verify(ticketPrinterService, never()).printGiftCardPaymentReceipt(any(), any(), any(), any(),
+                    any(), any(), any(), any(), any());
+        }
+    }
+
+    /**
+     * The slip names the draft's ticket when there is one, survives a printer
+     * failure, and is skipped without a printer.
+     */
+    @Test
+    void theSlipNamesTheDraftAndSurvivesThePrinter() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            Ticket draft = new Ticket();
+            draft.ticketNumber = "POS01-00000009";
+            panache.when(() -> PanacheEntityBase.findById(8L)).thenReturn(draft);
+            readCard();
+            state.payment.ticketDbId = 8L;
+            when(nexoHubClient.pay("8-GC1", "6299", new BigDecimal("2.00"))).thenReturn(hubOk("2.00", null, null));
+            when(ticketPrinterService.printGiftCardPaymentReceipt(any(), any(), any(), any(), any(), any(), any(),
+                    any(), any())).thenThrow(new IllegalStateException("paper"));
+            service.payGiftCardOnHub(state, new BigDecimal("2.00"));
+            verify(ticketPrinterService).printGiftCardPaymentReceipt(eq("POS01-00000009"), eq("6299"),
+                    any(), any(), any(), any(), any(), any(), any());
+            assertEquals(1, state.payment.payments.size());
+            state.payment.ticketDbId = 9L;
+            service.inquireGiftCard(state, "6299");
+            when(nexoHubClient.pay("9-GC2", "6299", new BigDecimal("1.00"))).thenReturn(hubOk("1.00", null, null));
+            service.payGiftCardOnHub(state, new BigDecimal("1.00"));
+            verify(ticketPrinterService).printGiftCardPaymentReceipt(org.mockito.ArgumentMatchers.isNull(),
+                    eq("6299"), eq(new BigDecimal("1.00")), any(), any(), any(), any(), any(), any());
+            service.inquireGiftCard(state, "6299");
+            service.ticketPrinterService = null;
+            when(nexoHubClient.pay("9-GC3", "6299", new BigDecimal("1.00"))).thenReturn(hubOk("1.00", null, null));
+            service.payGiftCardOnHub(state, new BigDecimal("1.00"));
+            assertEquals(3, state.payment.payments.size());
+        }
+    }
+
+    /**
+     * Without a card read nothing is paid; with nothing left to pay the card is
+     * forgotten; an amount above the balance is refused and the card kept.
+     */
+    @Test
+    void theHubPaymentGuards() {
+        service.payGiftCardOnHub(state, BigDecimal.ONE);
+        verify(nexoHubClient, never()).pay(any(), any(), any());
+        when(nexoHubClient.isConfigured()).thenReturn(true);
+        when(nexoHubClient.balance("6299")).thenReturn(hubOk(null, "5.00", null));
+        state.ticket.totalAmount = new BigDecimal("12.40");
+        service.inquireGiftCard(state, "6299");
+        service.payGiftCardOnHub(state, new BigDecimal("8.00"));
+        assertEquals("MONTANT SUPÉRIEUR AU SOLDE DE LA CARTE (5,00 €)", state.ticket.transientError);
+        assertNotNull(state.payment.pendingGiftCard);
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.payGiftCardOnHub(state, new BigDecimal("1.00"));
+        assertNull(state.payment.pendingGiftCard);
+        verify(nexoHubClient, never()).pay(any(), any(), any());
+    }
+
+    /**
+     * A payment the hub refuses forgets the card and says why; one the register
+     * then refuses is given back to the card on the hub.
+     */
+    @Test
+    void refusedHubPayments() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            readCard();
+            when(nexoHubClient.pay(any(), any(), any())).thenReturn(NexoHubClient.HubResult.failure("Refusal", "SOLDE"));
+            service.payGiftCardOnHub(state, null);
+            assertNull(state.payment.pendingGiftCard);
+            assertEquals("CARTE CADEAU REFUSÉE (SOLDE)", state.ticket.transientError);
+            service.inquireGiftCard(state, "6299");
+            when(nexoHubClient.pay(any(), any(), any())).thenReturn(hubOk("0.00", null, null));
+            service.payGiftCardOnHub(state, null);
+            verify(nexoHubClient).reversePayment("GC1", "HUB7", new BigDecimal("0.00"));
+            assertTrue(state.payment.payments.isEmpty());
+            assertNull(state.payment.pendingGiftCard);
+        }
+    }
+
+    /**
+     * BO-03-08-06: where the shop wrote its own sentence for what the provider
+     * answered, the cashier reads it in place of the provider's words.
+     */
+    @Test
+    void aRefusedHubPaymentShowsTheShopsSentence() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            readCard();
+            com.intermarche.pos.domain.setting.ProviderMessage message =
+                    new com.intermarche.pos.domain.setting.ProviderMessage();
+            message.screenText = "Solde de la carte insuffisant";
+            @SuppressWarnings("unchecked")
+            io.quarkus.hibernate.orm.panache.PanacheQuery<Object> found =
+                    mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            when(found.firstResult()).thenReturn(message);
+            panache.when(() -> PanacheEntityBase.find(
+                            org.mockito.ArgumentMatchers.anyString(),
+                            org.mockito.ArgumentMatchers.any(Object[].class)))
+                    .thenReturn(found);
+            when(nexoHubClient.pay(any(), any(), any())).thenReturn(NexoHubClient.HubResult.failure("Refusal", "SOLDE"));
+            service.payGiftCardOnHub(state, null);
+            assertEquals("Solde de la carte insuffisant", state.ticket.transientError);
+        }
+    }
+
+    /**
+     * Putting the card aside forgets it.
+     */
+    @Test
+    void theCardReadCanBePutAside() {
+        readCard();
+        service.cancelPendingGiftCard(state);
+        assertNull(state.payment.pendingGiftCard);
+    }
+
+    /**
+     * Cancelling one settlement paid on the hub gives it back first; refused,
+     * the settlement stays and the operator is told; accepted, it leaves.
+     */
+    @Test
+    void cancellingOneHubSettlement() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            state.payment.ticketDbId = null;
+            state.payment.addPayment("GIFTCARD", new BigDecimal("12.40"));
+            PaymentState.PaymentEntry entry = state.payment.payments.get(0);
+            entry.hubReference = "HUB7";
+            when(nexoHubClient.reversePayment("HUB7-R", "HUB7", new BigDecimal("12.40")))
+                    .thenReturn(NexoHubClient.HubResult.failure(NexoHubClient.UNAVAILABLE, null));
+            assertFalse(service.cancelOnePayment(state, 0));
+            assertEquals(1, state.payment.payments.size());
+            assertEquals("HUB DE PAIEMENT INJOIGNABLE", state.ticket.transientError);
+            when(nexoHubClient.reversePayment("HUB7-R", "HUB7", new BigDecimal("12.40")))
+                    .thenReturn(NexoHubClient.HubResult.failure("NotAllowed", "DEJA"));
+            assertFalse(service.cancelOnePayment(state, 0));
+            assertEquals("RESTITUTION DE LA CARTE CADEAU REFUSÉE (DEJA) : RÈGLEMENT CONSERVÉ",
+                    state.ticket.transientError);
+            when(nexoHubClient.reversePayment("HUB7-R", "HUB7", new BigDecimal("12.40")))
+                    .thenReturn(hubOk("12.40", null, null));
+            assertTrue(service.cancelOnePayment(state, 0));
+            assertTrue(state.payment.payments.isEmpty());
+            assertTrue(entry.hubReversed);
+            assertNull(entry.hubReference);
+        }
+    }
+
+    /**
+     * Cancelling every settlement gives each hub one back first; when one is
+     * refused, only those given back leave the list, with their slip and the
+     * draft re-persisted, and nothing else is undone.
+     */
+    @Test
+    void cancellingAllSettlementsWithAHubRefusal() {
+        try (MockedStatic<PanacheEntityBase> panache = quietCatalog()) {
+            state.payment.ticketDbId = 5L;
+            state.payment.paymentInProgress = true;
+            state.payment.addPayment("GIFTCARD", new BigDecimal("3.00"));
+            state.payment.addPayment("GIFTCARD", new BigDecimal("4.00"));
+            state.payment.addPayment("CASH", new BigDecimal("5.00"));
+            state.payment.payments.get(0).hubReference = "HUBA";
+            state.payment.payments.get(1).hubReference = "HUBB";
+            when(nexoHubClient.reversePayment("HUBA-R", "HUBA", new BigDecimal("3.00"))).thenReturn(hubOk("3.00", null, null));
+            when(nexoHubClient.reversePayment("HUBB-R", "HUBB", new BigDecimal("4.00")))
+                    .thenReturn(NexoHubClient.HubResult.failure("NotAllowed", null));
+            service.cancelPayments(state);
+            assertEquals(2, state.payment.payments.size());
+            assertEquals("HUBB", state.payment.payments.get(0).hubReference);
+            assertEquals("CASH", state.payment.payments.get(1).method);
+            assertTrue(state.payment.paymentInProgress);
+            verify(ticketPrinterService).printPaymentCancellation(null, "GIFTCARD", new BigDecimal("3.00"));
+            verify(ticketPersistenceService).removePaymentsFromTicket(5L, false);
+            verify(ticketPersistenceService, org.mockito.Mockito.times(2)).addPaymentToTicket(eq(5L), any());
+            verify(ticketPersistenceService).journalCancelledPayment(5L, "GIFTCARD", new BigDecimal("3.00"));
+            state.payment.ticketDbId = null;
+            service.cancelPayments(state);
+            assertEquals(2, state.payment.payments.size());
+            when(nexoHubClient.reversePayment("HUBB-R", "HUBB", new BigDecimal("4.00"))).thenReturn(hubOk("4.00", null, null));
+            service.cancelPayments(state);
+            assertTrue(state.payment.payments.isEmpty());
+        }
+    }
+
+    /**
+     * BO-03-03-11 / LC-07-11-03: the issuer registry's slip, too, is printed only
+     * where the back office asks for it.
+     */
+    @Test
+    void theRegistrySlipFollowsTheBackOffice() {
+        when(posSettingsService.giftCardPaymentTicket()).thenReturn(false);
+        when(giftCardIssuerClient.query("9999000011114321")).thenReturn(
+                new com.intermarche.pos.ui.payment.GiftCardIssuerClient.IssuerVerdict(true, new BigDecimal("50.00")));
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        service.processSupplierGiftCard(state, "9999000011114321", new BigDecimal("30.00"));
+        verify(ticketPrinterService, never()).printGiftCardPaymentReceipt(any(), any(), any(), any());
+    }
+
+    // --------------------------------------------------
+    // lot 19 — group L (BO-03-02)
+    // --------------------------------------------------
+
+    /**
+     * Builds an administered tender.
+     *
+     * @param code the tender code
+     * @param nature the nature of a tender the store added, or null
+     * @return an active tender
+     */
+    private com.intermarche.pos.domain.payment.TenderDefinition lotTender(String code, String nature) {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.code = code;
+        tender.nature = nature;
+        tender.active = true;
+        return tender;
+    }
+
+    /**
+     * BO-03-02-01: a tender key the register cannot honour — no code, an
+     * unknown code, a sleeping tender, a native key, a nature with its own
+     * panel — is refused and named, and nothing is selected.
+     */
+    @Test
+    void anAdditionalTenderTheRegisterCannotHonourIsRefused() {
+        com.intermarche.pos.domain.payment.TenderDefinition sleeping = lotTender("PASS", "CARD");
+        sleeping.active = false;
+        when(tenderRulesService.tender("PASS")).thenReturn(sleeping);
+        when(tenderRulesService.tender("CARD")).thenReturn(lotTender("CARD", null));
+        when(tenderRulesService.tender("CHF")).thenReturn(lotTender("CHF", "DEVISE"));
+        for (String code : new String[]{null, "  ", "NOPE", "PASS", "CARD", "CHF"}) {
+            state.ticket.transientError = null;
+            service.processAdditionalTender(state, code, BigDecimal.TEN);
+            assertEquals("MOYEN DE REGLEMENT INDISPONIBLE", state.ticket.transientError);
+            assertNull(state.payment.selectedTenderCode);
+        }
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * BO-03-02-01: a CASH tender the store added settles as cash under its OWN
+     * rules and keeps its name on the settlement; its count is its own, not
+     * the plain cash's.
+     */
+    @Test
+    void anAddedCashTenderSettlesUnderItsOwnName() {
+        when(tenderRulesService.tender("EURO2")).thenReturn(lotTender("EURO2", "CASH"));
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.addCashPayment(new BigDecimal("5.00"), new BigDecimal("5.00"));
+        service.processAdditionalTender(state, " EURO2 ", new BigDecimal("10"));
+        verify(tenderRulesService).check("EURO2", new BigDecimal("10"), 0);
+        assertEquals("EURO2", state.payment.payments.get(1).tenderCode);
+        assertNull(state.payment.payments.get(0).tenderCode);
+        assertNull(state.payment.selectedTenderCode);
+        service.processCash(state, new BigDecimal("1"));
+        verify(tenderRulesService).check("CASH", new BigDecimal("1"), 1);
+        assertNull(state.payment.payments.get(2).tenderCode);
+    }
+
+    /**
+     * BO-03-02-01: a selection is honoured by its nature only — a plain
+     * settlement of another nature neither takes the name nor consumes it —
+     * and a selection whose tender vanished reads the plain rules.
+     */
+    @Test
+    void aSelectionNamesOnlyASettlementOfItsNature() {
+        when(tenderRulesService.tender("AMEX")).thenReturn(lotTender("AMEX", "CARD"));
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.selectedTenderCode = "AMEX";
+        service.processCash(state, new BigDecimal("10"));
+        assertNull(state.payment.payments.get(0).tenderCode);
+        assertEquals("AMEX", state.payment.selectedTenderCode);
+        state.payment.selectedTenderCode = "GONE";
+        service.processCash(state, new BigDecimal("5"));
+        assertNull(state.payment.payments.get(1).tenderCode);
+        verify(tenderRulesService).check("CASH", new BigDecimal("5"), 1);
+    }
+
+    /**
+     * BO-03-02-01: a CARD tender the store added keeps its selection while the
+     * terminal is asked, and names the accepted settlement.
+     */
+    @Test
+    void anAddedCardTenderNamesTheAcceptedSettlement() {
+        when(tenderRulesService.tender("AMEX")).thenReturn(lotTender("AMEX", "CARD"));
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processAdditionalTender(state, "AMEX", BigDecimal.ZERO);
+        assertEquals("AMEX", state.payment.selectedTenderCode);
+        verify(tenderRulesService).check("AMEX", new BigDecimal("20.00"), 0);
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestDebit(any(), captor.capture());
+        captor.getValue().onAccepted(TerminalOutcome.ofAmount(new BigDecimal("20.00")));
+        assertEquals("CARD", state.payment.payments.get(0).method);
+        assertEquals("AMEX", state.payment.payments.get(0).tenderCode);
+        assertNull(state.payment.selectedTenderCode);
+    }
+
+    /**
+     * BO-03-02-01: each amount nature runs its own conversation; one that does
+     * not wait on anything drops the selection at once.
+     */
+    @Test
+    void everyAmountNatureIsDispatchedAndAnUnusedSelectionDropped() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        for (String nature : new String[]{"CHEQUE_DEFERRED", "TR", "FIDELITY", "TRD"}) {
+            when(tenderRulesService.tender("X" + nature)).thenReturn(lotTender("X" + nature, nature));
+            service.processAdditionalTender(state, "X" + nature, BigDecimal.ZERO);
+            assertNull(state.payment.selectedTenderCode);
+        }
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * BO-03-02-01/-24: a CHEQUE tender the store added waits for its reading
+     * with its selection kept; the reading then names the settlement.
+     */
+    @Test
+    void anAddedChequeTenderWaitsForItsReading() {
+        when(tenderRulesService.tender("CHQKDO")).thenReturn(lotTender("CHQKDO", "CHEQUE"));
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processAdditionalTender(state, "CHQKDO", new BigDecimal("20"));
+        assertEquals("CHQKDO", state.payment.selectedTenderCode);
+        verify(chequeReadingService).read(any(), any(), any());
+        state.payment.chequeReadLine = "CMC7";
+        service.settlePendingChequeRead(state);
+        assertEquals("CHQKDO", state.payment.payments.get(0).tenderCode);
+        assertEquals("CMC7", state.payment.payments.get(0).magneticLine);
+    }
+
+    /**
+     * BO-03-02-44: the terminal's {D16} answer administered on a tender the
+     * store added records that tender; on a native row it records the native
+     * nature; a mapped nature the register does not know falls back on the
+     * parameter mapping.
+     */
+    @Test
+    void theMoneticsAnswerRecordsTheAdministeredTender() {
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.moneticTender("43", null)).thenReturn(lotTender("AMEX", "CARD"));
+        when(tenderRulesService.moneticTender("3F", null)).thenReturn(lotTender("TRD", null));
+        when(tenderRulesService.moneticTender("77", null)).thenReturn(lotTender("ODD", "XX"));
+        for (String mean : new String[]{"43", "3F", "77"}) {
+            service.processCard(state, new BigDecimal("10"));
+            ArgumentCaptor<TerminalTransactionCallback> captor =
+                    ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+            verify(terminal, org.mockito.Mockito.atLeastOnce()).requestDebit(any(), captor.capture());
+            TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("10.00"));
+            outcome.meanCode = mean;
+            captor.getValue().onAccepted(outcome);
+        }
+        assertEquals("CARD", state.payment.payments.get(0).method);
+        assertEquals("AMEX", state.payment.payments.get(0).tenderCode);
+        assertEquals("TRD", state.payment.payments.get(1).method);
+        assertNull(state.payment.payments.get(1).tenderCode);
+        assertEquals("CARD", state.payment.payments.get(2).method);
+        assertNull(state.payment.payments.get(2).tenderCode);
+    }
+
+    /**
+     * BO-03-02-01/-44: a card tender picked by the cashier does not rename a
+     * settlement the terminal recorded as another nature.
+     */
+    @Test
+    void aPickedCardTenderDoesNotRenameAnotherNature() {
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.tender("AMEX")).thenReturn(lotTender("AMEX", "CARD"));
+        when(tenderRulesService.moneticTender("3F", null)).thenReturn(lotTender("TRD", null));
+        state.payment.selectedTenderCode = "AMEX";
+        service.processCard(state, new BigDecimal("10"));
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestDebit(any(), captor.capture());
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("10.00"));
+        outcome.meanCode = "3F";
+        captor.getValue().onAccepted(outcome);
+        assertEquals("TRD", state.payment.payments.get(0).method);
+        assertNull(state.payment.payments.get(0).tenderCode);
+        assertNull(state.payment.selectedTenderCode);
+    }
+
+    /**
+     * BO-03-02-29: on a MANNED till standing on an island the tender names,
+     * the settlement calls a supervisor, the self-service prohibition not
+     * applying there; a tender that does not name the island passes, and so
+     * does any tender on a point with a blank island.
+     */
+    @Test
+    void anIslandTheTenderNamesCallsASupervisor() {
+        com.intermarche.pos.domain.payment.TenderDefinition watched = lotTender("CHEQUE", null);
+        watched.selfServiceAllowed = false;
+        watched.supervisionIslands = "CLS";
+        com.intermarche.pos.domain.store.CheckoutPoint point =
+                new com.intermarche.pos.domain.store.CheckoutPoint();
+        point.terminalId = "C04";
+        point.tpvType = com.intermarche.pos.domain.store.TpvType.CASH_REGISTER;
+        point.islandCode = "CLS";
+        when(service.ticketNumberService.getTerminalId()).thenReturn("C04");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        try (MockedStatic<com.intermarche.pos.domain.store.CheckoutPoint> points =
+                     mockStatic(com.intermarche.pos.domain.store.CheckoutPoint.class);
+             MockedStatic<com.intermarche.pos.domain.payment.TenderDefinition> tenders =
+                     mockStatic(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            points.when(() -> com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal("C04"))
+                    .thenReturn(point);
+            tenders.when(() -> com.intermarche.pos.domain.payment.TenderDefinition.findByCode("CHEQUE"))
+                    .thenReturn(watched);
+            chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+            assertEquals("CHEQUE", state.payment.tenderHeldMethod);
+            assertEquals("REGLEMENT SOUMIS A CONTROLE SUR CET ILOT", state.payment.tenderHeldMessage);
+            assertTrue(state.payment.payments.isEmpty());
+            state.payment.clearTenderHold();
+            watched.supervisionIslands = "DRIVE";
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+            assertEquals(1, state.payment.payments.size());
+            state.clearPayments();
+            watched.supervisionIslands = "CLS";
+            point.islandCode = " ";
+            service.processCheque(state, new BigDecimal("20.00"));
+            service.settlePendingChequeRead(state);
+            assertEquals(1, state.payment.payments.size());
+        }
+    }
+
+    /**
+     * BO-03-02-24: a cheque tender asking for the account number refuses a
+     * cheque without one, and records it when keyed; a blank one is none.
+     */
+    @Test
+    void theAccountNumberOfAChequeIsAskedAndRecorded() {
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = lotTender("CHEQUE", null);
+        cheque.accountNumberEntry = true;
+        when(tenderRulesService.tender("CHEQUE")).thenReturn(cheque);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, new BigDecimal("20"), "  ");
+        assertEquals("NUMERO DE COMPTE DU CHEQUE OBLIGATOIRE", state.ticket.transientError);
+        verify(chequeReadingService, never()).read(any(), any(), any());
+        chequeReaderAnswers("CMC7");
+        service.processCheque(state, new BigDecimal("20"), " 12345 ");
+        service.settlePendingChequeRead(state);
+        assertEquals("12345", state.payment.payments.get(0).chequeAccountNumber);
+        assertNull(state.payment.pendingChequeAccount);
+    }
+
+    /**
+     * BO-03-02-24: a cheque tender requiring an authorization holds the cheque
+     * BEFORE it is read; the supervisor's answer starts the reading.
+     */
+    @Test
+    void anAuthorizedChequeIsHeldThenRead() {
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = lotTender("CHEQUE", null);
+        cheque.chequeAuthorization = true;
+        when(tenderRulesService.tender("CHEQUE")).thenReturn(cheque);
+        when(endorsementService.authorize(eq("chef"), eq("1111"), any())).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, new BigDecimal("20"));
+        assertEquals("CHEQUE", state.payment.tenderHeldMethod);
+        assertTrue(state.payment.chequeHeldBeforeReading);
+        assertEquals("AUTORISATION CHEQUE REQUISE", state.payment.tenderHeldMessage);
+        verify(chequeReadingService, never()).read(any(), any(), any());
+        chequeReaderAnswers("CMC7");
+        assertTrue(service.authorizeHeldTender(state, "chef", "1111"));
+        service.settlePendingChequeRead(state);
+        assertEquals(1, state.payment.payments.size());
+        assertFalse(state.payment.chequeHeldBeforeReading);
+    }
+
+    /**
+     * A cheque held by an administered rule AFTER its reading is replayed as
+     * read, not read twice.
+     */
+    @Test
+    void aChequeHeldAfterItsReadingIsNotReadAgain() {
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.tenderHeldMethod = "CHEQUE";
+        state.payment.tenderHeldAmount = new BigDecimal("20");
+        state.payment.tenderHeldLabel = "CHEQUE";
+        assertTrue(service.authorizeHeldTender(state, null, null));
+        verify(chequeReadingService, never()).read(any(), any(), any());
+        assertEquals(1, state.payment.payments.size());
+    }
+
+    /**
+     * BO-03-02-24: a cheque tender with no MICR reading settles at once.
+     */
+    @Test
+    void aChequeWithoutReadingSettlesAtOnce() {
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = lotTender("CHEQUE", null);
+        cheque.micrReading = false;
+        when(tenderRulesService.tender("CHEQUE")).thenReturn(cheque);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, new BigDecimal("20"));
+        verifyNoInteractions(chequeReadingService);
+        assertEquals(1, state.payment.payments.size());
+        assertNull(state.payment.payments.get(0).magneticLine);
+    }
+
+    /**
+     * BO-03-02-24: with the automatic front print, the front passes the
+     * printer first; its success starts the reading, or — with no reader —
+     * registers the cheque unread; its failure drops the cheque.
+     */
+    @Test
+    void theChequeFrontIsPrintedAutomaticallyBeforeTheReading() {
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = lotTender("CHEQUE", null);
+        cheque.chequeAutoPrint = true;
+        when(tenderRulesService.tender("CHEQUE")).thenReturn(cheque);
+        state.ticket.totalAmount = new BigDecimal("60.00");
+        state.payment.ticketDbId = 3L;
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<String> done =
+                    (java.util.function.Consumer<String>) invocation.getArgument(1);
+            done.accept("ok");
+            return null;
+        }).when(chequeReadingService).printFront(any(), any(), any());
+        chequeReaderAnswers("CMC7");
+        service.processCheque(state, new BigDecimal("20"));
+        assertFalse(state.payment.chequeFrontPrinting);
+        service.settlePendingChequeRead(state);
+        assertEquals("CMC7", state.payment.payments.get(0).magneticLine);
+        cheque.micrReading = false;
+        service.processCheque(state, new BigDecimal("20"));
+        service.settlePendingChequeRead(state);
+        assertEquals(2, state.payment.payments.size());
+        assertNull(state.payment.payments.get(1).magneticLine);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<String> failed =
+                    (java.util.function.Consumer<String>) invocation.getArgument(2);
+            failed.accept("BOURRAGE");
+            return null;
+        }).when(chequeReadingService).printFront(any(), any(), any());
+        service.processCheque(state, new BigDecimal("20"));
+        assertFalse(state.payment.chequeFrontPrinting);
+        service.settlePendingChequeRead(state);
+        assertEquals("BOURRAGE", state.ticket.transientError);
+        assertEquals(2, state.payment.payments.size());
+    }
+
+    /**
+     * BO-03-02-34: a store printing no card receipt still ARCHIVES the
+     * terminal's customer frame and prints nothing; a slip the customer must
+     * sign is printed all the same.
+     */
+    @Test
+    void noCardReceiptIsPrintedWhereTheStoreSaysSo() {
+        when(posSettingsService.cardReceiptPrinted()).thenReturn(false);
+        state.payment.ticketDbId = 9L;
+        state.payment.addPayment("CARD", BigDecimal.ONE);
+        state.payment.payments.get(0).customerReceiptFrame = "CLIENT";
+        state.payment.addPayment("CASH", BigDecimal.ONE);
+        service.printTicketWithMoneticFrames(state, 9L);
+        verify(ticketPrinterService).archiveCustomerDocument(
+                com.intermarche.pos.domain.sale.CustomerDocument.Kind.CARD, 9L, "CLIENT");
+        verify(ticketPrinterService, never()).printTerminalFrame(any(), any());
+        verify(ticketPrinterService, never()).printCardReceipt(any(), anyBoolean(), any());
+        verify(ticketPrinterService).printTicket(9L);
+        state.payment.cardSignatureRequired = true;
+        service.printTicketWithMoneticFrames(state, 9L);
+        verify(ticketPrinterService).printTerminalFrame("CLIENT", null);
+    }
+
+    /**
+     * BO-03-02-39: a currency whose change tender is not the cash gives its
+     * change IN that currency — the drawer of the currency keeps what was
+     * handed over less what went back, and no euro leaves the till.
+     */
+    @Test
+    void theChangeOfACurrencyIsGivenInItsExchangeCurrency() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        com.intermarche.pos.domain.payment.Currency franc = currency("CHF", null, "1.05");
+        franc.changeTenderCode = "DEVISE";
+        service.processForeignCurrency(state, franc, new BigDecimal("25"), new BigDecimal("26.25"));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.lastChangeAmount));
+        assertEquals("5,95 CHF", state.payment.lastChangeForeign);
+        assertEquals(new BigDecimal("19.05"), state.payment.payments.get(0).currencyAmount);
+        verify(hardwareService).displayMessage("RENDU 5,95 CHF");
+    }
+
+    /**
+     * BO-03-02-37: a card of a prepaid range handled LOCALLY never goes to the
+     * hub, even where one is administered; a NEXO range goes to it.
+     */
+    @Test
+    void thePrepaidRangeSaysWhetherTheHubIsAsked() {
+        when(nexoHubClient.isConfigured()).thenReturn(true);
+        when(giftCardIssuerClient.query("2971")).thenReturn(
+                new com.intermarche.pos.ui.payment.GiftCardIssuerClient.IssuerVerdict(false, null));
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        try (MockedStatic<com.intermarche.pos.domain.barcode.CouponType> types =
+                     mockStatic(com.intermarche.pos.domain.barcode.CouponType.class)) {
+            types.when(() -> com.intermarche.pos.domain.barcode.CouponType.protocolOf("2971")).thenReturn("LOCAL");
+            types.when(() -> com.intermarche.pos.domain.barcode.CouponType.protocolOf("2961")).thenReturn("NEXO");
+            service.processSupplierGiftCard(state, "2971", BigDecimal.TEN);
+            verify(giftCardIssuerClient).query("2971");
+            verify(nexoHubClient, never()).balance(any());
+            when(nexoHubClient.balance("2961")).thenReturn(NexoHubClient.HubResult.failure("Refused", "NON"));
+            service.processSupplierGiftCard(state, "2961", BigDecimal.TEN);
+            verify(nexoHubClient).balance("2961");
+        }
+    }
+
+    /**
+     * BO-03-02-01: an added tender held for a supervisor keeps its selection,
+     * the replay naming the settlement once the supervisor allows it.
+     */
+    @Test
+    void aHeldAddedTenderKeepsItsSelection() {
+        when(tenderRulesService.tender("EURO2")).thenReturn(lotTender("EURO2", "CASH"));
+        when(tenderRulesService.check(eq("EURO2"), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR, "PLAFOND"));
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        service.processAdditionalTender(state, "EURO2", new BigDecimal("10"));
+        assertEquals("CASH", state.payment.tenderHeldMethod);
+        assertEquals("EURO2", state.payment.selectedTenderCode);
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+        assertTrue(service.authorizeHeldTender(state, null, null));
+        assertEquals("EURO2", state.payment.payments.get(0).tenderCode);
+    }
+
+    /**
+     * BO-03-02-24: a cheque authorized before its reading, once the tender no
+     * longer reads cheques, settles at once; one the account rule now refuses
+     * is not registered.
+     */
+    @Test
+    void anAuthorizedChequeSettlesOrIsRefusedWithoutReading() {
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = lotTender("CHEQUE", null);
+        cheque.chequeAuthorization = true;
+        when(tenderRulesService.tender("CHEQUE")).thenReturn(cheque);
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, new BigDecimal("20"));
+        cheque.micrReading = false;
+        assertTrue(service.authorizeHeldTender(state, null, null));
+        assertEquals(1, state.payment.payments.size());
+        cheque.micrReading = true;
+        service.processCheque(state, new BigDecimal("20"));
+        cheque.accountNumberEntry = true;
+        assertFalse(service.authorizeHeldTender(state, null, null));
+        assertEquals(1, state.payment.payments.size());
+    }
+
+    /**
+     * Builds a type of prepaid card.
+     *
+     * @param protocol its protocol
+     * @param payment whether it may settle a sale
+     * @return the type
+     */
+    private com.intermarche.pos.domain.payment.PrepaidCardType prepaid(String protocol, boolean payment) {
+        com.intermarche.pos.domain.payment.PrepaidCardType type =
+                new com.intermarche.pos.domain.payment.PrepaidCardType();
+        type.code = "GIFT";
+        type.label = "Cadeau";
+        type.protocol = protocol;
+        type.paymentAllowed = payment;
+        return type;
+    }
+
+    /**
+     * BO-03-02-37: the administered type of prepaid card rules the payment —
+     * a type refusing payment refuses the card; a NEXO type goes to the hub
+     * only where one is active; a LOCAL type never does.
+     */
+    @Test
+    void thePrepaidCardTypeRulesThePayment() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        when(giftCardIssuerClient.query(any())).thenReturn(
+                new com.intermarche.pos.ui.payment.GiftCardIssuerClient.IssuerVerdict(false, null));
+        when(nexoHubClient.balance("6299")).thenReturn(NexoHubClient.HubResult.failure("Refused", "NON"));
+        try (MockedStatic<com.intermarche.pos.domain.payment.PrepaidCardType> types =
+                     mockStatic(com.intermarche.pos.domain.payment.PrepaidCardType.class)) {
+            types.when(() -> com.intermarche.pos.domain.payment.PrepaidCardType.findFor("1111"))
+                    .thenReturn(prepaid("NEXO", false));
+            types.when(() -> com.intermarche.pos.domain.payment.PrepaidCardType.findFor("6299"))
+                    .thenReturn(prepaid("NEXO", true));
+            types.when(() -> com.intermarche.pos.domain.payment.PrepaidCardType.findFor("2971"))
+                    .thenReturn(prepaid("LOCAL", true));
+            service.processSupplierGiftCard(state, "1111", BigDecimal.TEN);
+            assertEquals("CARTE Cadeau NON ACCEPTEE EN PAIEMENT", state.ticket.transientError);
+            verify(giftCardIssuerClient, never()).query("1111");
+            service.processSupplierGiftCard(state, "6299", BigDecimal.TEN);
+            verify(giftCardIssuerClient).query("6299");
+            verify(nexoHubClient, never()).balance(any());
+            when(nexoHubClient.isConfigured()).thenReturn(true);
+            service.processSupplierGiftCard(state, "6299", BigDecimal.TEN);
+            verify(nexoHubClient).balance("6299");
+            service.processSupplierGiftCard(state, "2971", BigDecimal.TEN);
+            verify(giftCardIssuerClient).query("2971");
+            verify(nexoHubClient, never()).balance("2971");
+        }
+    }
+
+    /**
+     * Arms an authorized cheque tender read by no reader, so a guaranteed
+     * cheque settles at once.
+     *
+     * @return the tender
+     */
+    private com.intermarche.pos.domain.payment.TenderDefinition guaranteedCheque() {
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = lotTender("CHEQUE", null);
+        cheque.chequeAuthorization = true;
+        cheque.micrReading = false;
+        when(tenderRulesService.tender("CHEQUE")).thenReturn(cheque);
+        when(chequeGuaranteeClient.isConfigured()).thenReturn(true);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        return cheque;
+    }
+
+    /**
+     * BO-03-02-24: a cheque the guarantee service approves is taken without a
+     * supervisor, its authorization and provider recorded on the settlement.
+     */
+    @Test
+    void aGuaranteedChequeIsTakenWithItsAuthorization() {
+        guaranteedCheque();
+        when(chequeGuaranteeClient.authorize("3", new BigDecimal("20"), "123")).thenReturn(
+                new ChequeGuaranteeClient.Verdict(ChequeGuaranteeClient.Status.APPROVED, "GAR000001", "OK", "SIM"));
+        service.processCheque(state, new BigDecimal("20"), "123");
+        assertNull(state.payment.tenderHeldMethod);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("GAR000001", state.payment.payments.get(0).chequeGuaranteeAuthorization);
+        assertEquals("SIM", state.payment.payments.get(0).chequeGuaranteeProvider);
+        assertNull(state.payment.pendingChequeGuarantee);
+        assertNull(state.payment.pendingChequeGuaranteeProvider);
+    }
+
+    /**
+     * BO-03-02-24: a cheque the guarantee service refuses is refused, with the
+     * provider's wording or without any.
+     */
+    @Test
+    void aChequeRefusedByTheGuaranteeIsRefused() {
+        guaranteedCheque();
+        when(chequeGuaranteeClient.authorize(any(), any(), any())).thenReturn(
+                new ChequeGuaranteeClient.Verdict(ChequeGuaranteeClient.Status.REFUSED, null, "CHEQUE EN OPPOSITION", "SIM"),
+                new ChequeGuaranteeClient.Verdict(ChequeGuaranteeClient.Status.REFUSED, null, null, "SIM"));
+        service.processCheque(state, new BigDecimal("20"), "000");
+        assertEquals("CHEQUE REFUSE PAR LA GARANTIE : CHEQUE EN OPPOSITION", state.ticket.transientError);
+        service.processCheque(state, new BigDecimal("20"), null);
+        assertEquals("CHEQUE REFUSE PAR LA GARANTIE : ", state.ticket.transientError);
+        assertTrue(state.payment.payments.isEmpty());
+        assertNull(state.payment.tenderHeldMethod);
+    }
+
+    /**
+     * BO-03-02-24: a guarantee service that cannot answer hands the cheque to
+     * the supervisor, the hold saying why.
+     */
+    @Test
+    void anUnavailableGuaranteeFallsBackOnTheSupervisor() {
+        guaranteedCheque();
+        when(chequeGuaranteeClient.authorize(any(), any(), any())).thenReturn(
+                new ChequeGuaranteeClient.Verdict(ChequeGuaranteeClient.Status.UNAVAILABLE, null, null, "SIM"));
+        service.processCheque(state, new BigDecimal("20"));
+        assertEquals("CHEQUE", state.payment.tenderHeldMethod);
+        assertTrue(state.payment.chequeHeldBeforeReading);
+        assertEquals("GARANTIE CHEQUE INDISPONIBLE - AUTORISATION SUPERVISEUR REQUISE",
+                state.payment.tenderHeldMessage);
+    }
+
+    // --------------------------------------------------
+    // Settlement guard of the closing (lot 19 recette RL, defect 1)
+    // --------------------------------------------------
+
+    /**
+     * A direct close of a sale with an amount still due is refused: nothing is
+     * validated, the ticket stays open in memory and the operator reads what
+     * remains to be paid.
+     */
+    @Test
+    void finalizeTransactionRefusesASaleWithAnAmountStillDue() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        state.payment.ticketDbId = 9L;
+        state.payment.paymentInProgress = true;
+        state.payment.addPayment("CASH", new BigDecimal("4.00"));
+        assertFalse(service.finalizeTransaction(state));
+        verify(ticketPersistenceService, never()).validateTicket(any());
+        assertEquals("VENTE NON SOLDEE - RESTE A PAYER 6,00 €", state.ticket.transientError);
+        assertEquals(Long.valueOf(9L), state.payment.ticketDbId);
+        assertTrue(state.payment.paymentInProgress);
+        assertNull(state.lastClosedTicketId);
+    }
+
+    /**
+     * A net refund not yet paid out is refused too, the message saying how much
+     * remains to give back.
+     */
+    @Test
+    void finalizeTransactionRefusesANetRefundNotPaidOut() {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        state.payment.ticketDbId = 9L;
+        assertFalse(service.finalizeTransaction(state));
+        verify(ticketPersistenceService, never()).validateTicket(any());
+        assertEquals("REMBOURSEMENT NON EFFECTUE - RESTE A RENDRE 5,00 €", state.ticket.transientError);
+    }
+
+    /**
+     * An unsettled training sale is refused as well: no training record is
+     * written for a sale that was never paid.
+     */
+    @Test
+    void finalizeTransactionRefusesAnUnsettledTrainingSale() {
+        service.trainingTicketService = mock(TrainingTicketService.class);
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("3.00");
+        assertFalse(service.finalizeTransaction(state));
+        verify(service.trainingTicketService, never()).record(any());
+    }
+
+    /**
+     * A fully paid sale closes and the closing reports it.
+     */
+    @Test
+    void finalizeTransactionClosesAFullyPaidSale() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        state.payment.ticketDbId = 9L;
+        state.payment.addPayment("CASH", new BigDecimal("10.00"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            assertTrue(service.finalizeTransaction(state));
+        }
+        verify(ticketPersistenceService).validateTicket(9L);
+        assertEquals(Long.valueOf(9L), state.lastClosedTicketId);
+    }
+
+    /**
+     * A zero ticket is legitimately settled from the start and closes.
+     */
+    @Test
+    void finalizeTransactionClosesAZeroTicket() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        state.payment.ticketDbId = 9L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            assertTrue(service.finalizeTransaction(state));
+        }
+        verify(ticketPersistenceService).validateTicket(9L);
+    }
+
+    /**
+     * Every arm of the settlement rule: a positive total covered or overpaid is
+     * settled, one still due is not; a net refund is settled only once paid
+     * out exactly.
+     */
+    @Test
+    void isSettledFollowsTheSignOfTheTotal() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        assertFalse(service.isSettled(state));
+        state.payment.addPayment("CASH", new BigDecimal("10.00"));
+        assertTrue(service.isSettled(state));
+        state.payment.addPayment("CASH", new BigDecimal("2.00"));
+        assertTrue(service.isSettled(state));
+        PosState refund = new PosState();
+        refund.ticket.totalAmount = new BigDecimal("-5.00");
+        assertFalse(service.isSettled(refund));
+        refund.payment.addPayment("CASH", new BigDecimal("-5.00"));
+        assertTrue(service.isSettled(refund));
+        refund.payment.addPayment("CASH", new BigDecimal("-1.00"));
+        assertFalse(service.isSettled(refund));
+    }
+
+    /**
+     * BO-11-04-05: where the store asks for a synchronous VT call, the closed
+     * event goes out NOW through the synchronous call rather than the queue;
+     * BO-11-04-07: the balance is refreshed before the paper is printed.
+     */
+    @Test
+    void finalizeTransactionMakesTheSynchronousVtCall() {
+        state.payment.ticketDbId = 9L;
+        state.fidelity.assignCard("2990000000019");
+        com.intermarche.pos.domain.sale.Ticket closed = new com.intermarche.pos.domain.sale.Ticket();
+        closed.ticketNumber = "C04-000003";
+        when(posSettingsService.fidelityVtSync()).thenReturn(true);
+        when(fidelityService.buildTicketClosedPayload(eq(state), any(), any(), any(), any()))
+                .thenReturn("{\"vt\":1}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L)).thenReturn(closed);
+            service.finalizeTransaction(state);
+        }
+        verify(fidEventOutboxService).sendNow(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_CLOSED,
+                "{\"vt\":1}");
+        verify(fidEventOutboxService, never()).enqueue(any(), any());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(fidEventOutboxService, fidelityService);
+        order.verify(fidEventOutboxService).sendNow(any(), any());
+        order.verify(fidelityService).refreshBeforePrint(state);
+    }
+
+    /**
+     * BO-11-03-04: each prepaid-card payment the NEXO server validated is
+     * acknowledged once the sale is closed — a payment the hub never saw is
+     * not, a refused acknowledgement is only logged; nothing is acknowledged
+     * when the store does not ask for it or in training.
+     */
+    @Test
+    void theValidatedPrepaidPaymentsAreAcknowledged() {
+        NexoHubClient hub = mock(NexoHubClient.class);
+        service.nexoHubClient = hub;
+        PaymentState.PaymentEntry gift = new PaymentState.PaymentEntry("GIFTCARD", new BigDecimal("15.00"));
+        gift.hubReference = "H1";
+        PaymentState.PaymentEntry refusedGift = new PaymentState.PaymentEntry("GIFTCARD", new BigDecimal("5.00"));
+        refusedGift.hubReference = "H2";
+        state.payment.payments.add(gift);
+        state.payment.payments.add(refusedGift);
+        state.payment.payments.add(new PaymentState.PaymentEntry("CASH", new BigDecimal("1.00")));
+        service.acknowledgeHubPayments(state, 9L);
+        verify(hub, never()).acknowledge(any(), any(), any());
+        when(posSettingsService.nexoPaymentAcknowledgement()).thenReturn(true);
+        state.trainingMode = true;
+        service.acknowledgeHubPayments(state, 9L);
+        verify(hub, never()).acknowledge(any(), any(), any());
+        state.trainingMode = false;
+        when(hub.acknowledge("9-ACK", "H1", new BigDecimal("15.00")))
+                .thenReturn(new NexoHubClient.HubResult(true, null, null, "T1", null, null, null, null));
+        when(hub.acknowledge("9-ACK", "H2", new BigDecimal("5.00")))
+                .thenReturn(NexoHubClient.HubResult.failure("Refusal", null));
+        service.acknowledgeHubPayments(state, 9L);
+        verify(hub).acknowledge("9-ACK", "H1", new BigDecimal("15.00"));
+        verify(hub).acknowledge("9-ACK", "H2", new BigDecimal("5.00"));
+    }
+
+    // --------------------------------------------------
+    // lot 21: the terminal decision serialized with the payment screen
+    // --------------------------------------------------
+
+    /** The bridge status of a payment the terminal accepted at once. */
+    private static final String INSTANT_DONE = "state=DONE\napproved=true\nresult=00\nanswer={RS}00";
+
+    /**
+     * Waits, bounded, until a thread is blocked on a monitor.
+     *
+     * @param thread the thread expected to block
+     */
+    private static void awaitBlocked(Thread thread) {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (thread.getState() != Thread.State.BLOCKED && System.currentTimeMillis() < deadline) {
+            Thread.yield();
+        }
+    }
+
+    /**
+     * Waits, bounded, until a condition holds.
+     *
+     * @param condition the condition awaited
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    private static void awaitTrue(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5);
+        }
+    }
+
+    /**
+     * Runs a gesture on another thread while this thread holds the register's
+     * lock, and proves it waits for the lock: blocked and without effect while
+     * the lock is held, applied once it is released.
+     *
+     * @param gesture the gesture run on the other thread
+     * @param applied tells whether the gesture's effect is visible
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    private void assertWaitsForTheRegisterLock(Runnable gesture, java.util.function.BooleanSupplier applied)
+            throws InterruptedException {
+        Thread other = new Thread(gesture, "terminal-decision");
+        synchronized (state) {
+            other.start();
+            awaitBlocked(other);
+            assertEquals(Thread.State.BLOCKED, other.getState());
+            assertFalse(applied.getAsBoolean());
+        }
+        other.join(5000);
+        assertFalse(other.isAlive());
+        assertTrue(applied.getAsBoolean());
+    }
+
+    /**
+     * Lot 21: the accept leg waits for the register's lock before registering
+     * and persisting the card, then does it once.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void acceptLegWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        assertWaitsForTheRegisterLock(() -> cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00"))),
+                () -> state.payment.payments.size() == 1);
+        verify(ticketPersistenceService, times(1)).addPaymentToTicket(3L, state.payment.payments.get(0));
+        assertNull(state.payment.pendingCardCallback);
+    }
+
+    /**
+     * Lot 21: the refuse leg waits for the register's lock before dropping the
+     * pending card.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void refuseLegWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        assertWaitsForTheRegisterLock(() -> cb.onRefused(TerminalOutcome.ofAmount(new BigDecimal("15.00"))),
+                () -> state.payment.pendingCardAmount == null);
+        assertEquals("PAIEMENT REFUSÉ PAR LE TPE", state.ticket.transientError);
+    }
+
+    /**
+     * Lot 21: the error leg waits for the register's lock before dropping the
+     * pending card with the terminal's message.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void errorLegWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        assertWaitsForTheRegisterLock(() -> cb.onError("TERMINAL INJOIGNABLE"),
+                () -> state.payment.pendingCardAmount == null);
+        assertEquals("TERMINAL INJOIGNABLE", state.ticket.transientError);
+    }
+
+    /**
+     * Lot 21: the display leg waits for the register's lock before relaying
+     * the terminal lines.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void displayLegWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        assertWaitsForTheRegisterLock(() -> cb.onDisplay("INSERER CARTE", "PIN"),
+                () -> "INSERER CARTE".equals(state.payment.terminalLine1));
+        assertEquals("PIN", state.payment.terminalLine2);
+    }
+
+    /**
+     * Lot 21: starting a card waits for the register's lock — the in-flight
+     * check and the parking of the pending card are one step.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void processCardWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        assertWaitsForTheRegisterLock(() -> service.processCard(state, new BigDecimal("15.00")),
+                () -> state.payment.pendingCardAmount != null);
+        verify(terminal).requestDebit(eq(new BigDecimal("15.00")), any());
+        assertNotNull(state.payment.pendingCardCallback);
+    }
+
+    /**
+     * Lot 21: cancelling the pending card waits for the register's lock and
+     * forgets the transaction, so its late decision is ignored.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void cancelPendingCardWaitsForTheLockAndForgetsTheTransaction() throws InterruptedException {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        assertWaitsForTheRegisterLock(() -> service.cancelPendingCard(state),
+                () -> state.payment.pendingCardAmount == null);
+        assertNull(state.payment.pendingCardCallback);
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        assertTrue(state.payment.payments.isEmpty());
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
+    }
+
+    /**
+     * Lot 21: a transaction is settled exactly once — a second accept, a late
+     * refusal and a late error of the same callback are all ignored.
+     */
+    @Test
+    void aSettledCardIgnoresEveryLaterDecision() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        cb.onRefused(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        cb.onError("LATE");
+        assertEquals(1, state.payment.payments.size());
+        assertEquals(0, new BigDecimal("15.00").compareTo(state.payment.paidAmount));
+        assertNull(state.ticket.transientError);
+        verify(ticketPersistenceService, times(1)).addPaymentToTicket(any(), any());
+        verify(hardwareService, never()).displayMessage("PAIEMENT REFUSE");
+    }
+
+    /**
+     * Lot 21: the decision of a cancelled transaction never settles the card
+     * started after it — neither its accept nor its display lines nor its
+     * error — while the newer transaction's own decision does, once
+     * ({@code pendingCardCallback != callback} true leg of the claim).
+     */
+    @Test
+    void aStaleDecisionNeverSettlesTheNewerCard() {
+        TerminalTransactionCallback older = captureCallback("15.00");
+        service.cancelPendingCard(state);
+        service.processCard(state, new BigDecimal("12.00"));
+        ArgumentCaptor<TerminalTransactionCallback> captor = ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal, times(2)).requestDebit(any(), captor.capture());
+        TerminalTransactionCallback newer = captor.getAllValues().get(1);
+        older.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        older.onDisplay("STALE", "STALE");
+        older.onError("STALE");
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals("", state.payment.terminalLine1);
+        assertNull(state.ticket.transientError);
+        assertEquals(new BigDecimal("12.00"), state.payment.pendingCardAmount);
+        newer.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("12.00")));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals(0, new BigDecimal("12.00").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * Lot 21: cancelling the payments forgets the pending card transaction.
+     */
+    @Test
+    void cancelPaymentsForgetsThePendingCardTransaction() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        service.cancelPayments(state);
+        assertNull(state.payment.pendingCardCallback);
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * Lot 21, the race found in dev: the terminal answers while the payment
+     * screen reloads. The decision arrives on another thread in the middle of
+     * the draft synchronisation of {@code initPayment}; it waits for the
+     * reload to finish and only then persists its payment, so the two never
+     * write the draft at the same time.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void theDecisionWaitsForThePayScreenReload() throws InterruptedException {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        Thread[] decision = new Thread[1];
+        when(ticketPersistenceService.syncDraft(state)).thenAnswer(invocation -> {
+            decision[0] = new Thread(() -> cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00"))));
+            decision[0].start();
+            awaitBlocked(decision[0]);
+            assertEquals(Thread.State.BLOCKED, decision[0].getState());
+            assertTrue(state.payment.payments.isEmpty());
+            return 3L;
+        });
+        service.initPayment(state);
+        decision[0].join(5000);
+        assertEquals(1, state.payment.payments.size());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(ticketPersistenceService);
+        order.verify(ticketPersistenceService).syncDraft(state);
+        order.verify(ticketPersistenceService).markPaymentStarted(3L);
+        order.verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
+    }
+
+    /**
+     * Lot 21: the combined card and meal-voucher debit's decision waits for
+     * the register's lock like the plain debit's.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void combinedDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCard(state, BigDecimal.ZERO, true);
+        ArgumentCaptor<TerminalTransactionCallback> captor = ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestCombinedDebit(eq(new BigDecimal("20.00")), any(), captor.capture());
+        assertWaitsForTheRegisterLock(() -> captor.getValue().onAccepted(TerminalOutcome.ofAmount(new BigDecimal("20.00"))),
+                () -> state.payment.transactionComplete);
+        verify(ticketPersistenceService, times(1)).addPaymentToTicket(any(), any());
+    }
+
+    /**
+     * Captures the callback of a CARD net refund of five euros.
+     *
+     * @return the captured callback
+     */
+    private TerminalTransactionCallback captureNetRefundCallback() {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        state.payment.ticketDbId = 3L;
+        assertTrue(service.processNetRefund(state, "CARD"));
+        ArgumentCaptor<TerminalTransactionCallback> captor = ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestCredit(eq(new BigDecimal("5.00")), captor.capture());
+        return captor.getValue();
+    }
+
+    /**
+     * Lot 21: the net refund's accept leg waits for the register's lock, then
+     * books the refund once; a later error of the same callback is ignored.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void netRefundAcceptWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureNetRefundCallback();
+        assertWaitsForTheRegisterLock(() -> cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("5.00"))),
+                () -> state.payment.payments.size() == 1);
+        cb.onError("LATE");
+        assertNull(state.ticket.transientError);
+        assertTrue(state.payment.transactionComplete);
+        verify(ticketPersistenceService, times(1)).addPaymentToTicket(any(), any());
+    }
+
+    /**
+     * Lot 21: the net refund's refuse leg waits for the register's lock.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void netRefundRefusalWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureNetRefundCallback();
+        assertWaitsForTheRegisterLock(() -> cb.onRefused(null), () -> state.payment.pendingCardAmount == null);
+        assertEquals("PAIEMENT REFUSÉ PAR LE TPE", state.ticket.transientError);
+    }
+
+    /**
+     * Lot 21: the net refund's error leg waits for the register's lock.
+     *
+     * @throws InterruptedException when the joining thread is interrupted
+     */
+    @Test
+    void netRefundErrorWaitsForTheRegisterLock() throws InterruptedException {
+        TerminalTransactionCallback cb = captureNetRefundCallback();
+        assertWaitsForTheRegisterLock(() -> cb.onError("INJOIGNABLE"), () -> state.payment.pendingCardAmount == null);
+        assertEquals("INJOIGNABLE", state.ticket.transientError);
+    }
+
+    /**
+     * Lot 21: a net refund the cashier cancelled is not booked by its late
+     * decision, nor told refused by its late refusal.
+     */
+    @Test
+    void aCancelledNetRefundIgnoresItsLateDecision() {
+        TerminalTransactionCallback cb = captureNetRefundCallback();
+        service.cancelPendingCard(state);
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("5.00")));
+        cb.onRefused(null);
+        assertTrue(state.payment.payments.isEmpty());
+        assertNull(state.ticket.transientError);
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * Builds the register's real terminal chain — the degraded-mode gate in
+     * front of the hardware bridge — over a bridge whose terminal decides at
+     * the first reading, and records the follower thread that reads it.
+     *
+     * @param hardware the mocked bridge
+     * @param follower where the follower thread is recorded
+     */
+    private void bridgeAnsweringAtOnce(com.intermarche.pos.ui.hardware.HardwareClient hardware, Thread[] follower) {
+        when(hardware.getPaymentStatus()).thenAnswer(invocation -> {
+            follower[0] = Thread.currentThread();
+            return INSTANT_DONE;
+        });
+        com.intermarche.pos.ui.hardware.terminal.HardwareBridgeTerminalClient bridge =
+                new com.intermarche.pos.ui.hardware.terminal.HardwareBridgeTerminalClient(hardware, 1, 10000,
+                        TestMessages.french());
+        service.terminal = new com.intermarche.pos.ui.hardware.terminal.DegradedModePaymentTerminalClient(
+                bridge, mock(PaymentTerminalClient.class), posSettingsService, state);
+    }
+
+    /**
+     * Starts a bridge payment while holding the register's lock, as the
+     * request thread does, and proves the decision the bridge's follower
+     * thread reads at once waits for the lock, then is applied exactly once.
+     *
+     * @param start the gesture starting the payment
+     * @param applied tells whether the decision was applied
+     * @return the mocked bridge, for the request it was sent
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    private com.intermarche.pos.ui.hardware.HardwareClient assertBridgeDecisionWaits(Runnable start,
+            java.util.function.BooleanSupplier applied) throws InterruptedException {
+        com.intermarche.pos.ui.hardware.HardwareClient hardware = mock(com.intermarche.pos.ui.hardware.HardwareClient.class);
+        Thread[] follower = new Thread[1];
+        bridgeAnsweringAtOnce(hardware, follower);
+        synchronized (state) {
+            start.run();
+            verify(hardware, org.mockito.Mockito.timeout(5000).atLeastOnce()).getPaymentStatus();
+            awaitTrue(() -> follower[0] != null);
+            awaitBlocked(follower[0]);
+            assertEquals(Thread.State.BLOCKED, follower[0].getState());
+            assertFalse(applied.getAsBoolean());
+        }
+        awaitTrue(applied);
+        assertTrue(applied.getAsBoolean());
+        verify(ticketPersistenceService, times(1)).addPaymentToTicket(any(), any());
+        assertEquals(1, state.payment.payments.size());
+        assertNull(state.payment.pendingCardCallback);
+        return hardware;
+    }
+
+    /**
+     * Lot 21, debit through the bridge: the decision read at once by the
+     * follower thread waits for the payment screen's lock.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeDebitDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        verify(assertBridgeDecisionWaits(() -> service.processCard(state, BigDecimal.ZERO),
+                () -> state.payment.transactionComplete)).startPayment("2000");
+    }
+
+    /**
+     * Lot 21, combined debit through the bridge: same serialization.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeCombinedDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        verify(assertBridgeDecisionWaits(() -> service.processCard(state, BigDecimal.ZERO, true),
+                () -> state.payment.transactionComplete)).startCombinedPayment("2000;0");
+    }
+
+    /**
+     * Lot 21, forced degraded debit through the bridge (LC-07-08-02): same
+     * serialization.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeForcedDegradedDebitDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.moneticsDegradedUntil = java.time.LocalDateTime.now().plusMinutes(10);
+        verify(assertBridgeDecisionWaits(() -> service.processCard(state, BigDecimal.ZERO),
+                () -> state.payment.transactionComplete)).startDegradedPayment("2000");
+    }
+
+    /**
+     * Lot 21, net refund credited through the bridge: same serialization.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeNetRefundDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        state.payment.ticketDbId = 3L;
+        verify(assertBridgeDecisionWaits(() -> service.processNetRefund(state, "CARD"),
+                () -> state.payment.transactionComplete)).startCredit("500");
+    }
+
+    /**
+     * Lot 21, forced degraded credit through the bridge (LC-07-08-02), the net
+     * refund of a forced register: same serialization.
+     *
+     * @throws InterruptedException when the waiting thread is interrupted
+     */
+    @Test
+    void bridgeForcedDegradedCreditDecisionWaitsForTheRegisterLock() throws InterruptedException {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        state.payment.ticketDbId = 3L;
+        state.moneticsDegradedUntil = java.time.LocalDateTime.now().plusMinutes(10);
+        verify(assertBridgeDecisionWaits(() -> service.processNetRefund(state, "CARD"),
+                () -> state.payment.transactionComplete)).startDegradedCredit("500");
     }
 }

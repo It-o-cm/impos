@@ -3,14 +3,9 @@ package com.intermarche.pos.ui.hardware.terminal;
 import java.math.BigDecimal;
 
 /**
- * Result of a payment-terminal transaction, as reported by a
- * {@link PaymentTerminalClient} implementation to its callback.
- * <p>
- * The virtual terminal fills only the amount; the Verifone client will add
- * the fields carried by the monetique response once the protocol
- * specification is available: the real payment mean (tags {D16}/{D46},
- * LC-07-07-04), the print frames to output verbatim (LC-07-04-10) and the
- * TNA frame of a failed transaction (LC-07-04-12).
+ * Ephemeral terminal decision, including documented WCL metadata and receipts.
+ * LC-07-04-10/-12 and LC-07-07-03/-04: only accounting metadata is persisted;
+ * print frames and raw vendor responses remain on the current operation.
  */
 public class TerminalOutcome {
 
@@ -39,13 +34,16 @@ public class TerminalOutcome {
     /** The merchant receipt frame to print verbatim, or null when none. */
     public String merchantReceiptFrame;
 
+    /** LC-07-17-05: additional WCL receipts, including terminal-controlled donation proofs. */
+    public java.util.List<String> additionalReceiptFrames = new java.util.ArrayList<>();
+
     /**
      * The not-completed-transaction (TNA) frame to print when the exchange
      * failed, or null when none.
      */
     public String tnaFrame;
 
-    /** The raw terminal response, kept verbatim for the journal, or null. */
+    /** The ephemeral raw terminal response; never an archived receipt. */
     public String rawResponse;
 
     /**
@@ -72,6 +70,90 @@ public class TerminalOutcome {
      * leave it false, exactly as they leave the print frames null.
      */
     public boolean signatureRequired;
+
+    /** Server selected by WCL VWAY (LC-07-07-03), absent when not reported. */
+    public String server;
+
+    /** Application subtype used when D16 is unknown (LC-07-07-04). */
+    public String alternateMeanCode;
+
+    /** Decodes documented WCL tags without interpreting D17 transaction numbers as entry modes.
+     * @param response complete WCL final response
+     */
+    public void readVerifone(String response) {
+        rawResponse = response;
+        if (response == null) {
+            return;
+        }
+        String settledCents = tag(response, "D10");
+        if (settledCents != null) {
+            if (!settledCents.matches("[0-9]+")) {
+                throw new IllegalArgumentException("invalid WCL settled amount");
+            }
+            amount = new BigDecimal(settledCents).movePointLeft(2);
+        }
+        meanCode = tag(response, "D16");
+        alternateMeanCode = tag(response, "D46");
+        server = tag(response, "VWAY");
+        authorizationNumber = tag(response, "D1C");
+        String offline = tag(response, "D32");
+        degradedMode = offline != null && !"0".equals(offline);
+        String conditions = tag(response, "D1S");
+        if (conditions != null && conditions.length() >= 4) {
+            char signature = conditions.charAt(3);
+            signatureRequired = signature == '5' || signature == '8';
+        }
+        // LC-07-17-05: retain additional documented ticket tags without creating donation logic in the POS.
+        int cursor = response.indexOf("{D3L}");
+        boolean firstReceipt = true;
+        additionalReceiptFrames.clear();
+        while (cursor >= 0) {
+            int from = cursor + 5;
+            int end = response.indexOf('{', from);
+            String frame = end < 0 ? response.substring(from) : response.substring(from, end);
+            if (firstReceipt) {
+                firstReceipt = false;
+            } else {
+                additionalReceiptFrames.add(frame);
+            }
+            cursor = response.indexOf("{D3L}", from);
+        }
+        String receipt = tag(response, "D3L");
+        if (receipt != null) {
+            int separator = receipt.indexOf("--/--");
+            if (separator < 0) {
+                customerReceiptFrame = receipt;
+            } else {
+                customerReceiptFrame = receipt.substring(0, separator);
+                merchantReceiptFrame = receipt.substring(separator + 5);
+            }
+            String result = tag(response, "RS");
+            try {
+                int code = Integer.parseInt(result);
+                if (code < 0 || code > 9) {
+                    tnaFrame = receipt;
+                }
+            } catch (NumberFormatException ignored) {
+                // LC-07-04-12: an absent decision never creates a synthetic TNA frame.
+            }
+        }
+    }
+
+    /** Reads an optional flat WCL tag, preserving receipt whitespace (LC-07-04-10).
+     * @param response complete response
+     * @param name tag name without braces
+     * @return exact value, or null when absent
+     */
+    private static String tag(String response, String name) {
+        String marker = "{" + name + "}";
+        int start = response.indexOf(marker);
+        if (start < 0) {
+            return null;
+        }
+        int from = start + marker.length();
+        int end = response.indexOf('{', from);
+        return end < 0 ? response.substring(from) : response.substring(from, end);
+    }
 
     /**
      * Builds an outcome carrying only the amount — what the virtual

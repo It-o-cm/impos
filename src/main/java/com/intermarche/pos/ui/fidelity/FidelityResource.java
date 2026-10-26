@@ -139,6 +139,8 @@ public class FidelityResource {
                                            @FormParam("value") String value,
                                            @FormParam("firstName") String firstName) {
         LOGGER.info("Entering method lookupFidelity with mode: " + mode + ", value: " + value + ", firstName: " + firstName);
+        // LC-03-04-17: default the mode before choosing and echoing both name criteria.
+        mode = mode == null ? "name" : mode;
         String phone = null, email = null, name = null, city = null;
         String input = value != null ? value.trim() : "";
         String givenName = firstName != null ? firstName.trim() : "";
@@ -160,7 +162,7 @@ public class FidelityResource {
                 LookupView refusal = new LookupView();
                 refusal.message = i18n.get("fidelity.nomEtPrenomRequis");
                 state.fidelity.lastLookup = refusal;
-                state.fidelity.lastLookupMode = mode != null ? mode : "name";
+                state.fidelity.lastLookupMode = mode;
                 state.fidelity.lastLookupValue = input;
                 state.fidelity.lastLookupFirstName = givenName;
                 state.fidelity.lastLookupPage = 0;
@@ -171,7 +173,7 @@ public class FidelityResource {
         LookupView lookup =
                 fidelityService.lookupCards(phone, email, name, "name".equals(mode) ? givenName : null, city);
         state.fidelity.lastLookup = lookup;
-        state.fidelity.lastLookupMode = mode != null ? mode : "name";
+        state.fidelity.lastLookupMode = mode;
         state.fidelity.lastLookupValue = input;
         state.fidelity.lastLookupFirstName = "name".equals(mode) ? givenName : "";
         state.fidelity.lastLookupPage = 0;

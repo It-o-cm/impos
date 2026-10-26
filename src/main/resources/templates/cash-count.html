@@ -63,7 +63,7 @@
   <div class="pos-terminal">
     <div class="top-bar">
       <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+      <span id="opInfo">{inject:i18n.get('menu.caisse')} {inject:terminal.id} | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
       <span id="clock">--:--:--</span>
     </div>
 

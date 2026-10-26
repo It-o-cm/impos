@@ -19,8 +19,9 @@
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
 
     .list-area { padding: 20px 20px 12px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+    .parked-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
     .parked-row {
-      display: grid; grid-template-columns: 13.75rem 7.5rem 1fr 9.375rem;
+      display: grid; grid-template-columns: minmax(0, 1.5fr) 5rem minmax(0, 1fr) 6rem;
       align-items: center; gap: 15px;
       background: var(--bg-panel); border: 1px solid var(--border-color);
       border-radius: 6px; padding: 12px 20px;
@@ -47,12 +48,15 @@
       {#else}
         <div class="pos-list">
           {#for ticket in tickets}
+            <div class="parked-entry">
             <a href="/action/parked/resume/{ticket.id}" class="parked-row">
               <span class="parked-number">{ticket.ticketNumber}</span>
               <span class="parked-time">{ticket.creationDate.format('HH:mm')}</span>
-              <span class="parked-count">{ticket.itemCount} article(s)</span>
+              <span class="parked-count">{ticket.itemCount} {inject:i18n.get('parked.r21v-articles')}</span>
               <span class="parked-total">{ticket.getTotalFormatted()} €</span>
             </a>
+            {#if canPrint}<a href="/action/parked/print/{ticket.id}" class="btn btn-sm btn-muted">{inject:i18n.get('parked.printReceipt')}</a>{/if}
+            </div>
           {/for}
         </div>
         {#if pageCount > 1}

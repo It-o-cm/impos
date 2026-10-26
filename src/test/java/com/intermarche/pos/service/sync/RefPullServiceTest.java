@@ -146,10 +146,12 @@ class RefPullServiceTest {
         service.syncEndpoints = endpoints;
         service.refApplyService = apply;
         service.objectMapper = mapper;
+        service.role = "register";
         service.pullSeconds = 300L;
-        // Sans valeur le champ vaut 0, et un HttpRequest refuse un délai nul.
+        // Unset, the field is 0, and an HttpRequest refuses a zero timeout.
         service.requestTimeoutSeconds = 30L;
         service.token = Optional.empty();
+        service.centralUrl = Optional.empty();
         setHttpClient(service, client);
         return service;
     }
@@ -159,8 +161,8 @@ class RefPullServiceTest {
     // --------------------------------------------------
 
     /**
-     * Covers the guard in {@code onStart}: a register whose store-node URL is
-     * absent does not start the loop.
+     * Covers the second operand of the guard in {@code onStart}: a register
+     * whose store-node URL is absent does not start the loop.
      */
     @Test
     void onStartSkipsWhenOutboxDisabled() throws Exception {
@@ -245,6 +247,57 @@ class RefPullServiceTest {
         verify(apply, never()).recordApplied(any(), any());
     }
 
+    /**
+     * BO-10-07-19: an outage is dated by its first failed cycle, the next
+     * failures leaving the date, and ends with the first cycle that reaches
+     * the node; before any cycle there is no outage.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void theOutageIsDatedByItsFirstFailedCycle() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mapper, client);
+        java.time.LocalDateTime later = java.time.LocalDateTime.now().plusHours(1);
+        assertFalse(service.isUnreachableFor(0, later));
+        doThrow(new java.io.IOException("refused")).when(client).send(any(HttpRequest.class), any());
+        invoke(service, "pullSafely");
+        invoke(service, "pullSafely");
+        assertTrue(service.isUnreachableFor(60, later));
+        assertFalse(service.isUnreachableFor(7200, later));
+        doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
+        invoke(service, "pullSafely");
+        assertFalse(service.isUnreachableFor(0, later));
+    }
+
+    /**
+     * The register's link with the store node follows the versions call of
+     * each cycle (BO-03-06-45): unknown before the first cycle, lost when the
+     * call fails, back as soon as it answers.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void theNodesReachabilityFollowsTheVersionsCall() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mapper, client);
+        assertFalse(service.isNodeUnreachable());
+        doThrow(new java.io.IOException("refused")).when(client).send(any(HttpRequest.class), any());
+        invoke(service, "pullSafely");
+        assertTrue(service.isNodeUnreachable());
+        doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
+        invoke(service, "pullSafely");
+        assertFalse(service.isNodeUnreachable());
+    }
+
     // --------------------------------------------------
     // pullOnce / applyDomain / pages
     // --------------------------------------------------
@@ -284,10 +337,10 @@ class RefPullServiceTest {
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
         when(apply.lastApplied(any())).thenReturn(null);
         RefPullService service = service(endpoints, apply, mapper, client);
-        // Les trois gros domaines passent par le FICHIER brut quand la caisse en
-        // tient un ; ici elle n'en tient aucun, donc la voie des pages sert, et
-        // c'est elle que ce test décrit. Le finder est neutralisé pour qu'il
-        // réponde « rien » au lieu de chercher une entité non enrichie.
+        // The three big domains go through the raw FILE when the register holds
+        // one; here it holds none, so the page path serves, and that is the one
+        // this test describes. The finder is neutralized so that it answers
+        // "nothing" instead of looking up a non-enhanced entity.
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             @SuppressWarnings("unchecked")
             PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> none = mock(PanacheQuery.class);
@@ -638,13 +691,51 @@ class RefPullServiceTest {
         RefApplyService apply = mock(RefApplyService.class);
         HttpClient client = mock(HttpClient.class);
         when(apply.feedContent("PRODUCTS")).thenReturn("CSV;DATA");
+        when(apply.feedStamp("PRODUCTS")).thenReturn(new RefApplyService.FeedStamp("fp-0", "fp-file"));
+        when(apply.lastApplied("PRODUCTS")).thenReturn("fp-0");
         when(apply.applyFromFile("PRODUCTS", "CSV;DATA")).thenReturn(mock(jakarta.ws.rs.core.Response.class));
         RefPullService service = service(mock(SyncEndpoints.class), apply, mock(ObjectMapper.class), client);
-        callApplyDomain(service, "PRODUCTS", "fp-file");
+        callApplyDomain(service, "PRODUCTS", "fp-served");
         verify(apply).applyFromFile("PRODUCTS", "CSV;DATA");
         verify(apply).recordApplied("PRODUCTS", "fp-file");
         verify(apply, never()).applyProducts(any());
         verify(client, never()).send(any(), any());
+    }
+
+    /**
+     * A raw file already applied cannot explain a new fingerprint: the second
+     * change of the domain — a back-office change the file does not carry —
+     * is applied from the snapshot pages, and a NEW file is applied from the
+     * file again.
+     */
+    @Test
+    void aFeedFileAlreadyAppliedGivesWayToThePages() throws Throwable {
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        when(apply.feedContent("PRODUCTS")).thenReturn("CSV;DATA", "CSV;DATA", "CSV;DATA2");
+        when(apply.feedStamp("PRODUCTS")).thenReturn(new RefApplyService.FeedStamp("", "fp-1"),
+                new RefApplyService.FeedStamp("fp-2", "fp-3"));
+        when(apply.lastApplied("PRODUCTS")).thenReturn(null, "fp-2");
+        when(apply.applyFromFile(eq("PRODUCTS"), any())).thenReturn(mock(jakarta.ws.rs.core.Response.class));
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        RefPullService service = service(endpoints, apply, mapper, client);
+        callApplyDomain(service, "PRODUCTS", "fp-1");
+        callApplyDomain(service, "PRODUCTS", "fp-2");
+        verify(apply).applyFromFile("PRODUCTS", "CSV;DATA");
+        verify(apply).applyProducts(any());
+        verify(apply).recordApplied("PRODUCTS", "fp-2");
+        callApplyDomain(service, "PRODUCTS", "fp-3");
+        verify(apply).applyFromFile("PRODUCTS", "CSV;DATA2");
+        verify(apply).recordApplied("PRODUCTS", "fp-3");
     }
 
     /**
@@ -688,6 +779,7 @@ class RefPullServiceTest {
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
         when(apply.feedContent("FAMILIES")).thenReturn("CSV;DATA");
+        when(apply.feedStamp("FAMILIES")).thenReturn(new RefApplyService.FeedStamp("", "r"));
         when(apply.applyFromFile("FAMILIES", "CSV;DATA")).thenReturn(null);
         SyncEndpoints endpoints = mock(SyncEndpoints.class);
         when(endpoints.storeUrl()).thenReturn("http://store");
@@ -706,10 +798,10 @@ class RefPullServiceTest {
     }
 
     /**
-     * Covers the six remaining switch arms of {@code applyDomain}
-     * (TOUCH_GROUPS, TENDERS, DOCUMENT_TEMPLATES, POSTAL_CODES, POS_LISTS and
-     * STORE_IMAGES) together with their anonymous {@link TypeReference}
-     * deserialization lines: none of the six belongs to {@code FILE_DOMAINS},
+     * Covers the remaining switch arms of {@code applyDomain}
+     * (TOUCH_GROUPS, TENDERS, DOCUMENT_TEMPLATES, POSTAL_CODES, POS_LISTS,
+     * STORE_IMAGES, RETURN_TYPES and PREPAID_CARD_TYPES) together with their anonymous {@link TypeReference}
+     * deserialization lines: none of them belongs to {@code FILE_DOMAINS},
      * so each is pulled page by page through the snapshot switch and applied,
      * then its fingerprint recorded.
      */
@@ -735,7 +827,8 @@ class RefPullServiceTest {
         Map<String, String> versions = Map.of(
                 "TOUCH_GROUPS", "t1", "TENDERS", "t2",
                 "DOCUMENT_TEMPLATES", "t3", "POSTAL_CODES", "t4",
-                "POS_LISTS", "t5", "STORE_IMAGES", "t6");
+                "POS_LISTS", "t5", "STORE_IMAGES", "t6",
+                "RETURN_TYPES", "t7", "PREPAID_CARD_TYPES", "t8");
         doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
@@ -754,6 +847,10 @@ class RefPullServiceTest {
         verify(apply).recordApplied("POSTAL_CODES", "t4");
         verify(apply).recordApplied("POS_LISTS", "t5");
         verify(apply).recordApplied("STORE_IMAGES", "t6");
+        verify(apply).applyReturnTypes(any());
+        verify(apply).applyPrepaidCardTypes(any());
+        verify(apply).recordApplied("RETURN_TYPES", "t7");
+        verify(apply).recordApplied("PREPAID_CARD_TYPES", "t8");
     }
 
     // --------------------------------------------------
@@ -921,5 +1018,653 @@ class RefPullServiceTest {
         Map<String, String> errors = service.getLastErrors();
         assertTrue(errors.isEmpty());
         assertThrows(UnsupportedOperationException.class, () -> errors.put("X", "y"));
+    }
+
+    /** BO-03-08/09: provider wording and checkout identities are downloaded, applied and acknowledged as complete snapshots. */
+    @Test
+    void ancillaryReferentialsAreAppliedAndAcknowledged() throws Exception {
+        var endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        var apply = mock(RefApplyService.class);
+        var mapper = mock(ObjectMapper.class);
+        var client = mock(HttpClient.class);
+        var response = resp(200, "EMPTY");
+        doReturn(response).when(client).send(any(HttpRequest.class), any());
+        doReturn(List.of()).when(mapper).readValue(eq("EMPTY"), any(TypeReference.class));
+        var service = service(endpoints, apply, mapper, client);
+        var method = RefPullService.class.getDeclaredMethod("applyDomain", String.class, String.class);
+        method.setAccessible(true);
+        method.invoke(service, "PROVIDER_MESSAGES", "v1");
+        verify(apply).applyProviderMessages(List.of());
+        verify(apply).recordApplied("PROVIDER_MESSAGES", "v1");
+        method.invoke(service, "CHECKOUT_POINTS", "v1");
+        verify(apply).applyCheckoutPoints(List.of());
+        verify(apply).recordApplied("CHECKOUT_POINTS", "v1");        // BO-03-04-06/09/10: the printable documents travel the same road.
+        method.invoke(service, "PRINTABLE_DOCUMENTS", "v1");
+        verify(apply).applyPrintableDocuments(List.of());
+        verify(apply).recordApplied("PRINTABLE_DOCUMENTS", "v1");
+    }
+
+    /**
+     * BO-01-01-03, BO-01-03-04: a store pulls from the centre the profiles, the
+     * accounts and the assignments of its point of sale, naming its point of
+     * sale in the {@code X-Pos-Pdv} header.
+     *
+     * @throws Exception never, the collaborators are mocked
+     */
+    @Test
+    void aStorePullsItsAccountsNamingItsPointOfSale() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        List<HttpRequest> sent = new java.util.ArrayList<>();
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            sent.add(request);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of("PROFILES", "p1", "ACCOUNTS", "a1", "ACCOUNT_PROFILES", "b1");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        RefPullService service = service(endpoints, apply, mapper, client);
+        service.role = "store";
+        service.centralUrl = Optional.of("http://central");
+        service.nodeEchelonService = mock(com.intermarche.pos.service.NodeEchelonService.class);
+        when(service.nodeEchelonService.currentPdv()).thenReturn(" 07039 ");
+        service.pullOnce();
+        verify(apply).applyProfiles(any());
+        verify(apply).applyAccounts(any());
+        verify(apply).applyAccountProfiles(any());
+        verify(apply).recordApplied("ACCOUNTS", "a1");
+        assertEquals("07039", sent.get(0).headers().firstValue("X-Pos-Pdv").orElse(null));
+    }
+
+    /**
+     * Covers the false-false skip of {@code onStart} for a central node: neither
+     * the register arm (wrong role) nor the store arm (wrong role) is ready, so
+     * the central runs no pull — it is the top of the chain.
+     */
+    @Test
+    void onStartSkipsForCentralRole() throws Exception {
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "central";
+        service.centralUrl = Optional.of("http://central");
+        service.onStart(null);
+        assertNull(getExecutor(service));
+    }
+
+    /**
+     * Covers the blank arm of {@code hasCentralUrl}: a store node whose central
+     * URL is present but blank does not start the loop.
+     */
+    @Test
+    void onStartSkipsForStoreWithBlankCentralUrl() throws Exception {
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "store";
+        service.centralUrl = Optional.of("   ");
+        service.onStart(null);
+        assertNull(getExecutor(service));
+    }
+
+    /**
+     * Covers the first operand of the guard in {@code onStart}: a store role
+     * disables the pull, so no executor is created.
+     */
+    @Test
+    void onStartSkipsWhenRoleIsNotRegister() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "store";
+        service.onStart(null);
+        assertNull(getExecutor(service));
+        verify(endpoints, never()).hasStoreUrl();
+    }
+
+    /**
+     * Covers the store-ready arm of {@code onStart} and the non-blank arm of
+     * {@code hasCentralUrl}: a store node with a configured central URL starts
+     * the same loop (route A, two-level chain). Torn down at once via
+     * {@code onStop}.
+     */
+    @Test
+    void onStartStartsForStoreWithCentralUrl() throws Exception {
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "store";
+        service.centralUrl = Optional.of("http://central");
+        service.onStart(null);
+        ScheduledExecutorService executor = getExecutor(service);
+        assertTrue(executor != null && !executor.isShutdown());
+        service.onStop();
+        assertTrue(executor.isShutdown());
+    }
+
+    /**
+     * Covers the store arm of {@code pullDomains} and {@code upstreamUrl}, and
+     * the four echelon switch arms of {@code applyDomain}: a store node pulls
+     * the echelon domains from the central node and applies each, proving the
+     * two-level chain reuses the same loop unchanged (route A).
+     */
+    @Test
+    void pullOnceAppliesEchelonDomainsForStore() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of(
+                "COUNTRIES", "c1", "ENSEIGNES", "c2", "PDVS", "c3", "ECHELON_SETTINGS", "c4");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        RefPullService service = service(endpoints, apply, mapper, client);
+        service.role = "store";
+        service.centralUrl = Optional.of("http://central");
+        service.pullOnce();
+        verify(apply).applyCountries(any());
+        verify(apply).applyEnseignes(any());
+        verify(apply).applyPdvs(any());
+        verify(apply).applyEchelonSettings(any());
+        verify(apply).recordApplied("COUNTRIES", "c1");
+        verify(apply).recordApplied("ENSEIGNES", "c2");
+        verify(apply).recordApplied("PDVS", "c3");
+        verify(apply).recordApplied("ECHELON_SETTINGS", "c4");
+    }
+
+    /**
+     * Covers the four remaining register switch arms of {@code applyDomain}
+     * (TOUCH_GROUPS, TENDERS, DOCUMENT_TEMPLATES and POSTAL_CODES) together
+     * with their anonymous {@link TypeReference} deserialization lines: each
+     * domain differs, is pulled page by page and applied, then its fingerprint
+     * is recorded.
+     */
+    @Test
+    void pullOnceAppliesTouchTenderTemplateAndPostalDomains() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of(
+                "TOUCH_GROUPS", "t1", "TENDERS", "t2", "DOCUMENT_TEMPLATES", "t3", "POSTAL_CODES", "t4");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        RefPullService service = service(endpoints, apply, mapper, client);
+        service.pullOnce();
+        verify(apply).applyTouchGroups(any());
+        verify(apply).applyTenders(any());
+        verify(apply).applyDocumentTemplates(any());
+        verify(apply).applyPostalCodes(any());
+        verify(apply).recordApplied("TOUCH_GROUPS", "t1");
+        verify(apply).recordApplied("TENDERS", "t2");
+        verify(apply).recordApplied("DOCUMENT_TEMPLATES", "t3");
+        verify(apply).recordApplied("POSTAL_CODES", "t4");
+    }
+
+    /**
+     * Covers the removal arm of {@code pullOnce}'s per-domain try/catch: a
+     * domain that failed on a previous cycle and applies cleanly on the next
+     * has its retained error cleared from {@code getLastErrors}, and the clean
+     * cycle stamps {@code getLastSuccessfulPull}.
+     */
+    @Test
+    void pullOnceClearsStaleDomainErrorOnSuccess() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of("FAMILIES", "f1")).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        doThrow(new RuntimeException("first cycle broke")).doNothing().when(apply).applyFamilies(any());
+        RefPullService service = service(endpoints, apply, mapper, client);
+        assertThrows(IllegalStateException.class, service::pullOnce);
+        assertEquals("first cycle broke", service.getLastError("FAMILIES"));
+        service.pullOnce();
+        assertNull(service.getLastError("FAMILIES"));
+        assertTrue(service.getLastErrors().isEmpty());
+        assertNotNull(service.getLastSuccessfulPull());
+    }
+
+    /**
+     * Covers the error arm of {@code pullOnce}'s per-domain try/catch: one
+     * domain applies cleanly (its stale error, if any, is removed) while a
+     * second fails with a non-null message and a third fails with a null
+     * message (the {@code getMessage() == null} ternary), so both ternary arms
+     * are taken. The first failure is rethrown as an {@link IllegalStateException}
+     * and both failures are retained in {@code getLastErrors}/{@code getLastError},
+     * the succeeding domain absent. Also asserts the returned map is unmodifiable.
+     */
+    @Test
+    void pullOnceRetainsEachDomainErrorAndRethrowsFirst() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of(
+                "ENGINE_FEEDS", "e1", "PRODUCTS", "p1", "FAMILIES", "f1");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        doThrow(new RuntimeException("feeds broke")).when(apply).applyEngineFeeds(any());
+        doThrow(new NullPointerException()).when(apply).applyProducts(any());
+        RefPullService service = service(endpoints, apply, mapper, client);
+        IllegalStateException ex = assertThrows(IllegalStateException.class, service::pullOnce);
+        assertEquals("ENGINE_FEEDS: feeds broke", ex.getMessage());
+        Map<String, String> errors = service.getLastErrors();
+        assertEquals("feeds broke", errors.get("ENGINE_FEEDS"));
+        assertEquals("NullPointerException", errors.get("PRODUCTS"));
+        assertNull(errors.get("FAMILIES"));
+        assertEquals("feeds broke", service.getLastError("ENGINE_FEEDS"));
+        assertEquals("NullPointerException", service.getLastError("PRODUCTS"));
+        assertNull(service.getLastError("FAMILIES"));
+        assertThrows(UnsupportedOperationException.class, () -> errors.put("X", "y"));
+        assertNull(service.getLastSuccessfulPull());
+    }
+
+    /**
+     * A store without commissioned point of sale, a blank one, a store without
+     * echelon service and a register name none.
+     *
+     * @throws Throwable never, the collaborators are mocked
+     */
+    @Test
+    void thePointOfSaleIsNamedOnlyByACommissionedStore() throws Throwable {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "BODY")).when(client).send(any(HttpRequest.class), any());
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mock(ObjectMapper.class), client);
+        service.nodeEchelonService = mock(com.intermarche.pos.service.NodeEchelonService.class);
+        when(service.nodeEchelonService.currentPdv()).thenReturn(null, " ");
+        callGet(service, "/path");
+        service.role = "store";
+        service.centralUrl = Optional.of("http://central");
+        callGet(service, "/path");
+        callGet(service, "/path");
+        service.nodeEchelonService = null;
+        callGet(service, "/path");
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client, org.mockito.Mockito.times(4)).send(captor.capture(), any());
+        for (HttpRequest request : captor.getAllValues()) {
+            assertFalse(request.headers().firstValue("X-Pos-Pdv").isPresent());
+        }
+    }
+
+    /** BO-08-01-04: an audit-storage failure is contained so referential synchronization does not fail solely on its trace. */
+    @Test
+    void unavailableAuditStorageDoesNotEscapeThePull() throws Exception {
+        var service = new RefPullService();
+        service.refApplyService = mock(RefApplyService.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("audit unavailable")).when(service.refApplyService).recordAudit("PRODUCTS", "v1", com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.APPLIED, "done");
+        var audit = RefPullService.class.getDeclaredMethod("recordAudit", String.class, String.class, com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.class, String.class);
+        audit.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> audit.invoke(service, "PRODUCTS", "v1", com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.APPLIED, "done"));
+        org.mockito.Mockito.verify(service.refApplyService).recordAudit("PRODUCTS", "v1", com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.APPLIED, "done");
+    }
+
+    // --------------------------------------------------
+    // BO-10-08-25: no update reaches a sale in progress
+    // --------------------------------------------------
+
+    /**
+     * Builds a service whose versions answer one changed VAT_RATES domain and
+     * whose snapshot pages answer one row then nothing.
+     *
+     * @param apply the apply-service mock
+     * @return the wired service
+     * @throws Exception if reflection fails
+     */
+    private RefPullService vatRateService(RefApplyService apply) throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            if (request.uri().getPath().endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of("VAT_RATES", "v1")).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        return service(endpoints, apply, mapper, client);
+    }
+
+    /**
+     * Builds the probe instance a register resolves.
+     *
+     * @param probe the probe it resolves to, or null for an unresolvable one
+     * @return the instance mock
+     */
+    @SuppressWarnings("unchecked")
+    private jakarta.enterprise.inject.Instance<SaleActivityProbe> probeInstance(SaleActivityProbe probe) {
+        jakarta.enterprise.inject.Instance<SaleActivityProbe> instance = mock(jakarta.enterprise.inject.Instance.class);
+        when(instance.isResolvable()).thenReturn(probe != null);
+        when(instance.get()).thenReturn(probe);
+        return instance;
+    }
+
+    /**
+     * A sale domain changed during a sale waits: nothing applied, nothing
+     * recorded, the deferral audited once over two cycles and a cycle brought
+     * forward once; the sale over, the update applies.
+     */
+    @Test
+    void aSaleInProgressDefersTheSaleDomains() throws Exception {
+        RefApplyService apply = mock(RefApplyService.class);
+        RefPullService service = vatRateService(apply);
+        SaleActivityProbe probe = mock(SaleActivityProbe.class);
+        when(probe.saleInProgress()).thenReturn(true, true, false);
+        service.saleActivity = probeInstance(probe);
+        ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+        Field field = RefPullService.class.getDeclaredField("executor");
+        field.setAccessible(true);
+        field.set(service, executor);
+        service.pullOnce();
+        service.pullOnce();
+        verify(apply, never()).applyVatRates(any());
+        verify(apply, never()).recordApplied(any(), any());
+        verify(apply, org.mockito.Mockito.times(1)).recordAudit("VAT_RATES", "v1",
+                com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.DEFERRED, "Vente en cours");
+        verify(executor, org.mockito.Mockito.times(1)).schedule(any(Runnable.class),
+                eq(RefPullService.DEFER_RETRY_SECONDS), eq(java.util.concurrent.TimeUnit.SECONDS));
+        service.pullOnce();
+        verify(apply).applyVatRates(any());
+        verify(apply).recordApplied("VAT_RATES", "v1");
+    }
+
+    /**
+     * The brought-forward cycle frees the retry slot and runs a guarded pull;
+     * a deferral with no loop running schedules nothing.
+     */
+    @Test
+    void theRetryRunsAGuardedCycleAndFreesItsSlot() throws Exception {
+        RefApplyService apply = mock(RefApplyService.class);
+        RefPullService service = vatRateService(apply);
+        SaleActivityProbe probe = mock(SaleActivityProbe.class);
+        when(probe.saleInProgress()).thenReturn(true);
+        service.saleActivity = probeInstance(probe);
+        service.retryDeferred();
+        verify(apply, never()).applyVatRates(any());
+        ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+        Field field = RefPullService.class.getDeclaredField("executor");
+        field.setAccessible(true);
+        field.set(service, executor);
+        service.pullOnce();
+        service.retryDeferred();
+        verify(executor, org.mockito.Mockito.times(2)).schedule(any(Runnable.class),
+                eq(RefPullService.DEFER_RETRY_SECONDS), eq(java.util.concurrent.TimeUnit.SECONDS));
+    }
+
+    /**
+     * A node with no probe, or whose probe cannot be resolved, never defers;
+     * a domain the sale is not made of is applied even during a sale.
+     */
+    @Test
+    void aNodeThatSellsNothingNeverDefers() throws Exception {
+        RefApplyService unresolvable = mock(RefApplyService.class);
+        RefPullService service = vatRateService(unresolvable);
+        service.saleActivity = probeInstance(null);
+        service.pullOnce();
+        verify(unresolvable).applyVatRates(any());
+        RefApplyService absent = mock(RefApplyService.class);
+        RefPullService bare = vatRateService(absent);
+        bare.saleActivity = null;
+        bare.pullOnce();
+        verify(absent).applyVatRates(any());
+        assertFalse(RefPullService.SALE_DOMAINS.contains("EMPLOYEES"));
+    }
+
+    /**
+     * BO-03-12-01: with a positive watch cadence the loop also schedules the
+     * stamp watcher; the executor then still shuts down cleanly.
+     */
+    @Test
+    void onStartAlsoSchedulesTheStampWatcher() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.hasStoreUrl()).thenReturn(true);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.watchSeconds = 5L;
+        service.onStart(null);
+        ScheduledExecutorService executor = getExecutor(service);
+        assertTrue(executor != null && !executor.isShutdown());
+        service.onStop();
+        assertTrue(executor.isShutdown());
+    }
+
+    /**
+     * BO-03-12-01: the first stamp is only recorded, the same stamp pulls
+     * nothing, a moved stamp runs a cycle at once.
+     */
+    @Test
+    void aMovedStampRunsACycleAtOnce() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        java.util.concurrent.atomic.AtomicInteger stamp = new java.util.concurrent.atomic.AtomicInteger(1);
+        java.util.concurrent.atomic.AtomicInteger cycles = new java.util.concurrent.atomic.AtomicInteger();
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            if (request.uri().getPath().endsWith("/stamp")) {
+                return resp(200, " " + stamp.get() + "\n");
+            }
+            cycles.incrementAndGet();
+            return resp(200, "VERSIONS");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mapper, client);
+        service.watchOnce();
+        service.watchOnce();
+        assertEquals(0, cycles.get());
+        stamp.set(2);
+        service.watchOnce();
+        assertEquals(1, cycles.get());
+    }
+
+    /** BO-03-12-01: an unreadable stamp leaves the loop alive. */
+    @Test
+    void anUnreadableStampIsSwallowed() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> resp(404, "")).when(client).send(any(HttpRequest.class), any());
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mock(ObjectMapper.class), client);
+        service.watchSafely();
+        verify(client).send(any(HttpRequest.class), any());
+    }
+
+    /**
+     * BO-03-12-01: a readable stamp goes through the safe watch untouched,
+     * the first read only recording it.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void aReadableStampIsRecordedThroughTheSafeWatch() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> resp(200, "s1")).when(client).send(any(HttpRequest.class), any());
+        RefApplyService apply = mock(RefApplyService.class);
+        RefPullService service = service(endpoints, apply, mock(ObjectMapper.class), client);
+        service.watchSafely();
+        verify(client).send(any(HttpRequest.class), any());
+        org.mockito.Mockito.verifyNoInteractions(apply);
+    }
+
+    /**
+     * BO-03-12-01: a stamp read that throws is swallowed too.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void aFailingStampReadIsSwallowed() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        HttpClient client = mock(HttpClient.class);
+        org.mockito.Mockito.doThrow(new java.io.IOException("down")).when(client).send(any(HttpRequest.class), any());
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mock(ObjectMapper.class), client);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(service::watchSafely);
+    }
+
+    /** BO-03-10-16/19: the cash menus and the store record are applied like any domain. */
+    @Test
+    void theCashMenusAndTheStoreAreApplied() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            if (request.uri().getPath().endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of("CASH_MENUS", "m1", "STORE", "s1")).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        RefPullService service = service(endpoints, apply, mapper, client);
+        service.pullOnce();
+        verify(apply).applyCashMenus(any());
+        verify(apply).applyStore(any());
+    }
+
+    /**
+     * BO-02-03-17: a changed MEASURE_UNITS domain is pulled page by page and
+     * applied, then its fingerprint is recorded.
+     *
+     * @throws Exception on a mocked transport failure
+     */
+    @Test
+    void pullOnceAppliesTheMeasureUnits() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            if (request.uri().getPath().endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of("MEASURE_UNITS", "m1")).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        service(endpoints, apply, mapper, client).pullOnce();
+        verify(apply).applyMeasureUnits(any());
+        verify(apply).recordApplied("MEASURE_UNITS", "m1");
+    }
+
+    /**
+     * BO-02-03-33: a file the register cannot start from — unstamped, or
+     * integrated over another state than the one the register stands at, as
+     * after a missed delta — is not applied: the pages are.
+     *
+     * @throws Throwable on a reflective failure
+     */
+    @Test
+    void aFileTheRegisterDoesNotStartFromGivesWayToThePages() throws Throwable {
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        when(apply.feedContent("PRODUCTS")).thenReturn("CSV;DATA");
+        when(apply.feedStamp("PRODUCTS")).thenReturn(null, new RefApplyService.FeedStamp("fp-store", "fp-after"));
+        when(apply.lastApplied("PRODUCTS")).thenReturn("fp-register");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        RefPullService service = service(endpoints, apply, mapper, client);
+        callApplyDomain(service, "PRODUCTS", "fp-1");
+        callApplyDomain(service, "PRODUCTS", "fp-2");
+        verify(apply, never()).applyFromFile(any(), any());
+        verify(apply, org.mockito.Mockito.times(2)).applyProducts(any());
+        verify(apply).recordApplied("PRODUCTS", "fp-2");
     }
 }

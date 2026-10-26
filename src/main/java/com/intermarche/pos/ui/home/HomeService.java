@@ -102,6 +102,10 @@ public class HomeService {
     @Inject
     SyncOutboxService syncOutboxService;
 
+    /** The referential pull loop, the register's pulse of its store node (BO-10-07-19). */
+    @Inject
+    com.intermarche.pos.service.sync.RefPullService refPullService;
+
     @Inject
     ObjectMapper objectMapper;
 
@@ -277,10 +281,21 @@ public class HomeService {
         }
         state.armedQuantity = quantity;
         state.priceModState.clear();
-        state.ticket.setNotice(i18n.format("op.quantiteSaisissezArticle",
-                quantity.stripTrailingZeros().toPlainString()));
+        state.ticket.setNotice(i18n.format("op.quantiteSaisissezArticle", writtenQuantity(quantity)));
         state.touch();
         LOGGER.info("Exiting method armQuantity");
+    }
+
+    /**
+     * Writes a keyed quantity the way the register writes figures to its
+     * operator: needless trailing zeros dropped and the decimal comma of every
+     * register language, {@code 1,5}.
+     *
+     * @param quantity the keyed quantity
+     * @return the written quantity
+     */
+    private static String writtenQuantity(BigDecimal quantity) {
+        return quantity.stripTrailingZeros().toPlainString().replace('.', ',');
     }
 
     /**
@@ -354,8 +369,9 @@ public class HomeService {
      * the line is always found, so the not-found arm would be untestable.
      *
      * @param targetUid the uid of the line the scan found
-     * @return true when the line was decremented and nothing else must happen,
-     *         false when the caller must cancel the line outright
+     * @return true when the line was decremented, or a decimal keyed for a unit
+     *         line was refused, and nothing else must happen; false when the
+     *         caller must cancel the line outright
      */
     boolean decrementByScan(String targetUid) {
         LOGGER.info("Entering method decrementByScan with targetUid: " + targetUid);
@@ -366,20 +382,26 @@ public class HomeService {
                 .findFirst()
                 .orElse(null);
         if (item == null || (item.plu != null && !item.plu.isEmpty())
-                || item.priceEmbedded || item.moneyProduct
+                || item.priceEmbedded || item.moneyProduct || item.linkedParentUid != null
                 || item.getTotalPrice().signum() < 0) {
             LOGGER.info("Exiting method decrementByScan with false");
             return false;
         }
         BigDecimal units = asked == null || asked.signum() <= 0 ? BigDecimal.ONE : asked;
+        // LC-02-13-03: a decimal keyed first takes nothing off a unit line —
+        // the line is left whole and the operator is told.
+        if (!item.decimalQuantity && units.stripTrailingZeros().scale() > 0) {
+            state.ticket.setError(i18n.get("op.quantiteInvalide"));
+            LOGGER.info("Exiting method decrementByScan with true");
+            return true;
+        }
         if (item.quantity.compareTo(units) <= 0) {
             LOGGER.info("Exiting method decrementByScan with false");
             return false;
         }
         item.quantity = item.quantity.subtract(units);
         ticketService.recalculateTotal(state);
-        state.ticket.setNotice(i18n.format("op.quantiteRetireeArticle",
-                units.stripTrailingZeros().toPlainString()));
+        state.ticket.setNotice(i18n.format("op.quantiteRetireeArticle", writtenQuantity(units)));
         LOGGER.info("Exiting method decrementByScan with true");
         return true;
     }
@@ -426,6 +448,10 @@ public class HomeService {
             state.ticket.setError(i18n.get("op.repetitionImpossibleArticlePrix"));
             state.touch();
             LOGGER.info("Exiting method repeatLastItem");
+            return;
+        }
+        if (last.linkedParentUid != null) {
+            state.ticket.setError(i18n.get("op.articleLieGereParPrincipal"));
             return;
         }
         last.quantity = last.quantity.add(BigDecimal.ONE);
@@ -511,8 +537,8 @@ public class HomeService {
      * Cancels the line named by its uid — the shared decision for the CANCEL key
      * and the cancel-by-scan mode (EXP-32/35/36).
      *
-     * <p>Order of guards: the anti-fraud last-article guard first (EXP-35), then
-     * the per-gesture endorsement decision (EXP-32/33). The last-entered quick
+     * <p>LC-02-11-04 requires a reason and fresh endorsement for the unique sold
+     * article. Other lines follow the per-gesture decision (EXP-32/33). The last-entered quick
      * cancel and an older line each carry their own administered flag; either
      * proceeds directly when authorized (flag off, connected supervisor, or an open
      * supervisor session), otherwise it parks the CANCEL_LINE endorsement.
@@ -521,13 +547,14 @@ public class HomeService {
      */
     void cancelLineByUid(String targetUid) {
         LOGGER.info("Entering method cancelLineByUid with targetUid: " + targetUid);
-        if (state.ticket.items.size() == 1
+        boolean uniqueSaleLine = state.ticket.items.size() == 1
                 && targetUid.equals(state.ticket.items.get(0).uid)
-                && !onlyNegativeLines()) {
-            // EXP-35: cancelling the only line would zero the ticket, a known
-            // fraud door. The refusal names the exit: the ticket abandon. A ticket
-            // that sold NOTHING is exempt — see onlyNegativeLines().
-            state.ticket.setError(i18n.get("op.dernierArticleUtilisezAbandon"));
+                && !onlyNegativeLines();
+        // LC-02-11-04: the unique sold article requires both a reason and a fresh endorsement.
+        if (uniqueSaleLine && posListService.justificationsOf(
+                com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE).isEmpty()) {
+            state.ticket.setError(i18n.get("op.motifAnnulationObligatoire"));
+            state.touch();
             LOGGER.info("Exiting method cancelLineByUid");
             return;
         }
@@ -541,6 +568,16 @@ public class HomeService {
                         com.intermarche.pos.service.PosListService.FUNCTION_CANCEL_LINE).isEmpty()) {
             state.ticket.pendingCancelUid = targetUid;
             state.touch();
+            LOGGER.info("Exiting method cancelLineByUid");
+            return;
+        }
+        if (uniqueSaleLine) {
+            // LC-01-05-01: a fresh exact-function approval already satisfies the mandatory single-line aval.
+            if (endorsementService.functionApproved()) {
+                cancelLineNow(targetUid, targetUid.equals(state.lastEnteredItemId));
+                return;
+            }
+            endorsementService.requestAuthorization(state, "CANCEL_LINE_" + targetUid);
             LOGGER.info("Exiting method cancelLineByUid");
             return;
         }
@@ -593,7 +630,7 @@ public class HomeService {
      *
      * <p>Nothing is cancelled here: the reason is stored and the gesture
      * re-enters {@link #cancelLineByUid(String)} at its start, so the
-     * anti-fraud guard, the administered control point and the aval all apply
+     * unique-article policy, the administered control point and the aval all apply
      * exactly as they would have. A code the administered list does not carry
      * is refused rather than recorded as itself — a state grouping by reason
      * must not grow a column of codes nobody administered.
@@ -924,6 +961,10 @@ public class HomeService {
         state.returnTypeLabel = type.label();
         technicalEventService.log(TechnicalEvent.EventType.RETURN_TYPE_SELECTED, type.label());
         if (type.dedicatedTicket()) {
+            // BO-03-13-04: a TICKET-mode type starts from an identification, so
+            // nothing a previous free search found may be selected under it.
+            state.refund.clearSelection();
+            state.refund.foundTickets = new java.util.ArrayList<>();
             state.touch();
             LOGGER.info("Exiting method startReturnType");
             return true;
@@ -1034,6 +1075,78 @@ public class HomeService {
         state.selectedTicketIndex = -1;
         state.touch();
         LOGGER.info("Exiting method cancelByScan");
+    }
+
+    /**
+     * LC-02-12-05: designates one existing article through its group, never through sale admission.
+     * @param ean selected article identity
+     */
+    public void cancelGroupArticle(String ean) {
+        TicketState.TicketItem item = state.ticket.items.stream()
+                .filter(line -> ean != null && ean.equals(line.ean))
+                .min(java.util.Comparator.comparing(line -> line.linkedParentUid != null)).orElse(null);
+        if (item == null) {
+            state.ticket.setError(i18n.get("op.articleAbsentTicket"));
+        } else if (item.linkedParentUid != null) {
+            state.ticket.setError(i18n.get("op.articleLieGereParPrincipal"));
+        } else if (groupCancellationRemovesLastSale(item)) {
+            // The earlier single-article policy still requires its reason and fresh approval.
+            cancelLineByUid(item.uid);
+        } else {
+            state.ticket.pendingCancelUid = null;
+            state.ticket.pendingCancelReasonCode = null;
+            state.ticket.pendingCancelReasonLabel = null;
+            endorsementService.requestAuthorization(state, "CANCEL_GROUP_ARTICLE",
+                    java.util.Map.of("uid", item.uid), null);
+        }
+        state.touch();
+    }
+
+    /**
+     * LC-02-12-05/-06: executes exactly one approved unit removal against the captured line identity.
+     * @param uid stable line approved by the supervisor; a stale identity never targets another line
+     */
+    public void performGroupArticleCancellation(String uid) {
+        TicketState.TicketItem item = state.ticket.items.stream()
+                .filter(line -> java.util.Objects.equals(uid, line.uid)).findFirst().orElse(null);
+        if (item == null) {
+            state.ticket.setError(i18n.get("op.ligneIntrouvable"));
+        } else if (item.linkedParentUid != null) {
+            state.ticket.setError(i18n.get("op.articleLieGereParPrincipal"));
+        } else if (groupCancellationRemovesLastSale(item)) {
+            // A changed basket cannot reuse this approval to bypass the final-article reason.
+            state.ticket.setError(i18n.get("op.motifAnnulationObligatoire"));
+        } else if (canCancelOneGroupUnit(item)) {
+            item.quantity = item.quantity.subtract(BigDecimal.ONE);
+            item.valuedTotal = null;
+            ticketService.recalculateTotal(state);
+            state.ticket.setNotice(i18n.format("op.quantiteRetireeArticle", "1"));
+        } else {
+            cancelLineNow(uid, java.util.Objects.equals(uid, state.lastEnteredItemId));
+        }
+        state.selectedTicketIndex = -1;
+        state.touch();
+    }
+
+    /**
+     * LC-02-12-06: only unit sales can lose one unit without replacing a measured or embedded-price object.
+     * @param item existing line
+     * @return true when one unit can be removed while retaining that line
+     */
+    private boolean canCancelOneGroupUnit(TicketState.TicketItem item) {
+        return item.quantity.compareTo(BigDecimal.ONE) > 0
+                && (item.plu == null || item.plu.isEmpty())
+                && !item.priceEmbedded && !item.moneyProduct && item.getTotalPrice().signum() >= 0;
+    }
+
+    /**
+     * Preserves the previously agreed LC-02-11-04 final sold-article reason and approval.
+     * @param item existing line
+     * @return true when this gesture would remove the last sold article
+     */
+    private boolean groupCancellationRemovesLastSale(TicketState.TicketItem item) {
+        return state.ticket.items.size() == 1 && item.getTotalPrice().signum() >= 0
+                && !canCancelOneGroupUnit(item);
     }
 
     /**
@@ -1158,6 +1271,13 @@ public class HomeService {
             state.priceModState.set(mode, null, i18n.get("op.prochainArticle"));
         } else if (target == null) {
             state.ticket.setError(i18n.get("op.aucuneLigneSelectionnee"));
+        } else if ((mode == PriceModType.REMISE || mode == PriceModType.DISCOUNT) && target.discountForbidden) {
+            // BO-02-03-09: the article bans manual reductions, and the operator is
+            // told so at the gesture rather than finding the figure ignored.
+            state.ticket.setError(i18n.get("op.remiseInterditeArticle"));
+        } else if (mode == PriceModType.FORCE_PRICE && target.priceCallOnly) {
+            // BO-02-03-05: an "appel prix" article is sold at its fiche's price.
+            state.ticket.setError(i18n.get("op.prixImposeArticle"));
         } else {
             // The line is captured HERE, at opening, and not read again while the
             // modal is up: what the operator is about to modify is the line as it
@@ -1291,6 +1411,12 @@ public class HomeService {
             return;
         }
         state.trainingMode = !state.trainingMode;
+        if (!state.trainingMode) {
+            // BO-06-06-01: a training cart on hold cannot outlive the training.
+            state.trainingParkedItems = new java.util.ArrayList<>();
+            state.trainingParkedId = null;
+            state.trainingParkedAt = null;
+        }
         technicalEventService.log(state.trainingMode
                 ? TechnicalEvent.EventType.TRAINING_STARTED
                 : TechnicalEvent.EventType.TRAINING_ENDED, null);
@@ -1298,6 +1424,11 @@ public class HomeService {
         LOGGER.info("Exiting method performTrainingToggle");
     }
 
+    /**
+     * Calls the back office with a reason and no message.
+     *
+     * @param reason the reason chosen, possibly blank
+     */
     public void callSupervisor(String reason) {
         callSupervisor(reason, null);
     }
@@ -1315,7 +1446,10 @@ public class HomeService {
         LOGGER.info("Entering method callSupervisor with reason: " + reason + ", message: ***");
         String journalled = (message == null || message.isBlank())
                 ? reason : reason + " — " + message;
-        technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED, journalled);
+        // BO-06-06-07: the call names the cashier who made it, so the reason-code
+        // state reads who called and not a blank.
+        technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED, journalled,
+                state.auth == null ? null : state.auth.operatorBadgeId);
         if (!syncOutboxService.isEnabled()) {
             state.ticket.setError(i18n.get("op.supervisionNonConfigureeCaisse"));
             state.touch();
@@ -1329,6 +1463,13 @@ public class HomeService {
             payload.put("reason", reason);
             if (message != null && !message.isBlank()) {
                 payload.put("message", message);
+            }
+            if ("SONDAGE".equals(reason)) {
+                // BO-06-03-02: the answer names the ticket it was given on — the
+                // one being rung up, else the last one closed — so the node can
+                // read the answering customer's basket.
+                payload.put("ticketNumber", surveyTicketNumber());
+                payload.put("badge", state.auth.operatorBadgeId);
             }
             java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder()
                     .uri(java.net.URI.create(syncOutboxService.getStoreUrl() + "/api/supervisor/call"))
@@ -1348,9 +1489,15 @@ public class HomeService {
                 // LC-01-07-03: the request is IN PROGRESS the moment the back
                 // office took it — the lane shows it until it is cancelled,
                 // refused, acknowledged or validated.
-                state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
-                state.serviceRequestReason = reason;
-                state.ticket.setNotice(i18n.get("op.superviseurPrevenu"));
+                if ("SONDAGE".equals(reason)) {
+                    // BO-06-03-02: a survey answer is FILED, it asks nobody to
+                    // come: the lane shows no request in progress for it.
+                    state.ticket.setNotice(i18n.get("op.r21rvSondageEnregistre"));
+                } else {
+                    state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
+                    state.serviceRequestReason = reason;
+                    state.ticket.setNotice(i18n.get("op.superviseurPrevenu"));
+                }
             } else {
                 state.ticket.setError(i18n.format("op.appelSuperviseurRefuse", String.valueOf(response.statusCode())));
             }
@@ -1566,7 +1713,10 @@ public class HomeService {
             return;
         }
         if ("POSTAL_CODE".equals(normalizedType)) {
-            String postal = typed.toUpperCase(java.util.Locale.ROOT);
+            // BO-06-03-03: the code keyed is put into the mask's shape first, so
+            // a Portuguese 4100300 reads 4100-300 — the dash inserted, not demanded.
+            String postal = com.intermarche.pos.domain.store.PostalCodeMask.normalize(typed, survey.postalFormat);
+            typed = postal;
             if (!postalFormatMatches(survey.postalFormat, postal)) {
                 // LC-03-07-07: the administered mask decides the shape —
                 // France CCCCC, Belgium CCCC, Portugal CCCC-CCC.
@@ -1623,6 +1773,21 @@ public class HomeService {
             }
         }
         return true;
+    }
+
+    /**
+     * Names the ticket a survey answer belongs to (BO-06-03-02): the draft being
+     * rung up when there is one, else the last ticket this register closed.
+     *
+     * @return the ticket number, or null when the register has none
+     */
+    String surveyTicketNumber() {
+        com.intermarche.pos.domain.sale.Ticket ticket = state.payment.ticketDbId == null ? null
+                : com.intermarche.pos.domain.sale.Ticket.findById(state.payment.ticketDbId);
+        if (ticket == null) {
+            ticket = com.intermarche.pos.domain.sale.Ticket.findLastClosedByTerminal(ticketNumberService.getTerminalId());
+        }
+        return ticket == null ? null : ticket.ticketNumber;
     }
 
     /**
@@ -1709,6 +1874,11 @@ public class HomeService {
             // BO-03-07-01: remises and rabais deactivated at the back office —
             // the gesture is refused before any endorsement or application.
             state.ticket.setError(i18n.get("op.remisesDesactivees"));
+        } else if (isDiscountGesture(type) && presetCeilingExceeded(value)) {
+            // BO-03-07-04: the typed figure of an administered key stays under
+            // THAT key's own ceiling.
+            state.ticket.setError(i18n.format("op.remisePlafondTouche",
+                    state.priceModState.presetLabel, state.priceModState.presetMaximum.toPlainString()));
         } else if (endorsementService.gestureAuthorized(state,
                 type == PriceModType.FORCE_PRICE ? "price-force" : "discount")) {
             // Authorized without a modal (EXP-32/33: flag off, connected
@@ -1721,6 +1891,18 @@ public class HomeService {
         state.priceModState.clear();
         state.touch();
         LOGGER.info("Exiting method submitPriceMod");
+    }
+
+    /**
+     * Whether the typed figure goes over the ceiling of the administered key
+     * that armed the modal (BO-03-07-04).
+     *
+     * @param value the typed figure, possibly null
+     * @return true when a key ceiling is armed and the figure exceeds it
+     */
+    private boolean presetCeilingExceeded(BigDecimal value) {
+        BigDecimal ceiling = state.priceModState.presetMaximum;
+        return ceiling != null && value != null && value.compareTo(ceiling) > 0;
     }
 
     /**
@@ -1781,10 +1963,34 @@ public class HomeService {
      *
      * @return the administered keys, in order, never null
      */
-    public java.util.List<com.intermarche.pos.service.PosSettingsService.DiscountPreset> discountPresets() {
+    public java.util.List<com.intermarche.pos.service.PosListService.DiscountKey> discountPresets() {
         LOGGER.info("Entering method discountPresets");
+        java.util.List<com.intermarche.pos.service.PosListService.DiscountKey> keys = new java.util.ArrayList<>();
+        for (com.intermarche.pos.service.PosListService.DiscountKey key : posListService.discountKeys()) {
+            if (!key.ticketLevel()) {
+                keys.add(key);
+            }
+        }
         LOGGER.info("Exiting method discountPresets");
-        return posSettingsService.discountPresets();
+        return keys;
+    }
+
+    /**
+     * The ready-made keys on the TICKET TOTAL the back office administers, for
+     * the ticket-level modes of the modal (BO-03-07-03/-04/-06).
+     *
+     * @return the ticket-level keys, in order, never null
+     */
+    public java.util.List<com.intermarche.pos.service.PosListService.DiscountKey> ticketDiscountPresets() {
+        LOGGER.info("Entering method ticketDiscountPresets");
+        java.util.List<com.intermarche.pos.service.PosListService.DiscountKey> keys = new java.util.ArrayList<>();
+        for (com.intermarche.pos.service.PosListService.DiscountKey key : posListService.discountKeys()) {
+            if (key.ticketLevel()) {
+                keys.add(key);
+            }
+        }
+        LOGGER.info("Exiting method ticketDiscountPresets");
+        return keys;
     }
 
     /**
@@ -1809,10 +2015,33 @@ public class HomeService {
             LOGGER.info("Exiting method applyPresetKey");
             return;
         }
-        com.intermarche.pos.service.PosSettingsService.DiscountPreset preset =
-                posSettingsService.discountPreset(label);
+        com.intermarche.pos.service.PosListService.DiscountKey preset =
+                posListService.discountKey(label);
         if (preset == null) {
             state.ticket.setError(i18n.get("op.presetInconnu"));
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method applyPresetKey");
+            return;
+        }
+        if (preset.open()) {
+            // BO-03-07-04: a key whose figure the cashier types re-arms the
+            // modal in its mode, carrying ITS ceiling to the submission.
+            PriceModType mode = preset.ticketLevel()
+                    ? (preset.percent() ? PriceModType.GLOBAL_DISCOUNT : PriceModType.GLOBAL_REMISE)
+                    : (preset.percent() ? PriceModType.DISCOUNT : PriceModType.REMISE);
+            state.priceModState.type = mode;
+            state.priceModState.presetLabel = preset.label();
+            state.priceModState.presetMaximum = preset.maximum();
+            state.touch();
+            LOGGER.info("Exiting method applyPresetKey");
+            return;
+        }
+        if (preset.ticketLevel()) {
+            ticketService.applyGlobalDiscount(state,
+                    preset.percent() ? PriceModType.GLOBAL_DISCOUNT : PriceModType.GLOBAL_REMISE,
+                    preset.value());
+            ticketService.recalculateTotal(state);
             state.priceModState.clear();
             state.touch();
             LOGGER.info("Exiting method applyPresetKey");
@@ -1836,7 +2065,7 @@ public class HomeService {
             LOGGER.info("Exiting method applyPresetKey");
             return;
         }
-        ticketService.applyPreset(item, label);
+        ticketService.applyPresetValue(item, preset.percent(), preset.value(), preset.cumulative());
         ticketService.recalculateTotal(state);
         state.priceModState.clear();
         state.touch();
@@ -1877,6 +2106,10 @@ public class HomeService {
                 .orElse(null);
         if (item == null) {
             state.ticket.setError(i18n.get("op.ligneIntrouvable"));
+            return;
+        }
+        if (item.linkedParentUid != null) {
+            state.ticket.setError(i18n.get("op.articleLieGereParPrincipal"));
             return;
         }
         boolean hasEan = item.ean != null && !item.ean.isEmpty();
@@ -1935,5 +2168,17 @@ public class HomeService {
         ticketPrinterService.printOperatorBadge(employee);
         state.ticket.setError(i18n.get("op.badgeOperateurImprime"));
         LOGGER.info("Exiting method printOperatorBadge");
+    }
+
+    /**
+     * Whether the register screen takes its DISCONNECTED appearance
+     * (BO-10-07-19): the back office activated it and the store node has
+     * stayed silent for the administered delay, in a transaction or not.
+     *
+     * @return true when the screen must show the offline appearance
+     */
+    public boolean offlineAppearance() {
+        return posSettingsService.offlineDisplayEnabled() && refPullService.isUnreachableFor(
+                posSettingsService.offlineDisplayDelaySeconds(), java.time.LocalDateTime.now());
     }
 }

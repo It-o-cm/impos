@@ -191,7 +191,7 @@ class TicketLineTest {
         TicketLine line = new TicketLine();
         line.product = null;
         line.quantity = new BigDecimal("1.500");
-        Assertions.assertEquals("x1.5", line.getFormattedQuantity());
+        Assertions.assertEquals("x1,5", line.getFormattedQuantity());
     }
 
     /**

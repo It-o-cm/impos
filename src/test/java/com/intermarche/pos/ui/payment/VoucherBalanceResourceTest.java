@@ -276,4 +276,141 @@ class VoucherBalanceResourceTest {
         }
         verify(instance).data("number", "2960001");
     }
+
+    /**
+     * Runs a consultation of a number under a stubbed type of prepaid card
+     * and captures the view the page received.
+     *
+     * @param resource the resource
+     * @param type the type the number belongs to, or null
+     * @param number the number consulted
+     * @return the captured view
+     */
+    private VoucherBalanceResource.BalanceView consultUnder(VoucherBalanceResource resource,
+            com.intermarche.pos.domain.payment.PrepaidCardType type, String number) {
+        TemplateInstance instance = wireTemplate(resource);
+        try (MockedStatic<com.intermarche.pos.domain.payment.PrepaidCardType> types =
+                     mockStatic(com.intermarche.pos.domain.payment.PrepaidCardType.class);
+             MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            types.when(() -> com.intermarche.pos.domain.payment.PrepaidCardType.findFor(number)).thenReturn(type);
+            PanacheQuery<StoredValue> none = query(null);
+            panache.when(() -> StoredValue.find("number", number)).thenReturn(none);
+            resource.voucherBalancePage(number, true);
+        }
+        ArgumentCaptor<Object> view = ArgumentCaptor.forClass(Object.class);
+        verify(instance).data(eq("result"), view.capture());
+        return (VoucherBalanceResource.BalanceView) view.getValue();
+    }
+
+    /**
+     * Builds a type of prepaid card.
+     *
+     * @param protocol its protocol
+     * @param balance whether its balance may be consulted
+     * @return the type
+     */
+    private com.intermarche.pos.domain.payment.PrepaidCardType prepaid(String protocol, boolean balance) {
+        com.intermarche.pos.domain.payment.PrepaidCardType type =
+                new com.intermarche.pos.domain.payment.PrepaidCardType();
+        type.label = "Cadeau";
+        type.protocol = protocol;
+        type.balanceAllowed = balance;
+        return type;
+    }
+
+    /**
+     * Wires the hub and the messages a prepaid consultation uses.
+     *
+     * @param resource the resource
+     * @param configured whether a hub is administered
+     */
+    private void withHub(VoucherBalanceResource resource, boolean configured) {
+        resource.nexoHubClient = mock(NexoHubClient.class);
+        when(resource.nexoHubClient.isConfigured()).thenReturn(configured);
+        resource.i18n = com.intermarche.pos.ui.TestMessages.french();
+    }
+
+    /**
+     * BO-03-02-37: a type forbidding the consultation answers a refusal.
+     */
+    @Test
+    void aTypeForbiddingTheBalanceRefusesIt() {
+        VoucherBalanceResource resource = newResource();
+        withHub(resource, true);
+        VoucherBalanceResource.BalanceView view = consultUnder(resource, prepaid("NEXO", false), "6299");
+        assertEquals("CONSULTATION DU SOLDE NON AUTORISEE POUR LA CARTE Cadeau", view.refusal);
+        assertFalse(view.found);
+    }
+
+    /**
+     * BO-03-02-37: a NEXO card is consulted on the hub — its balance, a
+     * missing balance reading zero, or the hub's refusal with or without its
+     * wording.
+     */
+    @Test
+    void aNexoCardIsConsultedOnTheHub() {
+        VoucherBalanceResource resource = newResource();
+        withHub(resource, true);
+        when(resource.nexoHubClient.balance("6299")).thenReturn(
+                new NexoHubClient.HubResult(true, null, null, "T", null, new BigDecimal("30"), "ILLICADO", "A"),
+                new NexoHubClient.HubResult(true, null, null, "T", null, null, "ILLICADO", "A"),
+                NexoHubClient.HubResult.failure("Refused", "CARTE BLOQUEE"),
+                new NexoHubClient.HubResult(false, "Refused", null, null, null, null, null, null));
+        VoucherBalanceResource.BalanceView funded = consultUnder(resource, prepaid("NEXO", true), "6299");
+        assertTrue(funded.found);
+        assertEquals("30,00", funded.balanceFormatted);
+        assertEquals("Cadeau", funded.kindLabel);
+        assertEquals("6299", funded.number);
+        assertEquals("ACTIVE", funded.statusLabel);
+        assertEquals("0,00", consultUnder(newWired(resource), prepaid("NEXO", true), "6299").balanceFormatted);
+        assertEquals("SOLDE Cadeau REFUSE : CARTE BLOQUEE",
+                consultUnder(newWired(resource), prepaid("NEXO", true), "6299").refusal);
+        assertEquals("SOLDE Cadeau REFUSE : ",
+                consultUnder(newWired(resource), prepaid("NEXO", true), "6299").refusal);
+    }
+
+    /**
+     * Rebuilds a resource sharing the hub and the messages of another, its
+     * template fresh.
+     *
+     * @param other the resource whose hub is kept
+     * @return the new resource
+     */
+    private VoucherBalanceResource newWired(VoucherBalanceResource other) {
+        VoucherBalanceResource resource = newResource();
+        resource.nexoHubClient = other.nexoHubClient;
+        resource.i18n = other.i18n;
+        return resource;
+    }
+
+    /**
+     * BO-03-02-37: a LOCAL card, a NEXO card with no hub, a NEXO card in
+     * training and an unreadable referential all read the register's registry.
+     */
+    @Test
+    void otherCardsReadTheRegistry() {
+        VoucherBalanceResource local = newResource();
+        withHub(local, true);
+        assertFalse(consultUnder(local, prepaid("LOCAL", true), "2971").found);
+        VoucherBalanceResource noHub = newResource();
+        withHub(noHub, false);
+        assertNull(consultUnder(noHub, prepaid("NEXO", true), "6299").refusal);
+        VoucherBalanceResource training = newResource();
+        withHub(training, true);
+        training.state.trainingMode = true;
+        assertNull(consultUnder(training, prepaid("NEXO", true), "6299").refusal);
+        verify(training.nexoHubClient, never()).balance(any());
+        VoucherBalanceResource broken = newResource();
+        TemplateInstance instance = wireTemplate(broken);
+        try (MockedStatic<com.intermarche.pos.domain.payment.PrepaidCardType> types =
+                     mockStatic(com.intermarche.pos.domain.payment.PrepaidCardType.class);
+             MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            types.when(() -> com.intermarche.pos.domain.payment.PrepaidCardType.findFor("1"))
+                    .thenThrow(new IllegalStateException("no table"));
+            PanacheQuery<StoredValue> none = query(null);
+            panache.when(() -> StoredValue.find("number", "1")).thenReturn(none);
+            broken.voucherBalancePage("1", true);
+        }
+        verify(instance).data(eq("result"), any());
+    }
 }

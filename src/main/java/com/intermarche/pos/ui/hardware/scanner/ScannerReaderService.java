@@ -59,6 +59,18 @@ public class ScannerReaderService {
             defaultValue = "http://127.0.0.1:8080/api/pos/scan")
     String sinkUrl;
 
+    /**
+     * The intake the customer-side scanner pushes to (BO-03-09-18): fidelity
+     * cards and coupons only, never an article.
+     */
+    @ConfigProperty(name = "pos.scanner.customer-sink-url",
+            defaultValue = "http://127.0.0.1:8080/api/pos/scan/customer")
+    String customerSinkUrl;
+
+    /** The administered activation, driver and device names (BO-03-09-16/17/18). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService settings;
+
     /** The HTTP client pushing codes to the scan intake. */
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
@@ -92,21 +104,84 @@ public class ScannerReaderService {
             LOGGER.info("Lecteur douchette desactive (pos.scanner.enabled=false).");
             return;
         }
-        for (ScannerDiscovery.DiscoveredDevice device : new ScannerDiscovery(namePatterns).discover()) {
-            startReader(toSource(device));
+        // BO-03-09-16: the activation administered for this register.
+        if (!settings.hardwareEnabled("scanner")) {
+            LOGGER.info("Lecteur douchette desactive par le back-office (hardware.scanner.enabled).");
+            return;
         }
+        // BO-03-09-17: an OPOS driver is held by the hardware module, which
+        // pushes the codes to the same intake; the register reads nothing itself.
+        String driver = settings.scannerDriver();
+        if ("OPOS".equals(driver)) {
+            LOGGER.info("Scanner pilote en OPOS par le module materiel.");
+            return;
+        }
+        List<String> patterns = patterns(settings.scannerNamePatterns(), namePatterns);
+        List<String> customer = settings.secondScannerEnabled()
+                ? patterns(settings.secondScannerNamePatterns(), List.of()) : List.of();
+        List<String> all = new ArrayList<>(patterns);
+        all.addAll(customer);
+        for (ScannerDiscovery.DiscoveredDevice device : new ScannerDiscovery(all).discover()) {
+            if (!"AUTO".equals(driver) && !driver.equals(device.channel().name())) {
+                continue;
+            }
+            // BO-03-09-18: the customer-side scanner reads at the same time as
+            // the first, into its own intake.
+            boolean customerSide = matches(device.name(), customer);
+            startReader(toSource(device, customerSide ? this::pushCustomerCode : this::pushCode));
+        }
+    }
+
+    /**
+     * The device-name fragments administered, or the deployment's own when
+     * none is administered.
+     *
+     * @param administered the semicolon list posed by the back office
+     * @param fallback the deployment's list
+     * @return the fragments, lower-cased
+     */
+    static List<String> patterns(String administered, List<String> fallback) {
+        List<String> patterns = new ArrayList<>();
+        for (String part : administered.split("[;,]")) {
+            if (!part.isBlank()) {
+                patterns.add(part.trim().toLowerCase());
+            }
+        }
+        return patterns.isEmpty() ? fallback : patterns;
+    }
+
+    /**
+     * Tells whether a device name carries one of the fragments.
+     *
+     * @param name the device name, possibly null
+     * @param fragments the fragments, lower-cased
+     * @return true when one of them is in the name
+     */
+    static boolean matches(String name, List<String> fragments) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase();
+        for (String fragment : fragments) {
+            if (lower.contains(fragment)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * Builds the source that reads a discovered device in its channel's mode.
      *
      * @param device the discovered device
+     * @param sink where the decoded codes go
      * @return the matching scanner source
      */
-    private ScannerSource toSource(ScannerDiscovery.DiscoveredDevice device) {
+    private ScannerSource toSource(ScannerDiscovery.DiscoveredDevice device,
+                                   java.util.function.Consumer<String> sink) {
         return switch (device.channel()) {
-            case EVDEV -> new EvdevKeyboardSource(device.path(), this::pushCode);
-            case HIDRAW -> new HidrawScannerSource(device.path(), this::pushCode);
+            case EVDEV -> new EvdevKeyboardSource(device.path(), sink);
+            case HIDRAW -> new HidrawScannerSource(device.path(), sink);
         };
     }
 
@@ -160,8 +235,28 @@ public class ScannerReaderService {
      * @param code the decoded barcode
      */
     void pushCode(String code) {
+        push(sinkUrl, code);
+    }
+
+    /**
+     * Pushes one code read by the CUSTOMER-SIDE scanner to its own intake,
+     * which takes fidelity cards and coupons only (BO-03-09-18).
+     *
+     * @param code the decoded barcode
+     */
+    void pushCustomerCode(String code) {
+        push(customerSinkUrl, code);
+    }
+
+    /**
+     * Pushes one code to an intake of the register.
+     *
+     * @param url the intake
+     * @param code the decoded barcode
+     */
+    private void push(String url, String code) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(sinkUrl))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                     .header("Content-Type", "text/plain")
                     .POST(HttpRequest.BodyPublishers.ofString(code))
                     .timeout(Duration.ofSeconds(2))

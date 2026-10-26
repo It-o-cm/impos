@@ -31,6 +31,10 @@ class HardwareServiceTest {
         HardwareService service = new HardwareService();
         service.hardwareClient = client;
         service.state = new com.intermarche.pos.ui.PosState();
+        service.settings = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(service.settings.hardwareEnabled(anyString())).thenReturn(true);
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        when(client.getPrinterStatus()).thenReturn("OK");
         // A register whose checkout point EXPECTS a customer display: the state
         // every pre-existing case runs under, since that is what a lane without
         // an administered point does (BO-03-09-13). The one case that declares
@@ -38,6 +42,7 @@ class HardwareServiceTest {
         service.checkoutPointService =
                 mock(com.intermarche.pos.service.CheckoutPointService.class);
         when(service.checkoutPointService.expectsCustomerDisplay()).thenReturn(true);
+        service.printoutService = mock(PrintoutService.class);
         return service;
     }
 
@@ -141,7 +146,7 @@ class HardwareServiceTest {
         when(client.getWeight()).thenReturn("0,000");
         when(client.getDrawerStatus()).thenReturn("CLOSED");
         java.util.List<HardwareService.DeviceStatus> devices = serviceWith(client).probeDevices();
-        assertEquals(4, devices.size());
+        assertEquals(5, devices.size());
         assertTrue(devices.stream().allMatch(HardwareService.DeviceStatus::available));
     }
 
@@ -156,7 +161,10 @@ class HardwareServiceTest {
         when(client.getWeight()).thenThrow(new RuntimeException("connection refused"));
         when(client.getDrawerStatus()).thenThrow(new RuntimeException("connection refused"));
         doThrow(new RuntimeException("connection refused")).when(client).setDisplay("BONJOUR");
-        java.util.List<HardwareService.DeviceStatus> devices = serviceWith(client).probeDevices();
+        HardwareService service = serviceWith(client);
+        when(client.getPrinterStatus()).thenThrow(new RuntimeException("connection refused"));
+        when(client.maintenance("scanner", "status", "")).thenThrow(new RuntimeException("connection refused"));
+        java.util.List<HardwareService.DeviceStatus> devices = service.probeDevices();
         assertTrue(devices.stream().allMatch(HardwareService.DeviceStatus::failed));
     }
 
@@ -579,6 +587,51 @@ class HardwareServiceTest {
     }
 
     /**
+     * BO-10-02-12: in training mode, a shop that keeps the drawer shut there
+     * gets no pulse at all.
+     */
+    @Test
+    void openDrawerStaysShutInTrainingWhenForbidden() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.state.trainingMode = true;
+        when(service.settings.drawerOpenInTraining()).thenReturn(false);
+        service.openDrawer();
+        verify(client, org.mockito.Mockito.never()).openDrawer();
+    }
+
+    /**
+     * BO-10-02-12: in training mode, a shop that allows the drawer there gets
+     * the pulse as in a real sale.
+     */
+    @Test
+    void openDrawerOpensInTrainingWhenAllowed() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.state.trainingMode = true;
+        when(service.settings.drawerOpenInTraining()).thenReturn(true);
+        service.openDrawer();
+        verify(client).openDrawer();
+    }
+
+    /**
+     * BO-10-02-12: a service built without settings, or without a state,
+     * keeps opening the drawer — a rule that cannot be read never shuts it.
+     */
+    @Test
+    void openDrawerOpensWithoutSettingsOrState() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.state.trainingMode = true;
+        service.settings = null;
+        service.openDrawer();
+        HardwareService stateless = serviceWith(client);
+        stateless.state = null;
+        stateless.openDrawer();
+        verify(client, org.mockito.Mockito.times(2)).openDrawer();
+    }
+
+    /**
      * {@code isDrawerOpen()} answers true when the sensor reports the OPEN
      * sentinel exactly.
      */
@@ -639,7 +692,28 @@ class HardwareServiceTest {
         HardwareClient client = mock(HardwareClient.class);
         serviceWith(client).printReceipt("LINE 1\nLINE 2");
         verify(client).printTicket("LINE 1\nLINE 2");
+        // LC-13-02-09/-12: the independent health calls are part of the contract.
+        verify(client).getPrinterStatus();
         verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * LC-08-02-02: every ticket sent to the printer is kept for the store node,
+     * even when the printer is disabled; a ticket a policy keeps from the printer
+     * is kept all the same, without reaching the printer.
+     */
+    @Test
+    void everyGeneratedTicketIsKept() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.printReceipt("PRINTED");
+        verify(service.printoutService).record("PRINTED");
+        when(service.settings.hardwareEnabled("printer")).thenReturn(false);
+        service.printReceipt("NO PRINTER");
+        verify(service.printoutService).record("NO PRINTER");
+        service.recordUnprinted("KEPT FROM PAPER");
+        verify(service.printoutService).record("KEPT FROM PAPER");
+        verify(client, never()).printTicket("KEPT FROM PAPER");
     }
 
     /**
@@ -652,7 +726,30 @@ class HardwareServiceTest {
         doThrow(new RuntimeException("printer down")).when(client).printTicket("KO");
         serviceWith(client).printReceipt("KO");
         verify(client).printTicket("KO");
+        // LC-13-02-09/-12: the independent health calls are part of the contract.
+        verify(client).getPrinterStatus();
         verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * BO-03-04-14: a sheet goes to the slip station and is kept like every
+     * paper; a disabled printer keeps it without sending it; a failing station
+     * never blocks the document.
+     */
+    @Test
+    void printSlipSendsTheSheetToTheSlipStation() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.printSlip("SHEET 1");
+        verify(client).printSlip("SHEET 1");
+        verify(service.printoutService).record("SHEET 1");
+        doThrow(new RuntimeException("slip down")).when(client).printSlip("KO");
+        service.printSlip("KO");
+        verify(client).printSlip("KO");
+        when(service.settings.hardwareEnabled("printer")).thenReturn(false);
+        service.printSlip("NO PRINTER");
+        verify(service.printoutService).record("NO PRINTER");
+        verify(client, never()).printSlip("NO PRINTER");
     }
 
     /**
@@ -663,6 +760,8 @@ class HardwareServiceTest {
         HardwareClient client = mock(HardwareClient.class);
         serviceWith(client).cutPaper();
         verify(client).cutPaper();
+        // LC-13-02-09/-12: the independent health calls are part of the contract.
+        verify(client).getPrinterStatus();
         verifyNoMoreInteractions(client);
     }
 
@@ -675,6 +774,8 @@ class HardwareServiceTest {
         doThrow(new RuntimeException("cutter jammed")).when(client).cutPaper();
         serviceWith(client).cutPaper();
         verify(client).cutPaper();
+        // LC-13-02-09/-12: the independent health calls are part of the contract.
+        verify(client).getPrinterStatus();
         verifyNoMoreInteractions(client);
     }
 
@@ -696,6 +797,9 @@ class HardwareServiceTest {
         assertEquals("AFFICHEUR CLIENT", devices.get(2).name());
         verify(client).getWeight();
         verify(client).getDrawerStatus();
+        // LC-13-02-09/-12: the independent health calls are part of the contract.
+        verify(client).getPrinterStatus();
+        verify(client).maintenance("scanner", "status", "");
         verifyNoMoreInteractions(client);
     }
 
@@ -718,6 +822,9 @@ class HardwareServiceTest {
         verify(client).getWeight();
         verify(client).getDrawerStatus();
         verify(client).setDisplay("BONJOUR");
+        // LC-13-02-09/-12: the independent health calls are part of the contract.
+        verify(client).getPrinterStatus();
+        verify(client).maintenance("scanner", "status", "");
         verifyNoMoreInteractions(client);
     }
 
@@ -820,5 +927,227 @@ class HardwareServiceTest {
         HardwareService service = newWaitingService(client);
         assertEquals(0.715, service.awaitWeighing(new java.math.BigDecimal("0.035")), 0.0001);
         verify(client, times(2)).getWeightWithTare("0.035");
+    }
+    /** LC-13-02-09/-11/-13: disabled peripherals are absent and never probed. */
+    @Test
+    void administeredDeactivation() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        when(service.settings.hardwareEnabled(anyString())).thenReturn(false);
+        java.util.List<HardwareService.DeviceStatus> devices = service.probeDevices();
+        assertTrue(devices.get(0).absent());
+        assertTrue(devices.get(3).absent());
+        assertTrue(devices.get(4).absent());
+        assertTrue(service.state.scannerDisabled);
+        verify(client, never()).getWeight();
+        verify(client, never()).getPrinterStatus();
+        verify(client, never()).maintenance(anyString(), anyString(), anyString());
+    }
+
+    /** LC-13-02-09: disabled printing performs no status, print or cut call. */
+    @Test
+    void disabledPrinterDoesNotReportEndOfSaleError() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        when(service.settings.hardwareEnabled("printer")).thenReturn(false);
+        service.printReceipt("receipt"); service.cutPaper();
+        verify(client, never()).getPrinterStatus();
+        verify(client, never()).printTicket(anyString());
+        verify(client, never()).cutPaper();
+        assertEquals("ABSENT", service.state.peripheralAvailability.get("hardware.printer"));
+    }
+
+    /** LC-13-02-10: a printer fault marker cannot be inferred healthy from other devices. */
+    @Test
+    void actualPrinterFault() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        when(client.getPrinterStatus()).thenReturn("NO_PAPER");
+        assertTrue(service.probeDevices().get(3).failed());
+        service.printReceipt("receipt"); service.cutPaper();
+        verify(client, never()).printTicket(anyString());
+        verify(client, never()).cutPaper();
+        assertEquals("FAILED", service.state.peripheralAvailability.get("hardware.printer"));
+    }
+
+    /** LC-13-02-09: a bridge-declared unbound printer remains absent rather than failed. */
+    @Test
+    void absentPrinterDuringPrinting() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        WebApplicationException absent = bridgeErrorWithHeader(503, "NO_DEVICE_BOUND");
+        when(client.getPrinterStatus()).thenThrow(absent);
+        service.printReceipt("receipt");
+        assertEquals("ABSENT", service.state.peripheralAvailability.get("hardware.printer"));
+    }
+
+    /** LC-13-02-10: a bound HTTP printer error remains failed. */
+    @Test
+    void failedPrinterDuringPrinting() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        WebApplicationException failed = bridgeErrorWithHeader(503, "PRINTER_ERROR");
+        when(client.getPrinterStatus()).thenThrow(failed);
+        service.printReceipt("receipt");
+        assertEquals("FAILED", service.state.peripheralAvailability.get("hardware.printer"));
+    }
+
+    /** LC-13-02-14: a known failed scale is not retried for every article or tare. */
+    @Test
+    void knownScaleFailureDoesNotPoll() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.state.peripheralAvailability.put("hardware.scale", "FAILED");
+        assertEquals(0.0, service.requestWeighing());
+        assertEquals(0.0, service.requestWeighing(java.math.BigDecimal.ONE));
+        verify(client, never()).getWeight();
+        verify(client, never()).getWeightWithTare(anyString());
+    }
+
+    /** LC-13-02-13/-14: disabled weighing bypasses both calls and empty-plate waiting. */
+    @Test
+    void disabledScaleDoesNotPoll() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        when(service.settings.hardwareEnabled("scale")).thenReturn(false);
+        service.weighingWaitMs = 60_000;
+        assertEquals(0.0, service.requestWeighing());
+        assertEquals(0.0, service.awaitWeighing(null));
+        verify(client, never()).getWeight();
+        verify(client, never()).getWeightWithTare(anyString());
+        assertEquals("ABSENT", service.state.peripheralAvailability.get("hardware.scale"));
+    }
+
+    /** LC-13-02-14: a newly failing read does not spend the empty-plate wait budget. */
+    @Test
+    void newlyFailedScaleDoesNotKeepWaiting() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.weighingWaitMs = 60_000;
+        when(client.getWeightWithTare("0")).thenThrow(new IllegalStateException("fake failure"));
+        assertEquals(0.0, service.awaitWeighing(null));
+        verify(client, times(1)).getWeightWithTare("0");
+        assertEquals("FAILED", service.state.peripheralAvailability.get("hardware.scale"));
+    }
+
+    /** LC-13-02-12: scanner absence and failure retain different indicators. */
+    @Test
+    void scannerStateClassification() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        WebApplicationException absent = bridgeErrorWithHeader(503, "NO_DEVICE_BOUND");
+        when(client.maintenance("scanner", "status", "")).thenThrow(absent);
+        assertTrue(service.probeDevices().get(4).absent());
+        WebApplicationException failed = bridgeErrorWithHeader(503, "SCANNER_ERROR");
+        doThrow(failed).when(client).maintenance("scanner", "status", "");
+        assertTrue(service.probeDevices().get(4).failed());
+    }
+
+    /** LC-13-02-14: explicit maintenance probing restores a repaired scale's usable state. */
+    @Test
+    void repairedScaleCanBeExplicitlyProbed() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.state.peripheralAvailability.put("hardware.scale", "FAILED");
+        when(client.getWeight()).thenReturn("1,250");
+        service.probeDevices();
+        assertEquals(1.250, service.requestWeighing(), 0.0001);
+    }
+
+    /** LC-13-02-12: live scanner probes distinguish disabled, connected and failed states. */
+    @Test
+    void liveScannerStateChanges() {
+        HardwareClient client = mock(HardwareClient.class);
+        var service = serviceWith(client);
+        service.probeScanner();
+        assertEquals("AVAILABLE", service.state.peripheralAvailability.get("hardware.scanner"));
+        when(client.maintenance("scanner", "status", "")).thenThrow(new IllegalStateException("disconnected"));
+        service.probeScanner();
+        assertEquals("FAILED", service.state.peripheralAvailability.get("hardware.scanner"));
+        when(service.settings.hardwareEnabled("scanner")).thenReturn(false);
+        service.probeScanner();
+        assertEquals("ABSENT", service.state.peripheralAvailability.get("hardware.scanner"));
+        assertTrue(service.state.scannerDisabled);
+        verify(client, times(2)).maintenance("scanner", "status", "");
+    }
+
+    /** LC-13-02-14: cancellation of a weighing wait returns its last reading immediately and restores the interrupt flag. */
+    @Test
+    void interruptedWeighingWaitPreservesCancellation() {
+        var service = serviceWith(mock(HardwareClient.class));
+        var worker = spy(service);
+        worker.weighingWaitMs = 10000;
+        worker.weighingPollMs = 1;
+        worker.state.peripheralAvailability.put("hardware.scale", "AVAILABLE");
+        doReturn(0.0).when(worker).requestWeighing(null);
+        Thread.currentThread().interrupt();
+        try {
+            assertEquals(0.0, worker.awaitWeighing(null));
+            assertTrue(Thread.currentThread().isInterrupted());
+            verify(worker, times(1)).requestWeighing(null);
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    /**
+     * BO-03-09-11: a drawer whose driver is deactivated gets no pulse, is held
+     * closed without being read, and is reported absent at the door; the
+     * administered driver configuration is pushed before the probe.
+     */
+    @Test
+    void aDeactivatedDrawerIsNeitherPulsedNorRead() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        when(service.settings.hardwareEnabled("drawer")).thenReturn(false);
+        service.hardwareConfigurationService = mock(HardwareConfigurationService.class);
+        service.openDrawer();
+        org.junit.jupiter.api.Assertions.assertFalse(service.isDrawerOpen());
+        java.util.List<HardwareService.DeviceStatus> devices = service.probeDevices();
+        org.junit.jupiter.api.Assertions.assertEquals(HardwareService.Availability.ABSENT,
+                devices.get(1).availability());
+        verify(client, org.mockito.Mockito.never()).openDrawer();
+        verify(client, org.mockito.Mockito.never()).getDrawerStatus();
+        verify(service.hardwareConfigurationService).push();
+    }
+
+    /** BO-03-09-11: without settings the drawer sensor is read as before. */
+    @Test
+    void isDrawerOpenReadsTheSensorWithoutSettings() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getDrawerStatus()).thenReturn("OPEN");
+        HardwareService service = serviceWith(client);
+        service.settings = null;
+        org.junit.jupiter.api.Assertions.assertTrue(service.isDrawerOpen());
+    }
+
+    /**
+     * BO-04-03-07: every pulse is journalled with the operator; without an
+     * operator state it names nobody, and a journal that fails never keeps
+     * the drawer shut.
+     */
+    @Test
+    void openDrawerIsJournalled() {
+        HardwareClient client = mock(HardwareClient.class);
+        HardwareService service = serviceWith(client);
+        service.technicalEventService = mock(com.intermarche.pos.service.TechnicalEventService.class);
+        service.state = null;
+        service.openDrawer();
+        verify(service.technicalEventService).record(
+                com.intermarche.pos.domain.session.TechnicalEvent.EventType.DRAWER_OPENED,
+                "Ouverture du tiroir", null, null, null, null);
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        state.auth.operatorBadgeId = "12341234";
+        service.state = state;
+        service.openDrawer();
+        verify(service.technicalEventService).record(
+                com.intermarche.pos.domain.session.TechnicalEvent.EventType.DRAWER_OPENED,
+                "Ouverture du tiroir", "12341234", null, null, null);
+        org.mockito.Mockito.when(service.technicalEventService.record(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenThrow(new IllegalStateException("down"));
+        service.openDrawer();
+        verify(client, org.mockito.Mockito.times(3)).openDrawer();
     }
 }

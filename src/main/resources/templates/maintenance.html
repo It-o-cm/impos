@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="{inject:i18n.lang}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{inject:i18n.get('maintenance.title')}</title>
+    <style>
+        {#include theme /}
+        body { background:repeating-linear-gradient(135deg,#191919,#191919 24px,#332a00 24px,#332a00 48px); color:var(--text-main); padding:2rem; }
+        main { max-width:60rem;margin:auto;background:var(--bg-panel);border:6px solid #ffc400;padding:2rem; }
+        .actions { display:flex;flex-wrap:wrap;gap:1rem;margin:1rem 0; }
+        button { padding:1rem;font-size:1.1rem;cursor:pointer; }
+        output { display:block;padding:2rem;font-size:2rem;overflow-wrap:anywhere;background:#000;color:#ffc400; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<main>
+    <h1>{inject:i18n.get('maintenance.title')}</h1>
+    <p>{inject:i18n.get('maintenance.noSale')}</p>
+    {#include peripheral-status /}
+    <div class="actions">
+        <form action="/action/maintenance/probe" method="POST"><button>{inject:i18n.get('maintenance.probe')}</button></form>
+        <form action="/action/maintenance/printer/reset" method="POST"><button>{inject:i18n.get('maintenance.printerReset')}</button></form>
+        <form action="/action/maintenance/printer/test" method="POST"><button>{inject:i18n.get('maintenance.printerTest')}</button></form>
+        <form action="/action/maintenance/scanner/reset" method="POST"><button>{inject:i18n.get('maintenance.scannerReset')}</button></form>
+        <form action="/action/maintenance/scanner/test" method="POST"><button>{inject:i18n.get('maintenance.scannerTest')}</button></form>
+        <form action="/action/maintenance/handheld/reset" method="POST"><button>{inject:i18n.get('maintenance.handheldReset')}</button></form>
+        <form action="/action/maintenance/handheld/test" method="POST"><button>{inject:i18n.get('maintenance.handheldTest')}</button></form>
+        <form action="/action/maintenance/terminal/reset" method="POST"><button>{inject:i18n.get('maintenance.terminalReset')}</button></form>
+        <form action="/action/maintenance/terminal/test" method="POST"><button>{inject:i18n.get('maintenance.terminalTest')}</button></form>
+        {! LC-14-03-01: the metrology information of the weighing system. !}
+        <form action="/maintenance/metrology" method="GET"><button>{inject:i18n.get('maintenance.metrology')}</button></form>
+    </div>
+    <pre id="terminal-status">{terminalStatus}</pre>
+    {#if state.maintenanceScanMode}<h2>{inject:i18n.get('maintenance.scanTestActive')}</h2><output>{code}</output>{/if}
+    <p role="alert">{message}</p>
+    {#if state.ticket.transientError}<p role="alert">{state.ticket.transientError}</p>{/if}
+    <hr>
+    <h2>{inject:i18n.get('maintenance.workstation')}</h2>
+    <p>{inject:i18n.get('maintenance.closedSupervisorConfirmation')}</p>
+    {#include keyboard-lib /}
+    {#include supervisor-auth padContainer='controlPad' displayClass='sub-display' /}
+    <div id="controlPad" class="keyboard pos-kb-compact"></div>
+    <form action="/action/maintenance/control" method="POST" onsubmit="return SupAuth.fill(this)">
+        <input type="hidden" name="supervisor">
+        <input type="hidden" name="supervisorPassword">
+        <select name="action">
+            <option value="APPLICATION">{inject:i18n.get('maintenance.restartApplication')}</option>
+            <option value="REBOOT">{inject:i18n.get('maintenance.reboot')}</option>
+            <option value="SHUTDOWN">{inject:i18n.get('maintenance.shutdown')}</option>
+        </select>
+        <select name="reason">{#for reason in reasons}<option>{reason}</option>{/for}</select>
+        <button>{inject:i18n.get('maintenance.prepareControl')}</button>
+    </form>
+    {#if state.workstationControlUrl}
+    <p><a href="{state.workstationControlUrl}" target="_blank" rel="noopener">{inject:i18n.get('maintenance.confirmControl')}</a></p>
+    {/if}
+    <form action="/action/maintenance/exit" method="POST"><button>{inject:i18n.get('maintenance.exit')}</button></form>
+</main>
+<script>
+    setInterval(() => fetch('/maintenance').then(response => response.text()).then(html => {
+        const next = new DOMParser().parseFromString(html, 'text/html').querySelector('output');
+        if (next) document.querySelector('output').textContent = next.textContent;
+        const terminal = new DOMParser().parseFromString(html, 'text/html').querySelector('#terminal-status');
+        if (terminal) document.querySelector('#terminal-status').textContent = terminal.textContent;
+    }).catch(() => {}), 2000);
+</script>
+</body>
+</html>

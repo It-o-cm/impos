@@ -621,6 +621,60 @@ class ThemeServiceTest {
         }
     }
 
+    // --------------------------------------------------
+    // Globals.posKeyboardLayout
+    // --------------------------------------------------
+
+    /**
+     * LC-09-01-09: an available settings bean hands its administered layout to
+     * every template (bean available true arm).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void posKeyboardLayoutReturnsTheAdministeredLayout() {
+        PosSettingsService settings = mock(PosSettingsService.class);
+        when(settings.keyboardLayout()).thenReturn("QWERTY");
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosSettingsService> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(true);
+        when(handle.get()).thenReturn(settings);
+        when(container.instance(PosSettingsService.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals("QWERTY", ThemeService.Globals.posKeyboardLayout());
+        }
+    }
+
+    /**
+     * LC-09-01-09: an UNAVAILABLE settings bean answers AZERTY without being
+     * dereferenced (bean available false arm).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void posKeyboardLayoutFallsBackToAzertyWhenBeanUnavailable() {
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosSettingsService> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(false);
+        when(container.instance(PosSettingsService.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals("AZERTY", ThemeService.Globals.posKeyboardLayout());
+            verify(handle, never()).get();
+        }
+    }
+
+    /**
+     * LC-09-01-09: any resolution failure is swallowed (catch arm) and the
+     * keyboards keep the AZERTY layout rather than breaking the rendering.
+     */
+    @Test
+    void posKeyboardLayoutFallsBackToAzertyWhenResolutionThrows() {
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
+            assertEquals("AZERTY", ThemeService.Globals.posKeyboardLayout());
+        }
+    }
+
     /**
      * Exercises the implicit constructor of the static globals holder so the
      * class body is fully covered; the instance carries no behaviour of its own.
@@ -728,4 +782,25 @@ class ThemeServiceTest {
         }
         verify(service.posSettingsService, never()).trainingTheme();
     }
+
+    /** BO-10-02-13: the global total key follows the available setting and safely declines unavailable or failing CDI. */
+    @Test
+    void totalKeyGlobalHonoursEveryResolutionOutcome() {
+        var container = mock(ArcContainer.class);
+        @SuppressWarnings("unchecked") InstanceHandle<PosSettingsService> handle = mock(InstanceHandle.class);
+        var settings = mock(PosSettingsService.class);
+        when(container.instance(PosSettingsService.class)).thenReturn(handle);
+        when(handle.get()).thenReturn(settings);
+        try (var arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertFalse(ThemeService.Globals.enterAsTotal());
+            when(handle.isAvailable()).thenReturn(true);
+            assertFalse(ThemeService.Globals.enterAsTotal());
+            when(settings.enterAsTotal()).thenReturn(true);
+            assertTrue(ThemeService.Globals.enterAsTotal());
+            arc.when(Arc::container).thenThrow(new IllegalStateException("CDI unavailable"));
+            assertFalse(ThemeService.Globals.enterAsTotal());
+        }
+    }
+
 }

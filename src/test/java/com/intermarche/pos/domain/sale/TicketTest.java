@@ -1,16 +1,21 @@
 package com.intermarche.pos.domain.sale;
 
-import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.payment.TicketPayment;
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.store.Store;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link Ticket}, targeting 100% branch coverage.
@@ -25,6 +30,39 @@ import java.util.Objects;
  * required. Each test is fully isolated and asserts absolute expected values.
  */
 class TicketTest {
+
+    /**
+     * findLastClosedByTerminal queries the highest-id CLOSED ticket of the given
+     * register and returns the finder's first result.
+     */
+    @Test
+    void findLastClosedByTerminalReturnsTheQueriedTicket() {
+        Ticket expected = new Ticket();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(expected);
+            panache.when(() -> Ticket.find("terminalId = ?1 and status = ?2 order by id desc",
+                    "C04", Ticket.TicketStatus.CLOSED)).thenReturn(query);
+            Assertions.assertSame(expected, Ticket.findLastClosedByTerminal("C04"));
+        }
+    }
+
+    /**
+     * findLastClosedByTerminal propagates a null first result when the register
+     * has closed no ticket.
+     */
+    @Test
+    void findLastClosedByTerminalReturnsNullWhenNoneClosed() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Ticket> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(null);
+            panache.when(() -> Ticket.find("terminalId = ?1 and status = ?2 order by id desc",
+                    "C09", Ticket.TicketStatus.CLOSED)).thenReturn(query);
+            Assertions.assertNull(Ticket.findLastClosedByTerminal("C09"));
+        }
+    }
 
     /**
      * The default constructor sets the lifecycle status to OPEN.
@@ -246,5 +284,17 @@ class TicketTest {
         int before = ticket.getChecksum();
         ticket.totalIncludingTax = new BigDecimal("20.0000");
         Assertions.assertNotEquals(before, ticket.getChecksum());
+    }
+
+    /** LC-04-05 and BO-10-04/02: the lookup preserves its business identifier and returns the exact matching entity. */
+    @org.junit.jupiter.api.Test
+    void findLastClosedByTerminalUsesTheExactBusinessIdentifier() {
+        var row = new Ticket();
+        var query = org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        org.mockito.Mockito.when(query.firstResult()).thenReturn(row);
+        try (var panache = org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.find("terminalId = ?1 and status = ?2 order by id desc", "C04", Ticket.TicketStatus.CLOSED)).thenReturn(query);
+            org.junit.jupiter.api.Assertions.assertSame(row, Ticket.findLastClosedByTerminal("C04"));
+        }
     }
 }

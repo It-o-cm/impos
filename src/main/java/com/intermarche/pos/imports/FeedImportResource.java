@@ -1,5 +1,6 @@
 package com.intermarche.pos.imports;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
@@ -143,9 +144,8 @@ public class FeedImportResource {
         if (EngineFeedService.catalogEntry(normalized).isEmpty()) {
             LOGGER.info("Exiting method importFeed: code inconnu");
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("{\"error\":\"Code de flux inconnu: " + normalized
-                            + " - codes connus: " + knownCodes(mode, scheme, label, enseigne)
-                            + "\"}").build();
+                    .entity(ImporterCsvResource.errorAnswer("Code de flux inconnu: " + normalized
+                            + " - codes connus: " + knownCodes(mode, scheme, label, enseigne))).build();
         }
         String content;
         try {
@@ -153,19 +153,19 @@ public class FeedImportResource {
         } catch (IOException e) {
             LOGGER.info("Exiting method importFeed: lecture impossible");
             return Response.serverError()
-                    .entity("{\"error\":\"Lecture du flux impossible: " + e.getMessage() + "\"}")
+                    .entity(ImporterCsvResource.errorAnswer("Lecture du flux impossible: " + e.getMessage()))
                     .build();
         }
         if (content.isBlank()) {
             LOGGER.info("Exiting method importFeed: contenu vide");
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("{\"error\":\"Contenu vide pour " + normalized + "\"}").build();
+                    .entity(ImporterCsvResource.errorAnswer("Contenu vide pour " + normalized)).build();
         }
         String version = engineFeedService.store(normalized, content);
         LOGGER.infof("Flux %s conserve pour le moteur (aucun importeur local)", normalized);
         LOGGER.info("Exiting method importFeed");
-        return Response.ok("{\"code\":\"" + normalized + "\", \"version\":\"" + version
-                + "\", \"applied\":false}").build();
+        return Response.ok(JsonNodeFactory.instance.objectNode().put("code", normalized)
+                .put("version", version).put("applied", false).toString()).build();
     }
 
     /**

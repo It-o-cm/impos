@@ -240,6 +240,26 @@ class BalanceTicketServiceTest {
     }
 
     /**
+     * BO-10-08-28/-29: the weight in a counter line's label is written with the
+     * administered decimals and weight symbol, as every other weight.
+     */
+    @Test
+    void servedLineWeightFollowsTheAdministeredUnits() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.752", "13.54", "0.055")));
+        when(service.posSettingsService.unitFormat())
+                .thenReturn(new com.intermarche.pos.domain.catalog.UnitFormat(2, 2, "Kg"));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(any())).thenReturn(null);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).addItem(eq(EAN), eq("1234"), eq("ROTI 0,75 KG"), any(), any(), any());
+    }
+
+    /**
      * A served line is added at the counter's own total, quantity one, carrying
      * the catalog PLU so two weighings never merge — and flagged price-embedded
      * so the valuation engine leaves the amount alone.
@@ -260,7 +280,7 @@ class BalanceTicketServiceTest {
         }
         ArgumentCaptor<BigDecimal> price = ArgumentCaptor.forClass(BigDecimal.class);
         ArgumentCaptor<BigDecimal> quantity = ArgumentCaptor.forClass(BigDecimal.class);
-        verify(ticket).addItem(eq(EAN), eq("1234"), eq("ROTI 0.752KG"),
+        verify(ticket).addItem(eq(EAN), eq("1234"), eq("ROTI 0,752 KG"),
                 price.capture(), quantity.capture(), eq(new BigDecimal("0.055")));
         assertEquals(0, new BigDecimal("13.54").compareTo(price.getValue()));
         assertEquals(0, BigDecimal.ONE.compareTo(quantity.getValue()));
@@ -300,7 +320,7 @@ class BalanceTicketServiceTest {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(true));
             assertFalse(service.integrate(state, REFERENCE));
         }
-        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0.500KG");
+        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0,500 KG");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 
@@ -328,9 +348,9 @@ class BalanceTicketServiceTest {
             products.when(() -> Product.findActiveByEan("3560070000001")).thenReturn(null);
             assertTrue(service.integrate(state, REFERENCE));
         }
-        verify(ticket).addItem(eq("3560070000001"), eq(null), eq("JAMBON 0.200KG"),
+        verify(ticket).addItem(eq("3560070000001"), eq(null), eq("JAMBON 0,200 KG"),
                 any(), any(), eq(new BigDecimal("0.055")));
-        verify(ticket).setError("ARTICLE RETIRÉ DU COMPTOIR : ROTI 0.500KG");
+        verify(ticket).setError("ARTICLE RETIRÉ DU COMPTOIR : ROTI 0,500 KG");
         verify(ticket, never()).setNotice(anyString());
     }
 
@@ -611,12 +631,12 @@ class BalanceTicketServiceTest {
         BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
              MockedStatic<com.intermarche.pos.domain.catalog.attribute.ProductAttributes> attrs =
-                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class)) {
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
             attrs.when(() -> com.intermarche.pos.domain.catalog.attribute.ProductAttributes.recall(any())).thenReturn(true);
             assertFalse(service.integrate(state, REFERENCE));
         }
-        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0.500KG");
+        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0,500 KG");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 
@@ -634,7 +654,7 @@ class BalanceTicketServiceTest {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
             assertTrue(service.integrate(state, REFERENCE));
         }
-        verify(ticket).addItem(eq(EAN), eq("1234"), eq("ROTI 0.500KG"), any(), any(), any());
+        verify(ticket).addItem(eq(EAN), eq("1234"), eq("ROTI 0,500 KG"), any(), any(), any());
         verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE + " INTÉGRÉ (1 LIGNE(S))");
     }
 
@@ -652,7 +672,7 @@ class BalanceTicketServiceTest {
         BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
              MockedStatic<com.intermarche.pos.domain.catalog.attribute.ProductAttributes> attrs =
-                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class)) {
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
             attrs.when(() -> com.intermarche.pos.domain.catalog.attribute.ProductAttributes.discountForbidden(any())).thenReturn(true);
             assertTrue(service.integrate(state, REFERENCE));
@@ -723,7 +743,7 @@ class BalanceTicketServiceTest {
         BalanceTicketService service = newService(serving(oneLine("ROTI", null, "5.00", "0.055")));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
              MockedStatic<com.intermarche.pos.domain.catalog.attribute.ProductAttributes> attrs =
-                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class)) {
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
             attrs.when(() -> com.intermarche.pos.domain.catalog.attribute.ProductAttributes.vatExempt(any())).thenReturn(true);
             assertTrue(service.integrate(state, REFERENCE));
@@ -776,7 +796,7 @@ class BalanceTicketServiceTest {
             assertTrue(service.integrate(state, REFERENCE));
         }
         verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE
-                + " INTÉGRÉ (1 LIGNE(S)) — RAPPEL : ROTI 0.752KG (L123, L456)");
+                + " INTÉGRÉ (1 LIGNE(S)) — RAPPEL : ROTI 0,752 KG (L123, L456)");
     }
 
     /**
@@ -817,7 +837,7 @@ class BalanceTicketServiceTest {
             assertTrue(service.integrate(state, REFERENCE));
         }
         verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE
-                + " INTÉGRÉ (2 LIGNE(S)) — RAPPEL : ROTI 0.500KG (L123), JAMBON 0.200KG (L789)");
+                + " INTÉGRÉ (2 LIGNE(S)) — RAPPEL : ROTI 0,500 KG (L123), JAMBON 0,200 KG (L789)");
     }
 
     /**
@@ -852,8 +872,8 @@ class BalanceTicketServiceTest {
             prices.when(() -> Price.findCurrentPrice(any())).thenReturn(null);
             assertTrue(service.integrate(state, REFERENCE));
         }
-        verify(ticket).setError("ARTICLE RETIRÉ DU COMPTOIR : ROTI 0.500KG"
-                + " — RAPPEL : JAMBON 0.200KG (L789)");
+        verify(ticket).setError("ARTICLE RETIRÉ DU COMPTOIR : ROTI 0,500 KG"
+                + " — RAPPEL : JAMBON 0,200 KG (L789)");
     }
 
     /**
@@ -872,7 +892,7 @@ class BalanceTicketServiceTest {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(product);
             assertFalse(service.integrate(state, REFERENCE));
         }
-        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0.500KG");
+        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0,500 KG");
     }
 
     /**
@@ -937,4 +957,21 @@ class BalanceTicketServiceTest {
         }
         verify(ticket).addItem(any(), any(), any(), any(), any(), eq(DEFAULT_VAT));
     }
+    /** LC-02-03-11: a counter paper with a blocked article adds no line before acknowledgement. */
+    @Test
+    void blockingArticleMessageRefusesCounterTicket() {
+        BalanceTicketClient client = serving(oneLine("ROTI", "0.752", "13.54", "0.055"));
+        BalanceTicketService service = newService(client);
+        PosState state = new PosState();
+        Product product = newProduct(false);
+        product.infoMessage = "Check the package";
+        product.attributes.put("INFO_MESSAGE_BLOCKING", "true");
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(product);
+            assertFalse(service.integrate(state, REFERENCE));
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("Check the package", state.blockingArticleMessage);
+    }
+
 }

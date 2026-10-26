@@ -69,7 +69,9 @@ public class MoneticsDegradedService {
      */
     public boolean activate(PosState state, String login, String password) {
         LOGGER.info("Entering method activate with state: " + state + ", login: " + login + ", password: ***");
-        if (!granted(state, login, password, ACTIVATE_ACTION)) {
+        // BO-03-02-49: the activation asks a supervisor where the shop says so.
+        if (!granted(state, login, password, ACTIVATE_ACTION,
+                posSettingsService.moneticsDegradedForcedEndorsement())) {
             state.ticket.setError(i18n.get("op.autorisationRefusee"));
             LOGGER.info("Exiting method activate");
             return false;
@@ -102,7 +104,9 @@ public class MoneticsDegradedService {
             LOGGER.info("Exiting method deactivate");
             return false;
         }
-        if (!granted(state, login, password, DEACTIVATE_ACTION)) {
+        // BO-03-02-50: the release has its own administered rule.
+        if (!granted(state, login, password, DEACTIVATE_ACTION,
+                posSettingsService.moneticsDegradedReleaseEndorsement())) {
             state.ticket.setError(i18n.get("op.autorisationRefusee"));
             LOGGER.info("Exiting method deactivate");
             return false;
@@ -124,10 +128,12 @@ public class MoneticsDegradedService {
      * @param login the supervisor's login
      * @param password the supervisor's password
      * @param actionCode the action code journalled with the decision
+     * @param required whether the shop asks a supervisor for this gesture
      * @return true when the gesture may proceed
      */
-    private boolean granted(PosState state, String login, String password, String actionCode) {
-        if (!posSettingsService.moneticsDegradedForcedEndorsement()) {
+    private boolean granted(PosState state, String login, String password, String actionCode,
+                            boolean required) {
+        if (!required) {
             return true;
         }
         if (endorsementService.operatorIsSupervisor(state)) {

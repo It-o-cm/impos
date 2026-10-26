@@ -88,4 +88,45 @@ class StoredValueRetentionServiceTest {
                     any(Object.class)), times(1));
         }
     }
+
+    /**
+     * Opening a session sweeps nothing: not a single query issued, and the
+     * delays are not even read.
+     */
+    @Test
+    void openingASessionSweepsNothing() {
+        StoredValueRetentionService service = newService(365, 180, 730);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            service.onSessionOpened();
+            ms.verify(() -> StoredValue.delete(anyString(), any(Object.class)), never());
+        }
+        org.mockito.Mockito.verifyNoInteractions(service.posSettingsService);
+    }
+
+    /**
+     * BO-10-08-13/-14/-15: closing a session runs the sweep.
+     */
+    @Test
+    void closingASessionRunsTheSweep() {
+        StoredValueRetentionService service = newService(365, 0, 0);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> StoredValue.delete(anyString(), any(Object.class))).thenReturn(1L);
+            service.onSessionClosed();
+            ms.verify(() -> StoredValue.delete(anyString(), any(Object.class)), times(1));
+        }
+    }
+
+    /**
+     * A sweep that fails never fails the close: the failure is journalised and
+     * swallowed by the hook.
+     */
+    @Test
+    void aFailedSweepNeverFailsTheClose() {
+        StoredValueRetentionService service = newService(365, 0, 0);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> StoredValue.delete(anyString(), any(Object.class)))
+                    .thenThrow(new IllegalStateException("database down"));
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(service::onSessionClosed);
+        }
+    }
 }

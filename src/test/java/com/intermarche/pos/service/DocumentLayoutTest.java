@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,6 +22,43 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the last line.
  */
 class DocumentLayoutTest {
+    /** Null labels/values and an overflowing pair preserve the amount and at least one separating space. */
+    @Test
+    void nullableAndOverflowingColumns() {
+        DocumentLayout layout = new DocumentLayout(5);
+        assertEquals(5, layout.getWidth());
+        assertEquals("     ", layout.line(null, null));
+        assertEquals("A   B", layout.line("A", "B"));
+        assertEquals("LONG VALUE", layout.line("LONG", "VALUE"));
+        assertEquals(1, new DocumentLayout(0).getWidth());
+    }
+    /** All null, short, exact-width and long alignment/emphasis inputs keep their documented representation. */
+    @Test
+    void alignmentAndBoldLegs() {
+        DocumentLayout layout = new DocumentLayout(5);
+        assertEquals("", layout.centre(null));
+        assertEquals("  A", layout.centre("A"));
+        assertEquals("12345", layout.centre("12345"));
+        assertEquals("123456", layout.centre("123456"));
+        assertEquals("", layout.bold(null));
+        assertEquals("", layout.bold(""));
+        assertEquals("[[BOLD]]A[[/BOLD]]", layout.bold("A"));
+        assertEquals("     ", layout.right(null));
+        assertEquals("    A", layout.right("A"));
+        assertEquals("12345", layout.right("12345"));
+        assertEquals("123456", layout.right("123456"));
+        assertEquals("-----", layout.rule());
+    }
+    /** Wrapping covers empty input, fitting words, overflow and long words after a pending line. */
+    @Test
+    void wrappingEveryLeg() {
+        DocumentLayout layout = new DocumentLayout(5);
+        assertEquals(List.of(), layout.wrap(null));
+        assertEquals(List.of(), layout.wrap(" "));
+        assertEquals(List.of("A BB", "CCC D"), layout.wrap("A BB CCC D"));
+        assertEquals(List.of("A", "12345", "67 Z"), layout.wrap("A 1234567 Z"));
+        assertEquals(List.of("12345", "67"), layout.wrap("1234567"));
+    }
 
     /** The register's own paper, the width every receipt case uses. */
     private static final DocumentLayout PAPER = new DocumentLayout(42);
@@ -274,5 +312,13 @@ class DocumentLayoutTest {
         assertEquals("[[BARCODE C04-000123]]", PAPER.barcode(" C04-000123 "));
         assertEquals("", PAPER.barcode(null));
         assertEquals("", PAPER.barcode("  "));
+    }
+    /** BO-03-05: emphasis distinguishes null, empty and printable text without adding paper to absent content. */
+    @org.junit.jupiter.api.Test
+    void coverageEmphasisNullEmptyAndText() {
+        var layout = new DocumentLayout(42);
+        org.junit.jupiter.api.Assertions.assertEquals("", layout.bold(null));
+        org.junit.jupiter.api.Assertions.assertEquals("", layout.bold(""));
+        org.junit.jupiter.api.Assertions.assertEquals("[[BOLD]]TEXT[[/BOLD]]", layout.bold("TEXT"));
     }
 }

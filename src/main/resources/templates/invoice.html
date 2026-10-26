@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{document.title} {document.number}</title>
 <style>
   {#include theme /}
@@ -32,6 +33,7 @@
   .bottom-nav { display: flex; flex-direction: column; justify-content: center; gap: 4px;
                 padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
   .bottom-nav .nav-controls { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+  .draft-error { text-align: center; background: var(--danger); color: #fff; padding: 6px 12px; border-radius: 4px; font-weight: bold; }
   .draft-note { text-align: center; font-size: var(--fs-label); color: var(--warning); letter-spacing: 1px; text-transform: uppercase; }
 
   /* The document itself: black on white, because a document is not a screen theme. */
@@ -172,9 +174,22 @@
       </tr>
       {! BO-02-04-08 : l'échéance figure obligatoirement sur la facture et le
        ! bon de livraison, et seulement quand le client en porte une. !}
-      {#if document.hasDueDate}
+      {#if document.statesDueDate}
       <tr>
         <td class="k">{inject:i18n.get('invoice.echeance')}</td><td class="v">{document.dueDate}</td>
+        <td class="k2"></td><td></td>
+      </tr>
+      {#else}
+      <tr>
+        <td class="k">{inject:i18n.get('invoice.echeance')}</td><td class="v">{inject:i18n.get('doc.paiementReception')}</td>
+        <td class="k2"></td><td></td>
+      </tr>
+      {/if}
+      {! BO-03-03-02 : le n° de commande saisi en caisse, et aucune ligne
+       ! quand l'opérateur n'en a saisi aucun. !}
+      {#if document.statesOrderNumber}
+      <tr>
+        <td class="k">{inject:i18n.get('invoice.numeroCommande')}</td><td class="v">{document.orderNumber}</td>
         <td class="k2"></td><td></td>
       </tr>
       {/if}
@@ -185,11 +200,12 @@
   <table class="lines">
     <thead>
       <tr>
-        <th style="width:46%">{inject:i18n.get('invoice.description')}</th>
+        <th style="width:40%">{inject:i18n.get('invoice.description')}</th>
         <th>{inject:i18n.get('invoice.quantite')}</th>
         <th>{inject:i18n.get('invoice.tva')}</th>
         <th>{inject:i18n.get('invoice.pvHt')}</th>
         <th>{inject:i18n.get('invoice.pvTtc')}</th>
+        <th>{inject:i18n.get('doc.totalHt')}</th>
         <th>{inject:i18n.get('invoice.totalTtc')}</th>
       </tr>
     </thead>
@@ -201,6 +217,7 @@
         <td class="num">{line.vatRate}</td>
         <td class="amt">{line.unitExcludingTax} €</td>
         <td class="amt">{line.unitIncludingTax} €</td>
+        <td class="amt">{#if line.totalExcludingTax}{line.totalExcludingTax} €{/if}</td>
         <td class="amt">{line.totalIncludingTax} €</td>
       </tr>
       {/for}
@@ -211,7 +228,7 @@
     <div class="left">
       <table class="vat">
         <thead>
-          <tr><th>{inject:i18n.get('invoice.tauxTva')}</th><th>{inject:i18n.get('invoice.baseHt')}</th><th>{inject:i18n.get('invoice.montantTva')}</th><th>Total TTC</th></tr>
+          <tr><th>{inject:i18n.get('invoice.tauxTva')}</th><th>{inject:i18n.get('invoice.baseHt')}</th><th>{inject:i18n.get('invoice.montantTva')}</th><th>{inject:i18n.get('invoice.totalTtc')}</th></tr>
         </thead>
         <tbody>
           {! BO-02-02-02 : la mention légale imposée par le régime est portée
@@ -219,7 +236,7 @@
            ! administrée : la table est exactement celle d'avant. !}
           {#for row in document.vatRows}
           <tr>
-            <td class="rate">{row.rate}</td>
+            <td class="rate">{#if row.code}{row.code} {/if}{row.rate}</td>
             <td class="amt">{row.excludingTax} €</td>
             <td class="amt">{row.vat} €</td>
             <td class="amt">{row.includingTax} €</td>
@@ -270,6 +287,9 @@
          où le doigt est sur ÉMETTRE. Un numéro de facture est une séquence
          légale sans trou ; tant qu'il n'est pas tiré, abandonner ne coûte rien. -->
     {#if !issued}
+    {#if error}
+    <div class="draft-error">{error}</div>
+    {/if}
     <div class="draft-note">{inject:i18n.get('invoice.brouillonAucunNumeroAttribue')}</div>
     {/if}
     <div class="nav-controls">
@@ -284,13 +304,13 @@
         {#if hasPrev}
         <a class="btn btn-sm btn-muted" href="{pageUrl}{prevPage}">{inject:i18n.get('invoice.precedent')}</a>
         {#else}
-        <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
+        <span class="btn btn-sm btn-muted off">{inject:i18n.get('invoice.precedent')}</span>
         {/if}
-        <span class="pos-pager-info">PAGE {page} / {pageCount}</span>
+        <span class="pos-pager-info">{inject:i18n.get('invoice.pageLabel')} {page} / {pageCount}</span>
         {#if hasNext}
         <a class="btn btn-sm btn-muted" href="{pageUrl}{nextPage}">{inject:i18n.get('lock.next')}</a>
         {#else}
-        <span class="btn btn-sm btn-muted off">SUIVANT</span>
+        <span class="btn btn-sm btn-muted off">{inject:i18n.get('lock.next')}</span>
         {/if}
       {/if}
     </span>

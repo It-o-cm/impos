@@ -202,6 +202,9 @@ public class TicketReassignmentService {
                 .toList()) {
             TicketState.TicketItem item = new TicketState.TicketItem(
                     line.ean, line.plu, line.productLabel, line.unitPrice, line.quantity, line.vatRate);
+            item.linkedParentUid = line.linkedParentUid;
+            item.linkedArticleEan = line.linkedArticleEan;
+            item.linkedRecordedQuantity = line.linkedRecordedQuantity;
             if (line.lineUid != null) {
                 item.uid = line.lineUid;
             }

@@ -113,6 +113,78 @@
     window.PosKeyboards = {
 
         /**
+         * LC-09-01-09: the letter layout the shop administers for its country
+         * or region (keyboard.layout), written by Qute when the screen is
+         * rendered. Any value the table below does not know draws AZERTY.
+         */
+        layout: '{posKeyboardLayout}',
+
+        /**
+         * The captions of the space and erase keys in the register's language,
+         * written by Qute when the screen is rendered, so a Dutch or Portuguese
+         * register does not show French keys. Not rendered, they stay French.
+         */
+        labels: {
+            space: "{inject:i18n.get('keyboard.espace')}",
+            erase: "{inject:i18n.get('keyboard.effacer')}"
+        },
+
+        /**
+         * Returns a key caption in the register's language, or the French one
+         * when the screen was not rendered by Qute.
+         *
+         * @param name the caption name (space or erase)
+         * @param french the French caption
+         * @return the caption to show
+         */
+        _caption: function(name, french) {
+            const rendered = this.labels[name];
+            return rendered && rendered.charAt(0) !== '{' ? rendered : french;
+        },
+
+        /**
+         * LC-09-01-09: the letter rows of each layout, top row first. Only the
+         * LETTERS move: digits, space, erase and the e-mail symbols keep their
+         * place whatever the layout, so a cashier moving between shops finds
+         * every other key where it was.
+         */
+        layouts: {
+            AZERTY: ['AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN'],
+            QWERTY: ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'],
+            QWERTZ: ['QWERTZUIOP', 'ASDFGHJKL', 'YXCVBNM'],
+            ABCD: ['ABCDEFGHIJ', 'KLMNOPQRST', 'UVWXYZ']
+        },
+
+        /**
+         * LC-09-01-09: the letter rows of the administered layout, AZERTY when
+         * the administered name is unknown or was not rendered.
+         *
+         * @return the three letter rows, top row first
+         */
+        _letterRows: function() {
+            return Object.prototype.hasOwnProperty.call(this.layouts, this.layout)
+                ? this.layouts[this.layout] : this.layouts.AZERTY;
+        },
+
+        /**
+         * LC-09-01-09: fills the cells a short letter row leaves empty on the
+         * ten-column grid, so the next row starts on its own line and the rows
+         * of a layout stay staggered as on a real keyboard. A count of zero or
+         * less adds nothing.
+         *
+         * @param kb the keyboard grid
+         * @param count the number of empty cells to add
+         */
+        _appendSpacers: function(kb, count) {
+            for (let i = 0; i < count; i++) {
+                const cell = document.createElement('span');
+                cell.className = 'pos-key-spacer';
+                cell.setAttribute('aria-hidden', 'true');
+                kb.appendChild(cell);
+            }
+        },
+
+        /**
          * Injects the shared keyboard stylesheet into the document once.
          * <p>
          * All keyboards (numpad, price, payment, search, alpha) rely on these
@@ -384,7 +456,8 @@
         },
 
         /**
-         * Renders the AZERTY alphabetic keyboard with space and erase keys.
+         * Renders the alphabetic keyboard in the administered layout
+         * (LC-09-01-09) with space and erase keys.
          *
          * @param container the host element to render into
          * @param onKey the key press callback
@@ -395,7 +468,7 @@
             container.innerHTML = '';
             const kb = this._makeGrid('pos-keyboard--alpha');
 
-            const rows = ['AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN'];
+            const rows = this._letterRows();
             rows.forEach(row => {
                 row.split('').forEach(l => {
                     const b = document.createElement('button');
@@ -405,18 +478,19 @@
                     b.onclick = () => onKey(l.toLowerCase());
                     kb.appendChild(b);
                 });
+                this._appendSpacers(kb, 10 - row.length);
             });
 
             const sp = document.createElement('button');
             sp.type = 'button';
-            sp.innerText = 'ESPACE';
+            sp.innerText = this._caption('space', 'ESPACE');
             sp.className = 'pos-key pos-key--action pos-key--wide5';
             sp.onclick = () => onKey(' ');
             kb.appendChild(sp);
 
             const del = document.createElement('button');
             del.type = 'button';
-            del.innerText = 'EFFACER';
+            del.innerText = this._caption('erase', 'EFFACER');
             del.className = 'pos-key pos-key--danger pos-key--wide5';
             del.onclick = () => onKey('DEL');
             kb.appendChild(del);
@@ -425,8 +499,9 @@
         },
 
         /**
-         * Renders the SEARCH keyboard: one digit row above the AZERTY letters,
-         * with space and erase closing the last row.
+         * Renders the SEARCH keyboard: one digit row above the letters of the
+         * administered layout (LC-09-01-09), with space and erase closing the
+         * last row.
          * <p>
          * ONE pad where the search screen used two. Letters and digits were a
          * 10-column alphabetic grid beside a 3-column numeric pad, which cost
@@ -441,8 +516,11 @@
          *
          * @param container the host element to render into
          * @param onKey the key press callback
+         * @param separator the character the space key types instead of a space,
+         *        for codes that carry one and never a space (a document code such
+         *        as DV-0001); omitted, the key types a space
          */
-        renderSearchKeyboard: function(container, onKey) {
+        renderSearchKeyboard: function(container, onKey, separator) {
             if (!container) return;
             this._injectStyles();
             container.innerHTML = '';
@@ -453,7 +531,8 @@
             // itself -- the one letter of the alphabet that collides with a
             // command token. The display is uppercased in CSS, so nothing
             // changes on screen, and the search matches on lower(name).
-            const rows = ['1234567890', 'AZERTYUIOP', 'QSDFGHJKLM'];
+            const letters = this._letterRows();
+            const rows = ['1234567890', letters[0], letters[1]];
             rows.forEach(row => {
                 row.split('').forEach(l => {
                     const b = document.createElement('button');
@@ -463,10 +542,15 @@
                     b.onclick = () => onKey(l.toLowerCase());
                     kb.appendChild(b);
                 });
+                this._appendSpacers(kb, 10 - row.length);
             });
-            // WXCVBN is six letters on a ten-column row: space and erase take
-            // the four slots that were empty, which is the row this pad saves.
-            'WXCVBN'.split('').forEach(l => {
+            // The last letter row is six letters on a ten-column row in AZERTY
+            // and ABCD: space and erase take the four slots that were empty,
+            // which is the row this pad saves. QWERTY and QWERTZ carry seven
+            // letters there (LC-09-01-09), so space shrinks to one slot and
+            // shows the space glyph the e-mail keyboard already uses.
+            const last = letters[2];
+            last.split('').forEach(l => {
                 const b = document.createElement('button');
                 b.type = 'button';
                 b.innerText = l;
@@ -474,15 +558,22 @@
                 b.onclick = () => onKey(l.toLowerCase());
                 kb.appendChild(b);
             });
+            const free = 10 - last.length;
             const sp = document.createElement('button');
             sp.type = 'button';
-            sp.innerText = 'ESPACE';
-            sp.className = 'pos-key pos-key--action pos-key--wide2';
-            sp.onclick = () => onKey(' ');
+            if (free >= 4) {
+                this._appendSpacers(kb, free - 4);
+                sp.innerText = separator || this._caption('space', 'ESPACE');
+                sp.className = 'pos-key pos-key--action pos-key--wide2';
+            } else {
+                sp.innerText = separator || '\u2423';
+                sp.className = 'pos-key pos-key--action';
+            }
+            sp.onclick = () => onKey(separator || ' ');
             kb.appendChild(sp);
             const del = document.createElement('button');
             del.type = 'button';
-            del.innerText = 'EFFACER';
+            del.innerText = this._caption('erase', 'EFFACER');
             del.className = 'pos-key pos-key--danger pos-key--wide2';
             del.onclick = () => onKey('DEL');
             kb.appendChild(del);
@@ -490,9 +581,10 @@
         },
 
         /**
-         * Renders the e-mail keyboard: digits row, AZERTY letters and the
-         * four characters an address needs (@ . - _). ADDITIVE variant — the
-         * canonical .pos-key metrics are untouched (theme rule).
+         * LC-09-01-10: renders digits, the letters of the administered layout
+         * (LC-09-01-09) and every unquoted
+         * e-mail symbol, including quoted local parts. Key dimensions stay unchanged so
+         * compact screens can scroll the same keyboard container.
          *
          * @param container the host element to render into
          * @param onKey the key press callback
@@ -503,21 +595,32 @@
             container.innerHTML = '';
             const kb = this._makeGrid('pos-keyboard--alpha');
 
-            const rows = ['1234567890', 'AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN@._-'];
-            rows.forEach(row => {
+            // LC-09-01-10: include quoted local-part punctuation and a visible space key.
+            // Character codes keep the brace keys distinct from Qute template tags.
+            // LC-09-01-09: the letter rows follow the administered layout; the
+            // two upper ones are padded to the ten columns so a nine-letter row
+            // does not pull the next one up. The symbol rows flow as before.
+            const letters = this._letterRows();
+            const rows = ['1234567890', letters[0], letters[1], letters[2] + '@._-',
+                "!#$%&'*+/=", '?^`' + String.fromCharCode(123, 124, 125) + '~',
+                '()[]:;,<>' + String.fromCharCode(34, 92) + ' '];
+            rows.forEach((row, index) => {
                 row.split('').forEach(l => {
                     const b = document.createElement('button');
                     b.type = 'button';
-                    b.innerText = l;
+                    b.innerText = l === ' ' ? '\u2423' : l;
                     b.className = 'pos-key pos-key--digit pos-key--alpha';
                     b.onclick = () => onKey(l.toLowerCase());
                     kb.appendChild(b);
                 });
+                if (index === 1 || index === 2) {
+                    this._appendSpacers(kb, 10 - row.length);
+                }
             });
 
             const del = document.createElement('button');
             del.type = 'button';
-            del.innerText = 'EFFACER';
+            del.innerText = this._caption('erase', 'EFFACER');
             del.className = 'pos-key pos-key--danger pos-key--wide5';
             del.onclick = () => onKey('DEL');
             kb.appendChild(del);
@@ -587,6 +690,7 @@
                 case 'payment': PosKeyboards.renderPaymentNumpad(container, handler); break;
                 case 'search': PosKeyboards.renderSearchPad(container, handler); break;
                 case 'searchAlpha': PosKeyboards.renderSearchKeyboard(container, handler); break;
+                case 'documentCode': PosKeyboards.renderSearchKeyboard(container, handler, '-'); break;
                 case 'ticketSearch': PosKeyboards.renderTicketSearchPad(container, handler); break;
                 default: PosKeyboards.renderNumpad(container, handler); break;
             }

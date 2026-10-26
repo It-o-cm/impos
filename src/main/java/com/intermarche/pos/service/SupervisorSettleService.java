@@ -1,5 +1,6 @@
 package com.intermarche.pos.service;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -63,9 +64,50 @@ public class SupervisorSettleService {
      */
     public void settledAtTill() {
         LOGGER.info("Entering method settledAtTill");
-        post("/api/supervisor/settled", "{\"terminalId\":\"" + terminalId + "\"}",
+        post("/api/supervisor/settled", JsonNodeFactory.instance.objectNode().put("terminalId", terminalId).toString(),
                 "l'avis de traitement en caisse");
         LOGGER.info("Exiting method settledAtTill");
+    }
+
+    /** The reason a supervisor-authorisation request is filed under at the back office. */
+    public static final String AUTHORIZATION_REASON = "AUTORISATION SUPERVISEUR";
+
+    /**
+     * Sends a supervisor-authorisation request to the back office the moment
+     * the register asks for one ({@code LC-01-05-08}).
+     *
+     * <p>The SAME board as a supervisor call, where the back office already
+     * authorises, refuses or sends the request back to the till: the request
+     * arrives there without the cashier having to call anybody, and the
+     * answer comes down the order channel the register already collects.
+     *
+     * @param gesture what the authorisation is asked for, as the cashier reads it
+     * @param operator who asked for it, possibly null
+     * @return true when this register has a back office to send it to
+     */
+    public boolean authorizationRequested(String gesture, String operator) {
+        LOGGER.info("Entering method authorizationRequested with gesture: " + gesture);
+        if (!syncOutboxService.isEnabled()) {
+            LOGGER.info("Exiting method authorizationRequested");
+            return false;
+        }
+        post("/api/supervisor/call",
+                call(operator, AUTHORIZATION_REASON, gesture),
+                "la demande d'autorisation");
+        LOGGER.info("Exiting method authorizationRequested");
+        return true;
+    }
+
+    /**
+     * Withdraws this register's pending requests from the back office when the
+     * cashier abandons the gesture that asked for an authorisation
+     * ({@code LC-01-05-08}).
+     */
+    public void authorizationWithdrawn() {
+        LOGGER.info("Entering method authorizationWithdrawn");
+        post("/api/supervisor/cancel", JsonNodeFactory.instance.objectNode().put("terminalId", terminalId).toString(),
+                "le retrait de la demande d'autorisation");
+        LOGGER.info("Exiting method authorizationWithdrawn");
     }
 
     /**
@@ -84,11 +126,26 @@ public class SupervisorSettleService {
         LOGGER.info("Entering method unknownItem with code: " + code);
         String scanned = code == null || code.isBlank() ? "?" : code.trim();
         post("/api/supervisor/call",
-                "{\"terminalId\":\"" + terminalId + "\",\"operator\":\""
-                        + escape(operator) + "\",\"reason\":\"ARTICLE INCONNU\","
-                        + "\"message\":\"Code " + escape(scanned) + "\"}",
+                call(operator, "ARTICLE INCONNU", "Code " + scanned),
                 "l'alerte article inconnu");
         LOGGER.info("Exiting method unknownItem");
+    }
+
+    /**
+     * Raises an information alert at the back office for an administered
+     * register alert ({@code BO-04-03-09}, type « alerte information »): the
+     * same board as a supervisor call, the alert's target as its reason.
+     *
+     * @param target what the alert watches, e.g. {@code payment:CHEQUE}
+     * @param message the alert's message
+     * @param operator who triggered it, possibly null
+     */
+    public void controlAlert(String target, String message, String operator) {
+        LOGGER.info("Entering method controlAlert with target: " + target);
+        post("/api/supervisor/call",
+                call(operator, "ALERTE CAISSE", target + " — " + message),
+                "l'alerte de caisse");
+        LOGGER.info("Exiting method controlAlert");
     }
 
     /**
@@ -129,14 +186,21 @@ public class SupervisorSettleService {
     }
 
     /**
-     * Escapes what goes into a JSON string literal: the two characters that
-     * would end it or start an escape of their own.
+     * Builds the body of a request filed on the supervisor board, by the JSON
+     * library: a quote, a backslash or a line break in the operator's name or
+     * the message cannot break the document.
      *
-     * @param value the value, possibly null
-     * @return the escaped value, empty for a null
+     * @param operator who asked, possibly null (sent empty)
+     * @param reason the reason the request is filed under
+     * @param message what the request is about, possibly null (sent empty)
+     * @return the JSON body
      */
-    private String escape(String value) {
-        return value == null ? ""
-                : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    private String call(String operator, String reason, String message) {
+        return JsonNodeFactory.instance.objectNode()
+                .put("terminalId", terminalId)
+                .put("operator", operator == null ? "" : operator)
+                .put("reason", reason)
+                .put("message", message == null ? "" : message)
+                .toString();
     }
 }

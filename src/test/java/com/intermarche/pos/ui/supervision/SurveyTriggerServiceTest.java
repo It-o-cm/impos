@@ -178,4 +178,20 @@ class SurveyTriggerServiceTest {
         assertFalse(options.isInformative());
         assertNull(legacy.postalFormat);
     }
+    /** LC-03-07: silent end/scan lookups do not replace the banner and blank answers/postcodes are ignored. */
+    @Test
+    void silentTriggersAndBlankSurveyEntriesKeepTheirFallbacks() throws Exception {
+        SurveyTriggerService service = newService();
+        service.fireOnTransactionEnd(service.state);
+        service.fireByScan(service.state, 1L);
+        verifyNoInteractions(service.homeService);
+        var method = SurveyTriggerService.class.getDeclaredMethod("surveyOf", BackOfficeMessageClient.PendingMessage.class);
+        method.setAccessible(true);
+        assertNull(method.invoke(service, new BackOfficeMessageClient.PendingMessage(null, " ", null, null, false, null, null)));
+        var message = new BackOfficeMessageClient.PendingMessage(null, "QUESTION", " ;YES", "POSTAL", true, "CCCCC", " ;75000;  ");
+        var survey = (PosState.BackOfficeSurvey) method.invoke(service, message);
+        assertEquals(java.util.List.of("YES"), survey.options);
+        assertEquals(java.util.List.of("75000"), survey.postalCodes);
+    }
+
 }

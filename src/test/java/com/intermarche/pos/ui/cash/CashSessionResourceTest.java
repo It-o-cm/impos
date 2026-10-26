@@ -17,9 +17,11 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -66,8 +68,13 @@ class CashSessionResourceTest {
         resource.ticketPrinterService = mock(TicketPrinterService.class);
         resource.technicalEventService = mock(TechnicalEventService.class);
         resource.hardwareService = mock(HardwareService.class);
+        // LC-13-01-01: no cash changer by default — nothing said at opening.
+        resource.cashChangerService = mock(com.intermarche.pos.ui.hardware.CashChangerService.class);
+        resource.controlHardware = mock(com.intermarche.pos.ui.hardware.HardwareClient.class);
         resource.session = mock(Template.class);
         resource.sessionReportPage = mock(Template.class);
+        resource.operatorReportAuth = mock(Template.class);
+        resource.operatorReport = mock(Template.class);
         resource.varianceAlert = mock(Template.class);
         resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
@@ -254,6 +261,20 @@ class CashSessionResourceTest {
     }
 
     /**
+     * LC-13-01-01: at register opening, what the cash changer flags out of its
+     * thresholds is said as a warning on the sale screen.
+     */
+    @Test
+    void openSessionSaysTheCashChangerLevels() {
+        CashSessionResource resource = newResource();
+        resource.state.ticket = mock(com.intermarche.pos.ui.ticket.TicketState.class);
+        when(resource.cashSessionService.openSession(7L, new BigDecimal("50.00"))).thenReturn(mock(CashSession.class));
+        when(resource.cashChangerService.levelAlert()).thenReturn("MONNAYEUR : NIVEAU BAS 1,00 €");
+        assertRedirect(resource.openSession("50,00"), "/");
+        verify(resource.state.ticket).setWarning("MONNAYEUR : NIVEAU BAS 1,00 €");
+    }
+
+    /**
      * {@code openSession()} treats an unparsable float as zero
      * ({@code parseAmount} {@code NumberFormatException} catch branch).
      */
@@ -296,11 +317,9 @@ class CashSessionResourceTest {
         CashSession current = mock(CashSession.class);
         current.sessionNumber = "S-42";
         when(resource.cashSessionService.getOpenSession()).thenReturn(current);
-        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
-        when(resource.cashSessionService.buildReport(current)).thenReturn(report);
-        assertRedirect(resource.printXReport(), "/session/x-report");
-        verify(resource.ticketPrinterService).printSessionReport(report);
-        verify(resource.technicalEventService).log(TechnicalEvent.EventType.X_REPORT_PRINTED, "S-42");
+        assertRedirect(resource.printXReport(), "/session/x-report/print-authorization");
+        verify(resource.cashSessionService, never()).buildReport(any());
+        verifyNoInteractions(resource.ticketPrinterService, resource.technicalEventService);
     }
 
     // --- startClosing ---
@@ -647,11 +666,11 @@ class CashSessionResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         CashSession current = mock(CashSession.class);
         when(resource.cashSessionService.getOpenSession()).thenReturn(current);
-        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
-        when(resource.cashSessionService.buildReport(current)).thenReturn(report);
         TemplateInstance instance = mock(TemplateInstance.class);
-        when(resource.sessionReportPage.data("report", report)).thenReturn(instance);
+        when(resource.operatorReportAuth.data("print", false)).thenReturn(instance);
+        when(instance.data("error", null)).thenReturn(instance);
         assertSame(instance, resource.showXReport());
+        verify(resource.cashSessionService, never()).buildReport(any());
         verifyNoInteractions(resource.ticketPrinterService);
         verifyNoInteractions(resource.technicalEventService);
     }
@@ -667,5 +686,194 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
         assertRedirect((Response) resource.showXReport(), "/session?error=no-session");
         verifyNoInteractions(resource.ticketPrinterService);
+    }
+    /** LC-13-03-01/-06: session opening cannot leave a bridge command armed. */
+    @Test
+    void openSessionRevokesWorkstationPermitsBeforeOpening() {
+        CashSessionResource resource = newResource();
+        resource.openSession("0");
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(resource.controlHardware, resource.cashSessionService);
+        order.verify(resource.controlHardware).revokeWorkstation();
+        order.verify(resource.cashSessionService).openSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    /** LC-13-03-01/-06: failure to revoke a permit prevents a new cash session. */
+    @Test
+    void openSessionRefusesWhenControlPermitCannotBeRevoked() {
+        CashSessionResource resource = newResource();
+        resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        org.mockito.Mockito.doThrow(new IllegalStateException()).when(resource.controlHardware).revokeWorkstation();
+        assertEquals("/maintenance", resource.openSession("0").getLocation().toString());
+        verify(resource.cashSessionService, never()).openSession(any(), any());
+    }
+
+    /** EXP-02: the previous close's theoretical float overrides the configured opening amount on screen. */
+    @Test
+    void openingPagePrefillsTheTheoreticalFloat() {
+        CashSessionResource resource = newResource();
+        when(resource.cashSessionService.theoreticalOpeningFloat()).thenReturn(new BigDecimal("123.45"));
+        TemplateInstance view = mock(TemplateInstance.class, RETURNS_SELF);
+        when(resource.session.data("state", resource.state)).thenReturn(view);
+        assertSame(view, resource.sessionPage(null));
+        verify(view).data("defaultFloat", "123,45");
+        verify(view).data("theoreticalFloat", "123,45");
+    }
+
+    /** BO-10-02-08: every parked-ticket control level either warns, allows or prevents closing explicitly. */
+    @Test
+    void parkedTicketsAtCloseRespectEveryControlLevel() {
+        for (var level : com.intermarche.pos.ui.endorsement.ControlLevel.values()) {
+            CashSessionResource resource = newResource();
+            resource.state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+            when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+            when(resource.cashSessionService.parkedTicketCount()).thenReturn(1L);
+            when(resource.endorsementService.check(resource.state, com.intermarche.pos.ui.endorsement.ControlPoint.PARKED_AT_CLOSE)).thenReturn(level);
+            when(resource.endorsementService.controlMessage(com.intermarche.pos.ui.endorsement.ControlPoint.PARKED_AT_CLOSE, level)).thenReturn("PARKED CONTROL");
+            assertRedirect(resource.startClosing(), level.allows() ? "/cash-count" : "/session?error=tickets-en-attente");
+            if (level == com.intermarche.pos.ui.endorsement.ControlLevel.WARN || !level.allows()) {
+                assertEquals("PARKED CONTROL", resource.state.ticket.transientError);
+            }
+        }
+    }
+
+    /** EXP-95/BO-10-02-04: count days keep the counting screen and a refused drawer gesture never opens hardware. */
+    @Test
+    void fullCountDaysAndDrawerControlsKeepTheirBoundaries() {
+        CashSessionResource resource = newResource();
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.posSettingsService.floatingFloat()).thenReturn(true);
+        when(resource.cashSessionService.isFullCountDay(any())).thenReturn(true);
+        when(resource.endorsementService.drawerOutOfSaleAllowed(resource.state)).thenReturn(false);
+        assertRedirect(resource.startClosing(), "/cash-count");
+        verify(resource.hardwareService, never()).openDrawer();
+        when(resource.cashSessionService.isFullCountDay(any())).thenReturn(false);
+        assertRedirect(resource.startClosing(), "/session?error=no-session");
+    }
+
+    /** EXP-82: a session disappearing at commit returns to the session screen for both ordinary and endorsed closes. */
+    @Test
+    void disappearedSessionIsReportedAfterEitherCloseRoute() {
+        CashSessionResource resource = newResource();
+        CashSession open = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        var report = new CashSessionService.SessionReport();
+        report.theoreticalCash = BigDecimal.ZERO;
+        when(resource.cashSessionService.buildReport(open)).thenReturn(report);
+        assertRedirect(resource.closeSession(" ", "0", null, null), "/session?error=no-session");
+        resource.state.pendingClose = new PosState.PendingClose(BigDecimal.ZERO, BigDecimal.ZERO, null, null, BigDecimal.ZERO);
+        when(resource.endorsementService.authorize("MANAGER", "PIN", "SESSION_VARIANCE")).thenReturn(true);
+        assertRedirect(resource.closeEndorsed("MANAGER", "PIN"), "/session?error=no-session");
+        assertNull(resource.state.pendingClose);
+        verifyNoInteractions(resource.ticketPrinterService);
+    }
+
+
+    /** LC-12-07-01: direct print navigation exposes only a credential form, never revenue. */
+    @Test
+    void printAuthorizationContainsNoReport() {
+        var resource = newResource();
+        var page = mock(TemplateInstance.class, RETURNS_SELF);
+        when(resource.operatorReportAuth.data("print", true)).thenReturn(page);
+        assertSame(page, resource.printReportAuthorization());
+        verifyNoInteractions(resource.cashSessionService, resource.ticketPrinterService);
+    }
+
+    /** LC-12-07-01: absent period and absent connected identity each refuse before credentials or data reads. */
+    @Test
+    void operatorReportRequiresPeriodAndConnectedIdentity() {
+        var resource = newResource();
+        assertRedirect((Response) resource.authorizedOperatorReport("boss", "pin", false), "/session?error=no-session");
+        when(resource.cashSessionService.getOpenSession()).thenReturn(new CashSession());
+        resource.state.auth.operatorId = null;
+        assertRedirect((Response) resource.authorizedOperatorReport("boss", "pin", true), "/session?error=no-session");
+        verify(resource.endorsementService, never()).authorize(any(), any(), any());
+        verify(resource.cashSessionService, never()).buildOperatorReport(any(), any());
+    }
+
+    /** LC-12-07-01: refusal never loads figures; approval is checked before each read and each print. */
+    @Test
+    void operatorReportApprovalPrecedesReadAndPrint() {
+        var resource = newResource();
+        var period = new CashSession();
+        period.sessionNumber = "S-42";
+        resource.state.auth.operatorBadgeId = "BADGE7";
+        when(resource.state.getOperatorName()).thenReturn("Operator Seven");
+        when(resource.cashSessionService.getOpenSession()).thenReturn(period);
+        var auth = mock(TemplateInstance.class, RETURNS_SELF);
+        when(resource.operatorReportAuth.data("print", true)).thenReturn(auth);
+        assertSame(auth, resource.authorizedOperatorReport("boss", "bad", true));
+        verify(resource.cashSessionService, never()).buildOperatorReport(any(), any());
+        verifyNoInteractions(resource.ticketPrinterService);
+        when(resource.endorsementService.authorize("boss", "good", "OPERATOR_REVENUE")).thenReturn(true);
+        var report = new CashSessionService.SessionReport();
+        when(resource.cashSessionService.buildOperatorReport(period, 7L)).thenAnswer(call -> {
+            assertTrue(Thread.holdsLock(resource.state));
+            return report;
+        });
+        var page = mock(TemplateInstance.class, RETURNS_SELF);
+        when(resource.operatorReport.data("report", report)).thenReturn(page);
+        assertSame(page, resource.authorizedOperatorReport("boss", "good", false));
+        verifyNoInteractions(resource.ticketPrinterService);
+        assertSame(page, resource.authorizedOperatorReport("boss", "good", true));
+        var order = inOrder(resource.endorsementService, resource.cashSessionService, resource.ticketPrinterService);
+        order.verify(resource.endorsementService).authorize("boss", "good", "OPERATOR_REVENUE");
+        order.verify(resource.cashSessionService).buildOperatorReport(period, 7L);
+        order.verify(resource.endorsementService).authorize("boss", "good", "OPERATOR_REVENUE");
+        order.verify(resource.cashSessionService).buildOperatorReport(period, 7L);
+        order.verify(resource.ticketPrinterService).printOperatorReport(report, "Operator Seven");
+        verify(resource.technicalEventService).log(TechnicalEvent.EventType.X_REPORT_PRINTED, "S-42 / BADGE7");
+    }
+
+    /** LC-12-07-01: the existing full X survives, but all direct reading and printing paths demand approval. */
+    @Test
+    void registerWideReportRemainsAvailableAfterFreshApproval() {
+        var resource = newResource();
+        assertRedirect((Response) resource.authorizedRegisterReport("boss", "pin", false), "/session?error=no-session");
+        var period = new CashSession();
+        period.sessionNumber = "PERIOD";
+        when(resource.cashSessionService.getOpenSession()).thenReturn(period);
+        resource.state.auth.operatorId = null;
+        assertRedirect((Response) resource.authorizedRegisterReport("boss", "pin", true), "/session?error=no-session");
+        resource.state.auth.operatorId = 7L;
+        var auth = mock(TemplateInstance.class, RETURNS_SELF);
+        when(resource.operatorReportAuth.data("print", false)).thenReturn(auth);
+        assertSame(auth, resource.authorizedRegisterReport("boss", "bad", false));
+        verify(resource.cashSessionService, never()).buildReport(any());
+        when(resource.endorsementService.authorize("boss", "good", "REGISTER_REVENUE")).thenReturn(true);
+        var report = new CashSessionService.SessionReport();
+        when(resource.cashSessionService.buildReport(period)).thenReturn(report);
+        var page = mock(TemplateInstance.class);
+        when(resource.sessionReportPage.data("report", report)).thenReturn(page);
+        assertSame(page, resource.authorizedRegisterReport("boss", "good", false));
+        verifyNoInteractions(resource.ticketPrinterService);
+        assertSame(page, resource.authorizedRegisterReport("boss", "good", true));
+        verify(resource.ticketPrinterService).printSessionReport(report);
+        verify(resource.technicalEventService).log(TechnicalEvent.EventType.X_REPORT_PRINTED, "PERIOD");
+    }
+
+    /** LC-12-07-02: screen rows use the exact configured count and amount, including zeros, without hidden rubrics. */
+    @Test
+    void operationTemplateRendersOnlyTheConfiguredSnapshotRows() throws Exception {
+        var engine = io.quarkus.qute.Engine.builder().addDefaults()
+                .addValueResolver(new io.quarkus.qute.ReflectionValueResolver())
+                .addNamespaceResolver(io.quarkus.qute.NamespaceResolver.builder("inject")
+                        .resolve(context -> TestMessages.french()).build()).build();
+        String source = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/templates/report-rubrics.html"));
+        var template = engine.parse(source);
+        var report = new CashSessionService.SessionReport();
+        report.operationRows = java.util.List.of(
+                new com.intermarche.pos.service.RevenueReportService.Row("report.section.expenses", "", 2, "7,50"),
+                new com.intermarche.pos.service.RevenueReportService.Row("report.section.tenders", "CASH", 3, "12,00"),
+                new com.intermarche.pos.service.RevenueReportService.Row("report.section.abandoned", "", 0, "0,00"));
+        String html = template.data("report", report).render();
+        assertTrue(html.contains("Dépenses"));
+        assertTrue(html.contains("7,50"));
+        assertTrue(html.contains("ESPÈCES"));
+        assertFalse(html.contains("CASH"));
+        assertTrue(html.contains("0,00"));
+        org.junit.jupiter.api.Assertions.assertFalse(html.contains("Forçages prix"));
+        report.operationRows = java.util.List.of();
+        String hidden = template.data("report", report).render();
+        org.junit.jupiter.api.Assertions.assertFalse(hidden.contains("7,50"));
     }
 }

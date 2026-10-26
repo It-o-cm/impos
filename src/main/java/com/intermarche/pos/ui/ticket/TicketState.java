@@ -88,6 +88,41 @@ public class TicketState implements Serializable {
     public transient String recalledOrderReference = null;
 
     /**
+     * The date of the order this ticket takes over, ISO-8601 as the store node
+     * states it, or null when the ticket takes over none (BO-10-03-17). The
+     * first order loaded gives its date: a sale settling several documents is
+     * dated by the order that opened it.
+     */
+    public transient String orderDate = null;
+
+    /**
+     * The promotion channel the external basket loaded on this ticket asks the
+     * promotion engine to be told (BO-10-01-13, -22, -28, -31, -34), or null:
+     * null keeps the valuation request the engine always received, to the byte.
+     */
+    public transient String promotionChannel = null;
+
+    /**
+     * The external channel of the last basket loaded on this ticket
+     * (BO-10-01), by name, or null when none was: the settlement reads it to
+     * print the commercial management tool's document (BO-10-01-26).
+     */
+    public transient String recalledChannel = null;
+
+    /**
+     * True once a self-scanning basket was loaded under a rule that forbids
+     * adding articles after it (BO-10-01-17): every further article is refused.
+     */
+    public transient boolean additionsLocked = false;
+
+    /**
+     * The GS1 code a supervisor allowed past its expiry date (BO-03-06-64), or
+     * null. Consumed by the very next reading of that code, which then registers
+     * the article the date rule refused.
+     */
+    public transient String gs1ForcedCode = null;
+
+    /**
      * The uid of the line whose cancellation is waiting for its justification
      * ({@code BO-06-06-04}), or null when nothing is waiting.
      *
@@ -125,6 +160,21 @@ public class TicketState implements Serializable {
      * customer triggered has no business reaching the next one.
      */
     public List<String> scannedPromotions = new ArrayList<>();
+
+    /**
+     * The promotions a scanned barcode DEFINED on this ticket (BO-03-06-43):
+     * the article targeted and what the promotion is worth, as the range
+     * administered it, in the order they were scanned. Handed to the engine
+     * beside the card-borne immediate discounts.
+     */
+    public List<ScannedOffer> scannedOffers = new ArrayList<>();
+
+    /**
+     * The barcodes scanned on this ticket to be TRANSMITTED to the promotion
+     * engine (BO-03-06-42), verbatim and in scan order; the engine applies the
+     * promotion it associates with each.
+     */
+    public List<String> engineBarcodes = new ArrayList<>();
 
     /**
      * The container weight a TARE barcode announced, in kilograms, waiting to be
@@ -204,6 +254,66 @@ public class TicketState implements Serializable {
     /** Transient message shown on the ticket area — a refusal or a confirmation. */
     public String transientError = null;
 
+    /** Sale-only fiscal identity; null means no choice yet, empty means explicitly cleared (LC-08-06-02/-03). */
+    public String customerTaxId = null;
+
+    /** True when the sale is a self-scanning basket loaded at the till (BO-04-01-41). */
+    public boolean selfScanning = false;
+
+    /** True when the hostess decided the self-scanning basket's control (BO-04-01-42). */
+    public boolean selfScanControlled = false;
+
+    /** True when the system decided the self-scanning basket's control (BO-04-01-43). */
+    public boolean selfScanVerified = false;
+
+    /**
+     * The journal events recorded before the ticket existed — unknown codes
+     * scanned, prices modified, lines cancelled — stamped with its number once
+     * it does (BO-04-01-34).
+     */
+    public java.util.List<Long> eventsAwaitingTicket = new java.util.ArrayList<>();
+
+    /**
+     * Keeps a journal event the ticket must name once its draft is written
+     * (BO-04-01-34): one already named, or one the journal kept no row of,
+     * waits for nothing.
+     *
+     * @param event the event recorded, possibly null
+     */
+    public void awaitTicket(com.intermarche.pos.domain.session.TechnicalEvent event) {
+        if (event != null && event.ticketNumber == null && event.id != null) {
+            eventsAwaitingTicket.add(event.id);
+        }
+    }
+
+    /** How many times each control alert fired in this transaction (BO-04-03-09). */
+    public java.util.Map<String, Integer> alertCounts = new java.util.HashMap<>();
+
+    /**
+     * How many NIFs were recorded by a barcode scan (LC-08-06-05). The NIF
+     * entry screen watches this counter: when it moves while the screen is
+     * open, the scanned NIF is shown in the field the cashier is looking at.
+     * A counter and not a flag, so it never needs resetting.
+     */
+    public long customerTaxIdScans = 0;
+
+    /**
+     * The customer asked for a FATURA rather than a simplified invoice
+     * (LC-08-04-18, -19): null when no invoice was asked for this sale, else the
+     * customer the invoice states, as typed on the fiscal documents screen.
+     */
+    public InvoiceRequest invoiceRequest = null;
+
+    /**
+     * The customer an invoice asked for during the sale states (LC-08-04-18).
+     *
+     * @param taxId the customer's tax number
+     * @param name the customer's name
+     * @param address the customer's address
+     */
+    public record InvoiceRequest(String taxId, String name, String address) {
+    }
+
     /**
      * True when {@link #transientError} carries a CONFIRMATION rather than a
      * refusal.
@@ -248,6 +358,31 @@ public class TicketState implements Serializable {
     }
 
     /**
+     * Refuses a DECIMAL armed quantity for an article that does not take one
+     * ({@code LC-02-13-03}, {@code LC-02-13-04/05/06}).
+     *
+     * <p>The quantity key armed before the article is consumed by
+     * {@link #addItem}, which cannot tell a metre of cable from a bag of crisps:
+     * the caller can, and asks here BEFORE it rings the line. A whole armed
+     * quantity, an article of the decimal-quantity type, or nothing armed at all
+     * answer false and the add goes on. A decimal armed for any other article is
+     * consumed — it must not wait for the next article either — and the answer is
+     * true: the caller says « QUANTITÉ INVALIDE » and registers nothing, which is
+     * what the quantity key already does on a line rung first.
+     *
+     * @param decimalAllowed whether the article takes a decimal quantity
+     * @return true when the armed quantity is refused and was consumed
+     */
+    public boolean armedDecimalRefused(boolean decimalAllowed) {
+        BigDecimal armed = parent == null ? null : parent.armedQuantity;
+        if (armed == null || decimalAllowed || armed.stripTrailingZeros().scale() <= 0) {
+            return false;
+        }
+        parent.armedQuantity = null;
+        return true;
+    }
+
+    /**
      * Adds an item to the ticket.
      * <p>
      * Phase 3 merge rules: only unit EAN lines merge, and only into a line
@@ -272,6 +407,7 @@ public class TicketState implements Serializable {
         // was entered, the service decides whether that deserves a message.
         // Reading the flag here rather than at each entry point is what makes the
         // three of them behave the same without any of them knowing about the desk.
+        String linkedParentUid = parent == null ? null : parent.linkedArticleParentUid;
         boolean toCollect = parent != null && parent.collectArmed;
         // EXP-38/40: in return mode (the day's return till) an entered article
         // rings as a RETURN — a negative line the customer is refunded for — so
@@ -281,7 +417,10 @@ public class TicketState implements Serializable {
         // Only unit EAN sales are mergeable (weighed lines: one line per weighing).
         // A RETURN never merges: folding it into a positive sale line would quietly
         // reduce that line instead of standing as its own refunded line (EXP-38).
-        boolean mergeable = (plu == null || plu.isEmpty()) && ean != null && !ean.isEmpty() && !asReturn;
+        // BO-10-08-32: and only where the shop groups the same articles at all —
+        // a shop that turns the grouping off sees each scan as its own line.
+        boolean mergeable = (plu == null || plu.isEmpty()) && ean != null && !ean.isEmpty() && !asReturn
+                && linesGrouped();
         // LC-02-13-04/05/06: an armed quantity replaces the one the caller passed —
         // on a UNIT line only. A weighed line's quantity is a weight the scale
         // measured, and no key may overwrite a measurement; the arming is consumed
@@ -318,7 +457,11 @@ public class TicketState implements Serializable {
                 // the whole quantity on the collection voucher, or none of it.
                 boolean sameDestination = item.toCollect == toCollect;
 
-                if (unmodified && samePrice && positive && sameDestination) {
+                // LC-02-09-01: a dematerialised article carries ITS code; a second
+                // one is another article with another code, never a quantity.
+                boolean ownCode = item.activationCode != null;
+                if (unmodified && samePrice && positive && sameDestination && !ownCode
+                        && java.util.Objects.equals(item.linkedParentUid, linkedParentUid)) {
                     item.quantity = item.quantity.add(quantity);
                     recomputeTotal();
                     if (parent != null) {
@@ -340,7 +483,10 @@ public class TicketState implements Serializable {
         TicketItem newItem = new TicketItem(ean, plu, label, unitPrice,
                 asReturn ? quantity.negate() : quantity, vatRate);
         newItem.toCollect = toCollect;
+        newItem.linkedParentUid = linkedParentUid;
         newItem.returnLine = asReturn;
+        // BO-03-13-12: a return line keeps the return type it was rung under.
+        newItem.returnTypeLabel = asReturn ? parent.returnTypeLabel : null;
         items.add(newItem);
         recomputeTotal();
 
@@ -445,7 +591,7 @@ public class TicketState implements Serializable {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal sinceMarker = BigDecimal.ZERO;
         for (TicketItem item : items) {
-            BigDecimal lineTotal = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal lineTotal = item.getTotalPrice().setScale(2, roundingMode());
             total = total.add(lineTotal);
             // EXP-43: the running sum since the previous subtotal marker, exposed on
             // the boundary line. It never splits the ticket — total above sums every
@@ -459,6 +605,52 @@ public class TicketState implements Serializable {
             }
         }
         this.totalAmount = total;
+    }
+
+    /**
+     * Whether the shop groups a repeated article into the quantity of its
+     * line on the sale screen (BO-10-08-32).
+     *
+     * <p>Read through the container because this state is a plain object the
+     * register serialises, not a bean: it cannot be handed the parameters at
+     * construction. A state with no container behind it — a unit test, a
+     * deserialised copy — groups, which is what it always did.
+     *
+     * @return true when the same articles are grouped
+     */
+    static boolean linesGrouped() {
+        return setting(com.intermarche.pos.service.PosSettingsService::saleGroupLines, Boolean.TRUE);
+    }
+
+    /**
+     * The rule a line total is rounded to the cent with (BO-10-02-18) — the
+     * one the fiscal persistence applies too, so the screen and the paper
+     * keep agreeing.
+     *
+     * @return the administered rule, half up when it cannot be read
+     */
+    static RoundingMode roundingMode() {
+        return setting(com.intermarche.pos.service.PosSettingsService::calcRoundingMode, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Reads one back-office parameter through the container, falling back
+     * when there is no container or no parameter service behind it.
+     *
+     * @param read how to read the parameter from the service
+     * @param fallback the value when it cannot be read
+     * @param <T> the parameter's type
+     * @return the administered value, or the fallback
+     */
+    static <T> T setting(java.util.function.Function<com.intermarche.pos.service.PosSettingsService, T> read,
+            T fallback) {
+        try {
+            io.quarkus.arc.InstanceHandle<com.intermarche.pos.service.PosSettingsService> handle =
+                    io.quarkus.arc.Arc.container().instance(com.intermarche.pos.service.PosSettingsService.class);
+            return handle.isAvailable() ? read.apply(handle.get()) : fallback;
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     /**
@@ -600,6 +792,49 @@ public class TicketState implements Serializable {
     }
 
     /**
+     * Snapshots meal eligibility on the live lines of the recorded article (LC-10-01-07).
+     * A repeated scan can merge into an earlier line while another article remains last.
+     *
+     * @param ean the recorded article identifier
+     * @param eligible the current catalog eligibility
+     */
+    public void snapshotMealVoucherEligibility(String ean, boolean eligible) {
+        for (TicketItem item : items) {
+            if (java.util.Objects.equals(ean, item.ean)) {
+                item.mealVoucherEligible = eligible;
+            }
+        }
+    }
+
+    /**
+     * Snapshots the article's VAT status and self-service traits on the live
+     * lines of the recorded article (BO-02-03-24 to -26, -41, -42), by article
+     * and not on the last line for the reason
+     * {@link #snapshotMealVoucherEligibility} gives.
+     *
+     * @param ean the recorded article identifier
+     * @param vatExempt whether the article's VAT is an exemption
+     * @param thirdPartySale whether the article is sold on behalf of a third party
+     * @param service whether the article is a service and not goods (BO-05-01-03)
+     * @param bulky whether the article is bulky
+     * @param referenceWeightKg the unit reference weight in kilograms, or null
+     * @param priceCallOnly whether the article is in the "appel prix" mode
+     */
+    public void snapshotArticleTraits(String ean, boolean vatExempt, boolean thirdPartySale, boolean service,
+                                      boolean bulky, BigDecimal referenceWeightKg, boolean priceCallOnly) {
+        for (TicketItem item : items) {
+            if (java.util.Objects.equals(ean, item.ean)) {
+                item.vatExempt = vatExempt;
+                item.thirdPartySale = thirdPartySale;
+                item.service = service;
+                item.bulky = bulky;
+                item.referenceWeightKg = referenceWeightKg;
+                item.priceCallOnly = priceCallOnly;
+            }
+        }
+    }
+
+    /**
      * Returns the total of the lines an article attribute declares eligible to
      * a meal voucher (BO-02-03-06), which caps a meal-ticket settlement when no
      * engine advantage states another base.
@@ -618,6 +853,66 @@ public class TicketState implements Serializable {
             }
         }
         return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Snapshots the restricted-tender eligibilities on the live lines of the
+     * recorded article (LC-10-01-09, LC-10-01-11).
+     *
+     * <p>Applied by article and not to the last line, for the reason
+     * {@link #snapshotMealVoucherEligibility} already gives: a repeated scan
+     * merges into an earlier line while another article stays last, and writing
+     * the snapshot on the last line would make that other article eligible.
+     *
+     * @param ean the recorded article identifier
+     * @param snapshot the eligibilities the article carries, or null for none
+     */
+    public void snapshotRestrictedTenders(String ean, String snapshot) {
+        for (TicketItem item : items) {
+            if (java.util.Objects.equals(ean, item.ean)) {
+                item.restrictedTenders = snapshot;
+            }
+        }
+    }
+
+    /**
+     * Returns the total of the lines eligible for a restricted tender, as the
+     * customer display shows it (LC-10-01-09, LC-10-01-11).
+     *
+     * <p>The eligibility is the article attribute snapshotted on the line; the
+     * amount is the line total as the sale holds it, valuation by the engine and
+     * allocated ticket discount included. Nothing is recomputed here: the
+     * register only adds up the lines. A negative line is left out, exactly as
+     * {@link #mealVoucherEligibleTotal()} does.
+     *
+     * @param tender the restricted tender whose eligible base is wanted
+     * @return the eligible total, zero when no line is eligible
+     */
+    public BigDecimal restrictedTenderEligibleTotal(
+            com.intermarche.pos.domain.catalog.attribute.RestrictedTender tender) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (TicketItem item : items) {
+            if (!tender.covers(item.restrictedTenders)) {
+                continue;
+            }
+            BigDecimal lineTotal = item.getTotalPrice();
+            if (lineTotal.signum() > 0) {
+                total = total.add(lineTotal);
+            }
+        }
+        return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Records the date of an order loaded into the sale (BO-10-03-17), unless
+     * an earlier order already dated it; a blank date records nothing.
+     *
+     * @param date the order date the store node stated, or null
+     */
+    public void noteOrderDate(String date) {
+        if (orderDate == null && date != null && !date.isBlank()) {
+            orderDate = date.trim();
+        }
     }
 
     /**
@@ -640,11 +935,25 @@ public class TicketState implements Serializable {
      */
     public void clear() {
         items.clear();
+        customerTaxId = null;
+        selfScanning = false;
+        selfScanControlled = false;
+        selfScanVerified = false;
+        eventsAwaitingTicket.clear();
+        alertCounts.clear();
+        invoiceRequest = null;
         cancelledItems.clear();
         scannedStickerCodes.clear();
         scannedPromotions.clear();
+        scannedOffers.clear();
+        engineBarcodes.clear();
         pendingActivationUid = null;
         recalledOrderReference = null;
+        orderDate = null;
+        promotionChannel = null;
+        recalledChannel = null;
+        additionsLocked = false;
+        gs1ForcedCode = null;
         pendingCancelUid = null;
         pendingCancelReasonCode = null;
         pendingCancelReasonLabel = null;
@@ -711,6 +1020,41 @@ public class TicketState implements Serializable {
             return false;
         }
         scannedPromotions.add(name);
+        onChange();
+        return true;
+    }
+
+    /**
+     * Arms a promotion a scanned barcode defined on this ticket (BO-03-06-43).
+     *
+     * <p>Keyed on the scanned code: the same paper scanned twice is one right,
+     * while two papers of one range — two coupons for two articles — are two.
+     *
+     * @param offer the promotion the code defined
+     * @return true when armed by this call, false when that code already was
+     */
+    public boolean armOffer(ScannedOffer offer) {
+        for (ScannedOffer armed : scannedOffers) {
+            if (armed.code.equals(offer.code)) {
+                return false;
+            }
+        }
+        scannedOffers.add(offer);
+        onChange();
+        return true;
+    }
+
+    /**
+     * Arms a barcode to be transmitted to the promotion engine (BO-03-06-42).
+     *
+     * @param code the scanned code, never blank
+     * @return true when armed by this call, false when that code already was
+     */
+    public boolean armEngineBarcode(String code) {
+        if (engineBarcodes.contains(code)) {
+            return false;
+        }
+        engineBarcodes.add(code);
         onChange();
         return true;
     }
@@ -844,23 +1188,21 @@ public class TicketState implements Serializable {
      */
     public static String detailLineOf(BigDecimal quantity, BigDecimal unitPrice, String unitName,
             boolean weighed, BigDecimal embeddedWeight, BigDecimal embeddedUnitPrice, String euro) {
-        if (embeddedWeight != null && embeddedUnitPrice != null) {
-            return String.format("%.3f kg x %.2f " + euro + "/kg", embeddedWeight, embeddedUnitPrice)
-                    .replace('.', ',');
-        }
-        if (weighed) {
-            return String.format("%.3f kg x %.2f " + euro + "/kg", quantity, unitPrice).replace('.', ',');
-        }
-        if (unitName != null && !unitName.isBlank()) {
-            return String.format("%s %s x %.2f " + euro + "/%s",
-                    quantity.stripTrailingZeros().toPlainString(), unitName, unitPrice, unitName)
-                    .replace('.', ',');
-        }
-        if (quantity.compareTo(BigDecimal.ONE) > 0) {
-            return String.format("%s x %.2f " + euro,
-                    quantity.stripTrailingZeros().toPlainString(), unitPrice).replace('.', ',');
-        }
-        return "";
+        return com.intermarche.pos.domain.catalog.UnitFormat.DEFAULT.detailLine(quantity, unitPrice, unitName, weighed,
+                embeddedWeight, embeddedUnitPrice, euro);
+    }
+
+    /**
+     * One promotion a scanned barcode defined (BO-03-06-43).
+     *
+     * @param code the scanned code, the key of the right
+     * @param promotion the administered promotion name
+     * @param ean the EAN of the article the promotion targets
+     * @param type PERCENT or AMOUNT
+     * @param value the percentage as a fraction, or the amount off each unit
+     */
+    public record ScannedOffer(String code, String promotion, String ean, String type,
+                               java.math.BigDecimal value) implements Serializable {
     }
 
     // --- INNER CLASS: TICKET ITEM ---
@@ -954,6 +1296,18 @@ public class TicketState implements Serializable {
          */
         public BigDecimal valuedTotal = null;
 
+        /** LC-02-03-04: principal line owning this automatically added companion, null for an independent line. */
+        public String linkedParentUid;
+        /** Companion EAN captured from the article; empty means no automatic companion. */
+        public String linkedArticleEan;
+        /** Principal quantity whose full companion chain was last registered successfully. */
+        public BigDecimal linkedRecordedQuantity;
+        /** BO-02-03-15: companions per unit of this principal, null reading as one. */
+        public BigDecimal linkedArticleMultiplier;
+
+        /** LC-03-01-04: applied promotion labels displayed under this article. */
+        public String promotionLabel = null;
+
         /**
          * Returns the line total: the engine-valued amount when present,
          * the local unit-price math otherwise.
@@ -1039,7 +1393,18 @@ public class TicketState implements Serializable {
          * @return the decomposition line, or an empty string when none applies
          */
         public String getDetailLine() {
-            return detailLineOf(quantity, unitPrice, unitName,
+            return getDetailLine(com.intermarche.pos.domain.catalog.UnitFormat.DEFAULT);
+        }
+
+        /**
+         * The decomposition line written with the administered writing of
+         * quantities (BO-10-08-28, BO-10-08-29).
+         *
+         * @param format how quantities are written
+         * @return the decomposition line, or an empty string when none applies
+         */
+        public String getDetailLine(com.intermarche.pos.domain.catalog.UnitFormat format) {
+            return format.detailLine(quantity, unitPrice, unitName,
                     plu != null && !plu.isEmpty(), embeddedWeight, embeddedUnitPrice, "€");
         }
 
@@ -1084,6 +1449,52 @@ public class TicketState implements Serializable {
         public boolean mealVoucherEligible = false;
 
         /**
+         * True when the line is EXEMPT of VAT (BO-02-03-26/27), which the ticket
+         * prints apart from a rate of zero. Snapshotted from the article at add
+         * time and persisted with the line.
+         */
+        public boolean vatExempt = false;
+
+        /**
+         * True when the article was sold on behalf of a third party, the "TVA
+         * vente prestation" (BO-02-03-41 to -43). Snapshotted at add time and
+         * persisted with the line.
+         */
+        public boolean thirdPartySale = false;
+
+        /**
+         * True when the article is a SERVICE (prestation de services) and not
+         * goods (BO-05-01-03): its collected amount is the payment data of the
+         * e-reporting. Snapshotted at add time and persisted with the line.
+         */
+        public boolean service = false;
+
+        /**
+         * True when the article is BULKY (BO-02-03-25): a self-service lane does
+         * not check it on the security scale of its bagging area.
+         */
+        public boolean bulky = false;
+
+        /** True when the article was rung by a scan rather than keyed (BO-04-01-14, BO-06-04-05). */
+        public boolean scanned = false;
+
+        /** True when the operator keyed the price of the line (BO-04-01-14). */
+        public boolean priceEntered = false;
+
+        /**
+         * The reference weight of one unit of the article in kilograms, or null
+         * when the referential carries none (BO-02-03-24/25): what the security
+         * scale of a self-service lane expects to see laid down for a unit line.
+         */
+        public BigDecimal referenceWeightKg = null;
+
+        /**
+         * True when the article is in the "appel prix" checkout mode
+         * (BO-02-03-05): its price is the fiche's and no gesture forces another.
+         */
+        public boolean priceCallOnly = false;
+
+        /**
          * True when the article on this line is NOT carried out of the shop by the
          * customer but collected afterwards at the goods desk
          * ({@code LC-02-08}).
@@ -1114,6 +1525,13 @@ public class TicketState implements Serializable {
          * sale line. Persisted on the draft so a mixed ticket survives a recovery.
          */
         public boolean returnLine = false;
+
+        /**
+         * The label of the administered return type a RETURN line was rung
+         * under ({@code BO-03-13-12}), or null for a sale line or a return made
+         * under no type. Persisted with its code on the ticket line.
+         */
+        public String returnTypeLabel = null;
 
         /**
          * True when the line was CANCELLED during the sale and is kept on the
@@ -1163,6 +1581,13 @@ public class TicketState implements Serializable {
          * move it.
          */
         public String restrictedTenders = null;
+
+        /**
+         * The quantity ORDERED on the document this line was recalled from, when
+         * the document also states what was delivered (LC-06-02-02, -12): the line
+         * sells the delivered quantity and shows both. Null for any other line.
+         */
+        public BigDecimal orderedQuantity = null;
 
         /**
          * The article's unit of measure ({@code LC-02-03-02}), or null for an article
@@ -1232,6 +1657,53 @@ public class TicketState implements Serializable {
          */
         public String activationProvider = null;
 
+        /**
+         * The payment hub's identifier of the activation of this line
+         * (LC-02-09-01), or null while the line is not activated: the
+         * reference a cancellation reverses (LC-02-09-02).
+         */
+        public String activationReference = null;
+
+        /** The provider's own code for the activation (LC-02-09-03), or null. */
+        public String activationApproval = null;
+
+        /**
+         * The shop's TICKET sentence for what the provider answered at the
+         * activation (BO-03-08-07), printed on the activation ticket; null when
+         * the shop declared none.
+         */
+        public String activationTicketText = null;
+
+        /** What the article carried before its activation (LC-02-09-03), or null. */
+        public BigDecimal activationBalanceBefore = null;
+
+        /** What the article carries after its activation (LC-02-09-03), or null. */
+        public BigDecimal activationBalanceAfter = null;
+
+        /**
+         * Whether the article code accompanies the label of this line on the
+         * screens (BO-10-02-34/35), or null until {@link ArticleCodeService}
+         * resolved it at the line's first display.
+         */
+        public Boolean codeOnScreen = null;
+
+        /**
+         * Whether the article code is shown under this line's label
+         * (BO-10-02-34/35).
+         *
+         * @return true once the line was resolved as showing its code
+         */
+        public boolean getCodeShown() {
+            return Boolean.TRUE.equals(codeOnScreen);
+        }
+
+        /**
+         * Returns the line total: the engine's valued total when one was
+         * applied, else unit price times quantity, less the line's share of a
+         * ticket discount.
+         *
+         * @return the unrounded line total
+         */
         public BigDecimal getTotalPrice() {
             BigDecimal __t = valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
             if (globalDiscountShare != null) {
@@ -1250,6 +1722,17 @@ public class TicketState implements Serializable {
          * @return the HTML fragment for the ticket display
          */
         public String getHtml() {
+            return getHtml(com.intermarche.pos.domain.catalog.UnitFormat.DEFAULT);
+        }
+
+        /**
+         * Returns the HTML fragment of the line, its quantity written with the
+         * administered writing (BO-10-08-28, BO-10-08-29).
+         *
+         * @param format how quantities are written
+         * @return the HTML fragment for the ticket display
+         */
+        public String getHtml(com.intermarche.pos.domain.catalog.UnitFormat format) {
             if (ean == null && label.contains("<span")) return label;
 
             // A filled PLU denotes a weighed sale
@@ -1262,8 +1745,7 @@ public class TicketState implements Serializable {
                 if (priceEmbedded) {
                     return label;
                 }
-                String weightFormatted = String.format("%.3f", quantity).replace(".", ",");
-                return String.format("<span class='qty'>%s kg</span> %s", weightFormatted, label);
+                return String.format("<span class='qty'>%s</span> %s", format.weight(quantity), label);
             }
             // Unit sale
             else {
@@ -1272,7 +1754,7 @@ public class TicketState implements Serializable {
                 boolean isWhole = quantity.stripTrailingZeros().scale() <= 0;
                 String qtyDisplay = isWhole
                         ? quantity.stripTrailingZeros().toPlainString()
-                        : String.format("%.2f", quantity).replace(".", ",");
+                        : format.measure(quantity);
                 // LC-02-03-02: a measure line carries its quantity and unit as the
                 // badge ("2,36 m"); the price-per-unit decomposition lives once in
                 // getDetailLine, shown as the sub-line under the label (P4).
@@ -1290,7 +1772,7 @@ public class TicketState implements Serializable {
          * @return the formatted line total
          */
         public String getPriceFormatted() {
-            BigDecimal rounded = getTotalPrice().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal rounded = getTotalPrice().setScale(2, roundingMode());
             return String.format("%.2f", rounded).replace(".", ",");
         }
 
@@ -1307,6 +1789,37 @@ public class TicketState implements Serializable {
                 return null;
             }
             return String.format("%.3f", appliedTareKg).replace(".", ",");
+        }
+
+        /**
+         * Returns the quantity ordered on the recalled document, for the display
+         * beside the delivered one (LC-06-02-02, -12), or null when the line states
+         * no ordered quantity.
+         *
+         * @return the ordered quantity, French comma, without trailing zeros, or null
+         */
+        public String getOrderedQuantityFormatted() {
+            return orderedQuantity == null ? null : plain(orderedQuantity);
+        }
+
+        /**
+         * Returns the quantity sold on the line — the delivered one, for a line
+         * recalled from a document stating both (LC-06-02-02, -12).
+         *
+         * @return the quantity, French comma, without trailing zeros
+         */
+        public String getDeliveredQuantityFormatted() {
+            return plain(quantity);
+        }
+
+        /**
+         * Writes a quantity without its trailing zeros, French comma.
+         *
+         * @param value the quantity
+         * @return the written quantity
+         */
+        private static String plain(BigDecimal value) {
+            return value.stripTrailingZeros().toPlainString().replace('.', ',');
         }
 
         /**

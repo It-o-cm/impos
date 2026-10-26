@@ -234,4 +234,22 @@ class ParkedTicketResourceTest {
         assertEquals("/", response.getLocation().toString());
         verify(resource.state.ticket, never()).setError(org.mockito.ArgumentMatchers.anyString());
     }
+
+    /** LC-04-01-02: successful print returns to the parked list; refusal remains visible on the sale screen. */
+    @Test
+    void printOnRequestRoutesSuccessAndRefusal() {
+        var resource = newResource();
+        assertEquals("/parked", resource.print(7L).getLocation().toString());
+        verify(resource.ticketParkingService).printParked(7L);
+        verifyNoInteractions(resource.state.ticket);
+        when(resource.ticketParkingService.printParked(7L)).thenReturn("Refused");
+        assertEquals("/", resource.print(7L).getLocation().toString());
+        verify(resource.state.ticket).setError("Refused");
+        var instance = wireParkedTemplate(resource);
+        when(resource.ticketParkingService.listParked()).thenReturn(List.of());
+        when(resource.ticketParkingService.canPrintReceipt()).thenReturn(true);
+        resource.parkedPage(null);
+        verify(instance).data("canPrint", true);
+    }
+
 }

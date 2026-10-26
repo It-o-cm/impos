@@ -76,8 +76,13 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
         return thread;
     });
 
-    /** The transaction being followed, or {@code null} when none is in flight. */
-    private volatile TerminalTransactionCallback callback;
+    /**
+     * The transaction being followed, or {@code null} when none is in flight:
+     * the follower of an older transaction may only forget its own, never the
+     * one started after it.
+     */
+    private final java.util.concurrent.atomic.AtomicReference<TerminalTransactionCallback> callback =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     /**
      * The localised operator messages (LC-13-06).
@@ -107,10 +112,76 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     /** {@inheritDoc} */
     @Override
     public void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
-        this.callback = callback;
+        request(amount, callback, false);
+    }
+
+    /** Starts LC-07 debit or credit and follows the same terminal decision.
+     * @param amount requested amount
+     * @param callback decision receiver
+     * @param credit whether this is a refund
+     */
+    private void request(BigDecimal amount, TerminalTransactionCallback callback, boolean credit) {
+        request(amount, callback, credit, false, null);
+    }
+
+    /** Sends LC-07-08-02 through WCL instead of locally accepting a card.
+     * @param amount requested amount
+     * @param callback decision receiver
+     */
+    public void requestDegradedDebit(BigDecimal amount, TerminalTransactionCallback callback) {
+        request(amount, callback, false, true, null);
+    }
+
+    /** LC-07-06-02: sends one combined request; the terminal chooses the actual application. */
+    @Override
+    public void requestCombinedDebit(BigDecimal amount, BigDecimal eligible, TerminalTransactionCallback callback) {
+        request(amount, callback, false, false, eligible);
+    }
+
+    /** Forces LC-07-08-02 routing for a credit, preserving the actual terminal decision.
+     * @param amount credited amount
+     * @param callback decision receiver
+     */
+    public void requestDegradedCredit(BigDecimal amount, TerminalTransactionCallback callback) {
+        request(amount, callback, true, true, null);
+    }
+
+    /** Combines eligible cents and forced VWAY4 in the same documented debit.
+     * @param amount requested total
+     * @param eligible eligible meal amount
+     * @param callback decision receiver
+     */
+    public void requestDegradedCombinedDebit(BigDecimal amount, BigDecimal eligible, TerminalTransactionCallback callback) {
+        request(amount, callback, false, true, eligible);
+    }
+
+    /** Sends a documented WCL operation and follows its decision.
+     * @param amount requested amount
+     * @param callback decision receiver
+     * @param credit refund operation
+     * @param offline force VWAY4
+     * @param eligible combined meal amount, null for ordinary debit
+     */
+    private void request(BigDecimal amount, TerminalTransactionCallback callback, boolean credit,
+            boolean offline, BigDecimal eligible) {
+        this.callback.set(callback);
         long cents = amount.multiply(CENTS).setScale(0, RoundingMode.HALF_UP).longValueExact();
         try {
-            hardware.startPayment(Long.toString(cents));
+            if (eligible != null) {
+                long mealCents = eligible.multiply(CENTS).setScale(0, RoundingMode.HALF_UP).longValueExact();
+                hardware.startCombinedPayment(cents + ";" + Math.max(0, Math.min(cents, mealCents))
+                        + (offline ? ";4" : ""));
+            } else if (offline) {
+                if (credit) {
+                    hardware.startDegradedCredit(Long.toString(cents));
+                } else {
+                    hardware.startDegradedPayment(Long.toString(cents));
+                }
+            } else if (credit) {
+                hardware.startCredit(Long.toString(cents));
+            } else {
+                hardware.startPayment(Long.toString(cents));
+            }
         } catch (RuntimeException e) {
             LOGGER.errorf(e, "Le pont materiel a refuse le demarrage du paiement de %s cts", cents);
             fail(callback, i18n.get(UNREACHABLE_KEY));
@@ -120,19 +191,14 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     }
 
     /**
-     * Refunds are not supported by this bridge yet.
-     * <p>
-     * The daemon exposes a debit and nothing else, and inventing a refusal
-     * would be worse than saying so: the operator must know the refund has to
-     * be made another way, not believe the terminal declined it.
+     * Requests the documented LC-07 c2 refund through the bridge.
      *
      * @param amount   the amount to credit
      * @param callback the decision receiver
      */
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
-        LOGGER.warnf("Remboursement de %s demande: non supporte par le pont materiel", amount);
-        fail(callback, i18n.get("op.remboursementNonSupporteTerminal"));
+        request(amount, callback, true);
     }
 
     /**
@@ -145,19 +211,21 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
      */
     @Override
     public void abort() {
-        callback = null;
+        callback.set(null);
     }
 
     /** The session is opened by the hardware daemon when it starts, not here. */
     @Override
     public void onRegisterOpened() {
-        // Nothing: the daemon logs in once at start-up and reopens by itself.
+        // LC-01-02-09: re-open after a previous register session logged off.
+        hardware.maintenance("terminal", "login", "1");
     }
 
     /** The session outlives the register session. */
     @Override
     public void onRegisterClosed() {
-        // Nothing: the daemon owns the session's lifetime.
+        // LC-01-02-09: request the documented c2h even though the daemon stays alive.
+        hardware.maintenance("terminal", "logoff", "1");
     }
 
     /** {@inheritDoc} */
@@ -175,7 +243,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     private void follow(BigDecimal amount, TerminalTransactionCallback expected) {
         long deadline = System.currentTimeMillis() + deadlineMillis;
         while (System.currentTimeMillis() < deadline) {
-            if (callback != expected) {
+            if (callback.get() != expected) {
                 LOGGER.info("Paiement abandonne cote caisse: suivi interrompu");
                 return;
             }
@@ -186,6 +254,9 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
                 LOGGER.errorf(e, "Lecture de l'etat du paiement impossible");
                 fail(expected, i18n.get(UNREACHABLE_KEY));
                 return;
+            }
+            if (status.containsKey("line1") || status.containsKey("line2")) {
+                expected.onDisplay(status.getOrDefault("line1", ""), status.getOrDefault("line2", ""));
             }
             if (STATE_DONE.equals(status.get(STATE_KEY))) {
                 report(amount, expected, status);
@@ -209,7 +280,20 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     private void report(BigDecimal amount, TerminalTransactionCallback expected,
             Map<String, String> status) {
         TerminalOutcome outcome = TerminalOutcome.ofAmount(amount);
-        outcome.rawResponse = status.get(ANSWER_KEY);
+        String encoded = status.get("answer64");
+        try {
+            outcome.rawResponse = encoded == null ? status.get(ANSWER_KEY)
+                    : new String(java.util.Base64.getDecoder().decode(encoded), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException malformed) {
+            fail(expected, i18n.get(UNREACHABLE_KEY));
+            return;
+        }
+        try {
+            outcome.readVerifone(outcome.rawResponse);
+        } catch (IllegalArgumentException malformed) {
+            fail(expected, i18n.get(UNREACHABLE_KEY));
+            return;
+        }
         String failure = status.get(FAILURE_KEY);
         // A payment that could not run is not a refusal: the card was never
         // asked. Registering it as declined would tell the operator to try
@@ -244,13 +328,14 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     }
 
     /**
-     * Reports a failure and forgets the transaction.
+     * Reports a failure and forgets the transaction — its own only: a newer
+     * transaction started meanwhile keeps being followed.
      *
      * @param target  the callback to tell
      * @param message the operator-facing message
      */
     private void fail(TerminalTransactionCallback target, String message) {
-        callback = null;
+        callback.compareAndSet(target, null);
         target.onError(message);
     }
 

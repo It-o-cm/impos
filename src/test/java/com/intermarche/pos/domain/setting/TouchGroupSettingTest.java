@@ -8,8 +8,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TouchGroupSetting}, the touch configuration of an
@@ -293,5 +300,13 @@ class TouchGroupSettingTest {
         int before = setting.getChecksum();
         setting.labels = "nl=Zuivel";
         assertNotEquals(before, setting.getChecksum());
+    }
+
+    /** BO-03-01-19: a matching language with whitespace-only wording still falls back to the base label. */
+    @org.junit.jupiter.api.Test
+    void coverageTranslatedLabelWithEmptyMatchingWording() {
+        TouchGroupSetting group = new TouchGroupSetting();
+        group.labels = "nl=   ;pt=Leite";
+        org.junit.jupiter.api.Assertions.assertNull(group.translatedLabel("nl"));
     }
 }

@@ -273,4 +273,29 @@ class TareServiceTest {
         when(service.posListService.tareContainers()).thenReturn(list);
         assertEquals(list, service.containers());
     }
+
+    /** LC-14-01: a manual weighing without POS context still receives the administered default tare. */
+    @Test
+    void manualTareWithoutStateUsesTheDefault() {
+        var service = newService(new BigDecimal("0.010"));
+        assertEquals(new BigDecimal("0.010"), service.resolveForManual(null, null));
+    }
+
+    /**
+     * BO-02-03-23: the container pictures are the active store images of the
+     * tare-container usage, keyed by their code.
+     */
+    @Test
+    void containerImagesMapsTheActiveTarePictures() {
+        TareService service = newService(BigDecimal.ZERO);
+        com.intermarche.pos.domain.setting.StoreImage image = new com.intermarche.pos.domain.setting.StoreImage();
+        image.code = "BQS";
+        image.imageData = "data:image/png;base64,AA";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache = org.mockito.Mockito
+                .mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> com.intermarche.pos.domain.setting.StoreImage.list("usage = ?1 and active = true order by code",
+                    com.intermarche.pos.domain.setting.StoreImage.Usage.TARE_CONTAINER)).thenReturn(List.of(image));
+            assertEquals(java.util.Map.of("BQS", "data:image/png;base64,AA"), service.containerImages());
+        }
+    }
 }

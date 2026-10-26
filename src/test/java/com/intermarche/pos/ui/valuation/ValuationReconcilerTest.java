@@ -486,6 +486,7 @@ class ValuationReconcilerTest {
             TicketLineValuation trace = mc.constructed().get(0);
             assertEquals("OFF1", trace.offerLabel);
             assertEquals("DISC", trace.advantageLabel);
+            assertEquals("DISC", it.promotionLabel);
             assertEquals(new BigDecimal("1.00"), trace.advantageAmount);
         }
     }
@@ -589,6 +590,7 @@ class ValuationReconcilerTest {
             assertEquals(new BigDecimal("7.00"), it.valuedTotal);
             TicketLineValuation trace = mc.constructed().get(0);
             assertEquals("X; Y", trace.advantageLabel);
+            assertEquals("X; Y", it.promotionLabel);
             assertEquals(new BigDecimal("3.00"), trace.advantageAmount);
             assertEquals(200, trace.offerLabel.length());
             assertEquals(longType.substring(0, 200), trace.offerLabel);
@@ -718,8 +720,10 @@ class ValuationReconcilerTest {
     void revertWithoutDraftOnlyClearsItems() {
         TicketState.TicketItem it = item("L1", "1", "10", "1");
         it.valuedTotal = new BigDecimal("7.00");
+        it.promotionLabel = "Promotion";
         reconciler.revert(ticketWith(it), null);
         assertNull(it.valuedTotal);
+        assertNull(it.promotionLabel);
     }
 
     /**
@@ -802,5 +806,77 @@ class ValuationReconcilerTest {
             assertEquals("EGALIM; CAP", trace.correctionLabel);
         }
     }
-}
 
+    /** GB-01-07-10: two advantages both requesting line placement keep that placement after merging their amounts. */
+    @Test
+    void mergingLineOnlyAdvantagesKeepsLinePlacement() throws Exception {
+        var first = discount("OFF1", "FIRST", amount("1.00"));
+        var second = discount("OFF1", "SECOND", amount("1.00"));
+        first.printMode = "LINE";
+        second.printMode = "LINE";
+        String response = json(List.of(offer("OFF1", "OFFER", portion("L1", amount("10.00")))), List.of(first, second));
+        var line = item("L1", "1", "20", "1");
+        try (var base = mockStatic(PanacheEntityBase.class);
+             var created = mockConstruction(TicketLineValuation.class)) {
+            base.when(() -> Ticket.findById(DB_ID)).thenReturn(mock(Ticket.class));
+            reconciler.apply(ticketWith(line), DB_ID, response);
+            assertEquals("LINE", created.constructed().getFirst().advantagePrintMode);
+        }
+    }
+
+    /** LC-03-01-04: a new valuation clears labels on uncovered and undiscounted articles. */
+    @Test
+    void newValuationRemovesObsoletePromotionLabels() throws Exception {
+        TicketState.TicketItem covered = item("L1", "1", "10", "1");
+        TicketState.TicketItem uncovered = item("L2", "1", "4", "1");
+        covered.promotionLabel = "Old offer";
+        uncovered.promotionLabel = "Old offer";
+        TicketState ticket = ticketWith(covered, uncovered);
+        reconciler.apply(ticket, null, json(List.of(offer("O", "Regular", portion("L1", amount("10.00")))), List.of()));
+        assertNull(covered.promotionLabel);
+        assertNull(uncovered.promotionLabel);
+    }
+
+    /** LC-03-01-04: a two-for-one offer labels its reduced price even without a discount advantage. */
+    @Test
+    void bundledOfferLabelsItsOwnPriceReductionAndClearsWhenRemoved() throws Exception {
+        TicketState.TicketItem line = item("L1", "1", "1.08", "2");
+        line.valuedTotal = new BigDecimal("0.89");
+        TicketState ticket = ticketWith(line);
+        String response = json(List.of(offer(null, "Mixed Bundle Promo: TWO_FOR_ONE",
+                portion("L1", amount("1.19")), portion("L1", amount("0.00")))), List.of());
+        reconciler.apply(ticket, null, response);
+        assertEquals("Mixed Bundle Promo: TWO_FOR_ONE", line.promotionLabel);
+        assertEquals(new BigDecimal("1.19"), line.valuedTotal);
+        reconciler.apply(ticket, null, json(List.of(offer("REGULAR", "Regular", portion("L1", amount("2.16")))), List.of()));
+        assertNull(line.promotionLabel);
+    }
+
+    /**
+     * BO-03-03-23: valuing the same basket twice — at the scan, then at the
+     * payment — traces the advantage against the register's own price both
+     * times, so the second trace still carries the delta the ticket prints and
+     * the adjustment stays the engine's whole cut.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void aSecondValuationIsTracedAgainstTheLocalPriceAgain() throws Exception {
+        String response = json(
+                List.of(offer("OFF1", "3x2", portion("L1", amount("10.00")))),
+                List.of(discount("OFF1", "DISC", amount("1.00"))));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        TicketState ticket = ticketWith(it);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<TicketLineValuation> mc = mockConstruction(TicketLineValuation.class)) {
+            Ticket draft = mock(Ticket.class);
+            ms.when(() -> Ticket.findById(DB_ID)).thenReturn(draft);
+            assertEquals(new BigDecimal("-1.00"), reconciler.apply(ticket, DB_ID, response));
+            assertEquals(new BigDecimal("-1.00"), reconciler.apply(ticket, DB_ID, response));
+            TicketLineValuation second = mc.constructed().get(1);
+            assertEquals(new BigDecimal("10.00"), second.localTotal);
+            assertEquals(new BigDecimal("9.00"), second.valuedTotal);
+            assertEquals(new BigDecimal("9.00"), it.valuedTotal);
+        }
+    }
+}

@@ -22,6 +22,10 @@ import java.util.*;
  * <p>Package placement: it serves the payment screen and nothing else, so it
  * lives beside it rather than at the service root.
  */
+// The rules are also read from the payment terminal's own thread — a
+// Verifone or bridge answer arrives outside any request — so every method
+// activates the request context its queries need (BO-03-02-01, -44).
+@jakarta.enterprise.context.control.ActivateRequestContext
 @ApplicationScoped
 public class TenderRulesService {
 
@@ -199,7 +203,76 @@ public class TenderRulesService {
                 answers.put(key, tender.defaultsToTotal);
             }
         }
+        // BO-03-02-01: a tender the store added answers for itself, under its code.
+        for (TenderDefinition tender : additional()) {
+            answers.put(tender.code, tender.defaultsToTotal);
+        }
         return answers;
+    }
+
+    /**
+     * Returns the administered tender of a code (BO-03-02-01).
+     *
+     * @param code the tender code, or null
+     * @return the tender, or null when no row administers that code
+     */
+    public TenderDefinition tender(String code) {
+        return TenderDefinition.findByCode(code);
+    }
+
+    /**
+     * Returns the active tender a monetics answer selects (BO-03-02-44).
+     *
+     * @param primary the {@code D16} value, or null
+     * @param alternate the {@code D46} value, or null
+     * @return the tender, or null when no active row carries either answer
+     */
+    public TenderDefinition moneticTender(String primary, String alternate) {
+        return TenderDefinition.findByMonetic(primary, alternate);
+    }
+
+    /**
+     * Returns the tenders the store ADDED that the payment screen offers as
+     * keys of their own (BO-03-02-01).
+     *
+     * @return the additional tenders in service, in administered order
+     */
+    public java.util.List<TenderDefinition> additional() {
+        return TenderDefinition.listActiveAdditional();
+    }
+
+    /**
+     * Tells whether the CASH key settles through the coin machine
+     * (BO-03-02-36), given that this register runs one.
+     *
+     * @param machinePresent whether this register has a coin machine enabled
+     * @return true when the cash tender is administered with the coin machine
+     *         option and the register has one
+     */
+    public boolean cashViaCoinMachine(boolean machinePresent) {
+        if (!machinePresent) {
+            return false;
+        }
+        TenderDefinition cash = TenderDefinition.findByCode("CASH");
+        return cash != null && cash.active && cash.coinMachine;
+    }
+
+    /**
+     * Returns the tenders a cash movement — an expense, a down-payment — may
+     * be recorded in (BO-03-02-20): the active tenders administered "apport /
+     * dépense autorisé", cash excepted since cash is the default of every
+     * movement.
+     *
+     * @return the movement tenders, in administered order, possibly empty
+     */
+    public java.util.List<String> movementTenders() {
+        java.util.List<String> codes = new java.util.ArrayList<>();
+        for (TenderDefinition tender : TenderDefinition.listAllOrdered()) {
+            if (tender.active && tender.movementAllowed && !"CASH".equals(tender.code)) {
+                codes.add(tender.code);
+            }
+        }
+        return codes;
     }
 
     /**

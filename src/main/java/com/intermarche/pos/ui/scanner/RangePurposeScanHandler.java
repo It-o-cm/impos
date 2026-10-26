@@ -35,13 +35,20 @@ import java.math.RoundingMode;
  *       promotion and the code arms that name on the ticket, which the
  *       valuation engine then resolves. No line and no amount: the register
  *       never decides what a promotion is worth (BO-03-06-43).</li>
+ *   <li>{@link ArticleBarcodeRange.Purpose#PROMOTION_ENGINE} — the code is handed
+ *       verbatim to the promotion engine with the basket, which applies the
+ *       promotion it associates with it (BO-03-06-42).</li>
  *   <li>{@link ArticleBarcodeRange.Purpose#EXTERNAL_LOOKUP} — the range names a
  *       THIRD-PARTY service, the register asks it about the code and acts on
  *       the answer: an article the catalog carries is rung, anything else is
  *       shown to the operator as the service wrote it (BO-03-06-41).</li>
  *   <li>{@link ArticleBarcodeRange.Purpose#CUSTOMER_ORDER} — the code names a
- *       customer order, quote or sale voucher, and its reference is armed on
- *       the ticket RAW (BO-03-06-58).</li>
+ *       customer order, quote or sale voucher, its reference is read RAW and
+ *       the document the store node holds behind it is loaded (BO-03-06-58).</li>
+ *   <li>{@link ArticleBarcodeRange.Purpose#FUNCTION} — the code calls a
+ *       register function, the one the range names or the one whose number the
+ *       code carries, with the argument its value segment carries
+ *       (BO-03-06-59).</li>
  * </ul>
  *
  * <p>Priority 1, beside the other recognizers, and DISJOINT from them the way
@@ -65,9 +72,29 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
     @jakarta.inject.Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /** The return types a RETURN range may be attached to (BO-03-13-12). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosListService posListService;
+
+    /** The survey a FUNCTION range starts (BO-03-06-59). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.supervision.SurveyTriggerService surveyTriggerService;
+
+    /** The external program a FUNCTION range launches (BO-03-06-59). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.home.ExternalProgramService externalProgramService;
+
+    /** The recall of the document a CUSTOMER_ORDER range names (BO-03-06-58). */
+    @jakarta.inject.Inject
+    OrderCodeScanHandler orderCodeScanHandler;
+
     /** The call an EXTERNAL_LOOKUP range makes at scan time (BO-03-06-41). */
     @jakarta.inject.Inject
     RangeLookupClient rangeLookupClient;
+
+    /** Whether the promotion engine is called, for a PROMOTION_ENGINE range (BO-03-06-42). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.valuation.ValuationService valuationService;
 
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
     @org.eclipse.microprofile.config.inject.ConfigProperty(
@@ -92,7 +119,11 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         }
         if (range.checkDigit && !hasValidChecksum(code)) return;
         if (range.purpose == ArticleBarcodeRange.Purpose.PROMOTION) {
-            armPromotion(ctx, range);
+            armPromotion(ctx, range, code);
+            return;
+        }
+        if (range.purpose == ArticleBarcodeRange.Purpose.PROMOTION_ENGINE) {
+            transmitToEngine(ctx, code);
             return;
         }
         if (range.purpose == ArticleBarcodeRange.Purpose.EXTERNAL_LOOKUP) {
@@ -101,6 +132,10 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         }
         if (range.purpose == ArticleBarcodeRange.Purpose.CUSTOMER_ORDER) {
             recallOrder(ctx, range, code);
+            return;
+        }
+        if (range.purpose == ArticleBarcodeRange.Purpose.FUNCTION) {
+            callFunction(ctx, range, code);
             return;
         }
         if (range.purpose == ArticleBarcodeRange.Purpose.TARE) {
@@ -148,13 +183,23 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
      * row; it is refused loudly, because silently arming an empty name would
      * send the engine a promotion nobody can resolve.
      *
+     * <p>A range that DEFINES its promotion — a percentage or an amount off —
+     * hands the engine the complete offer: the article the code's article
+     * segment names and the value its value segment carries, keyed on the
+     * paper scanned so two coupons of one range are two rights.
+     *
      * @param ctx the scan context
      * @param range the administered range the code belongs to
+     * @param code the scanned code
      */
-    private void armPromotion(ScanContext ctx, ArticleBarcodeRange range) {
+    private void armPromotion(ScanContext ctx, ArticleBarcodeRange range, String code) {
         if (!range.triggersPromotion()) {
             ctx.state.ticket.setError(i18n.get("op.promotionNonParametree"));
             ctx.handled = true;
+            return;
+        }
+        if (range.definesPromotion()) {
+            armDefinedPromotion(ctx, range, code);
             return;
         }
         if (!ctx.state.ticket.armPromotion(range.promotionCode)) {
@@ -166,6 +211,82 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         ctx.state.ticket.setNotice(
                 i18n.format("op.promotionDeclenchee", range.promotionCode));
         ctx.handled = true;
+    }
+
+    /**
+     * Arms a promotion the range defines (BO-03-06-43): the targeted article,
+     * named by the code's article segment, and what the promotion is worth,
+     * carried by its value segment — a percentage, handed to the engine as a
+     * fraction, or an amount off each unit.
+     *
+     * <p>A code whose article is not in the catalog, or whose value cannot be
+     * read, triggers nothing and says so: an offer on nothing, or worth
+     * nothing, is not one the customer can be promised.
+     *
+     * @param ctx the scan context
+     * @param range the administered range the code belongs to
+     * @param code the scanned code
+     */
+    private void armDefinedPromotion(ScanContext ctx, ArticleBarcodeRange range, String code) {
+        ctx.handled = true;
+        Product target = targetedArticle(range, code);
+        BigDecimal value = range.rawValue(code);
+        if (target == null || value == null || value.signum() <= 0) {
+            ctx.state.ticket.setError(i18n.get("op.promotionIllisible"));
+            return;
+        }
+        BigDecimal worth = ArticleBarcodeRange.PROMOTION_PERCENT.equals(range.promotionType)
+                ? value.movePointLeft(2) : value;
+        if (!ctx.state.ticket.armOffer(new com.intermarche.pos.ui.ticket.TicketState.ScannedOffer(
+                code, range.promotionCode, target.ean, range.promotionType, worth))) {
+            ctx.state.ticket.setWarning(i18n.format("op.promotionDejaDeclenchee", range.promotionCode));
+            return;
+        }
+        ctx.state.ticket.armPromotion(range.promotionCode);
+        ctx.state.ticket.setNotice(i18n.format("op.promotionDeclencheeArticle",
+                range.promotionCode, translatedLabel(target)));
+    }
+
+    /**
+     * The article a promotion code targets: its article segment read as an
+     * EAN first, then as a PLU, leading zeros stripped as the catalog holds it.
+     *
+     * @param range the administered range the code belongs to
+     * @param code the scanned code
+     * @return the active article, or null when the segment names none
+     */
+    private Product targetedArticle(ArticleBarcodeRange range, String code) {
+        String segment = range.articleSegment(code);
+        if (segment == null) {
+            return null;
+        }
+        Product product = Product.find("ean = ?1 and active = true", segment).firstResult();
+        return product != null ? product : Product.findActiveByPlu(range.articleCode(code));
+    }
+
+    /**
+     * Transmits the scanned code to the promotion engine (BO-03-06-42).
+     *
+     * <p>The register does not read the code: it carries it verbatim with the
+     * basket, and the engine applies the promotion it associates with it. A
+     * register whose engine call is off cannot transmit anything, and says so
+     * rather than letting the customer believe a promotion was taken; the same
+     * code scanned twice is transmitted once.
+     *
+     * @param ctx the scan context
+     * @param code the scanned code
+     */
+    private void transmitToEngine(ScanContext ctx, String code) {
+        ctx.handled = true;
+        if (!valuationService.isEnabled()) {
+            ctx.state.ticket.setError(i18n.get("op.moteurPromotionInactif"));
+            return;
+        }
+        if (!ctx.state.ticket.armEngineBarcode(code.trim())) {
+            ctx.state.ticket.setWarning(i18n.format("op.codeDejaTransmisMoteur", code.trim()));
+            return;
+        }
+        ctx.state.ticket.setNotice(i18n.format("op.codeTransmisMoteur", code.trim()));
     }
 
     /**
@@ -200,12 +321,32 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
             ctx.handled = true;
             return;
         }
+        // The partner's response format, as the range maps it: the field of
+        // its answer that carries the article code or the message.
+        answer = RangeLookupClient.extract(answer, range.lookupField);
+        if (answer == null) {
+            ctx.state.ticket.setError(i18n.get("op.reponseServiceExterneIllisible"));
+            ctx.handled = true;
+            return;
+        }
         Product product = Product.find("ean = ?1 and active = true", answer).firstResult();
         if (product == null) {
             product = Product.findActiveByPlu(answer);
         }
         if (product == null) {
             ctx.state.ticket.setNotice(answer);
+            ctx.handled = true;
+            return;
+        }
+        if (com.intermarche.pos.ui.ticket.ArticleMessageService.refuse(ctx.state, product)) {
+            ctx.handled = true;
+            return;
+        }
+        // LC-02-13-03/04: the partner's article takes a decimal armed quantity
+        // only when it is of the decimal-quantity type.
+        if (ctx.state.ticket.armedDecimalRefused(
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.decimalQuantityToEnter(product))) {
+            ctx.state.ticket.setError(i18n.get("op.quantiteInvalide"));
             ctx.handled = true;
             return;
         }
@@ -216,7 +357,64 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
                 ? price.priceIncludingTax : BigDecimal.ZERO;
         ctx.state.ticket.addItem(product.ean, null,
                 translatedLabel(product), unitPrice, BigDecimal.ONE, vatRate);
+        ctx.state.ticket.snapshotMealVoucherEligibility(product.ean,
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.mealVoucherEligible(product));
+        // LC-10-01-09/11: what the article may be paid with, as on every other entry path.
+        ctx.state.ticket.snapshotRestrictedTenders(product.ean,
+                com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(product));
+        com.intermarche.pos.ui.ticket.LinkedArticleService.snapshot(ctx.state.ticket, product);
         ctx.handled = true;
+    }
+
+    /**
+     * Calls the register function a FUNCTION range stands for (BO-03-06-59).
+     *
+     * <p>The range names the function; a range naming none leaves the code to
+     * carry the function's number in its article segment. The value segment
+     * carries the argument a function takes — the survey's number. A function
+     * that opens a screen asks the sale screen for it through the poll, the way
+     * a scanned basket asks for its control.
+     *
+     * @param ctx the scan context
+     * @param range the administered range the code belongs to
+     * @param code the scanned code
+     */
+    private void callFunction(ScanContext ctx, ArticleBarcodeRange range, String code) {
+        ctx.handled = true;
+        com.intermarche.pos.domain.barcode.RegisterFunction function =
+                com.intermarche.pos.domain.barcode.RegisterFunction.byName(range.functionCode);
+        if (function == null) {
+            String number = range.articleCode(code);
+            function = number == null || !number.matches("\\d{1,9}") ? null
+                    : com.intermarche.pos.domain.barcode.RegisterFunction.byNumber(Integer.parseInt(number));
+        }
+        if (function == null) {
+            ctx.state.ticket.setError(i18n.get("op.fonctionCaisseInconnue"));
+            return;
+        }
+        switch (function) {
+            case METROLOGY -> ctx.state.functionPath = "/maintenance/metrology";
+            case PARKED_TICKETS -> ctx.state.functionPath = "/parked";
+            case RECALL -> ctx.state.functionPath = "/recall";
+            case EXTERNAL_PROGRAM -> {
+                String refusal = externalProgramService.launch();
+                if (refusal == null) {
+                    ctx.state.ticket.setNotice(i18n.format("op.programmeExterneLance", externalProgramService.label()));
+                } else {
+                    ctx.state.ticket.setError(refusal);
+                }
+            }
+            default -> {
+                BigDecimal survey = range.rawValue(code);
+                if (survey == null || survey.signum() <= 0) {
+                    ctx.state.ticket.setError(i18n.get("op.sondageIllisible"));
+                    return;
+                }
+                // The segment's digits ARE the number, whatever decimals the range reads.
+                surveyTriggerService.fireByScan(ctx.state, survey.unscaledValue().longValue());
+            }
+        }
+        ctx.state.touch();
     }
 
     /**
@@ -228,9 +426,10 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
      * character, and stripping its zeros would name an order nobody printed —
      * the same reasoning the counter-ticket reference already follows.
      *
-     * <p>What the register does with the reference is NOT decided here. The
-     * order itself lives on the store node; this is the barcode half of the
-     * gesture, and it is the half a barcode range can honestly carry.
+     * <p>The order itself lives on the store node, which the commercial
+     * management feeds: the reference is recalled there and the document loaded
+     * as its own barcode would load it; a reference the node does not hold is
+     * refused by name.
      *
      * @param ctx the scan context
      * @param range the administered range the code belongs to
@@ -244,8 +443,12 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
             return;
         }
         ctx.state.ticket.recalledOrderReference = reference.trim();
-        ctx.state.ticket.setNotice(
-                i18n.format("op.commandeRappelee", reference.trim()));
+        // BO-03-06-58: the reference names a document the store node holds — an
+        // order, a quote or a sale voucher of the commercial management — and it is
+        // loaded the way its own barcode would load it.
+        if (!orderCodeScanHandler.open(ctx.state, reference.trim())) {
+            ctx.state.ticket.setError(i18n.format("op.commandeInconnueNoeud", reference.trim()));
+        }
         ctx.handled = true;
     }
 
@@ -264,9 +467,15 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         String articleCode = range.articleCode(code);
         BigDecimal value = range.rawValue(code);
         if (articleCode == null || value == null) return;
+        // BO-03-13-12: the range may be ATTACHED to an administered return
+        // type, whose permissions then rule the scan and whose name is said.
+        com.intermarche.pos.service.PosSettingsService.ReturnType type =
+                posListService == null ? null : posListService.returnTypeOfRange(range.code);
         // LC-05-02-09/14: taking an article back without its origin ticket can be
-        // forbidden store-wide — and this code IS a return without one.
-        if (!posSettingsService.returnWithoutOriginAllowed()) {
+        // forbidden store-wide — and this code IS a return without one; a type
+        // administered NOORIGIN passes over that prohibition (BO-03-13-06).
+        if (!posSettingsService.returnWithoutOriginAllowed()
+                && (type == null || !type.originOptional())) {
             ctx.state.ticket.setError(i18n.get("op.retourSansTicketOrigine"));
             ctx.handled = true;
             return;
@@ -281,6 +490,10 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         Product product = Product.findActiveByPlu(articleCode);
         if (product == null) {
             ctx.state.ticket.setError(i18n.format("op.articleBalanceIntrouvable", articleCode));
+            ctx.handled = true;
+            return;
+        }
+        if (com.intermarche.pos.ui.ticket.ArticleMessageService.refuse(ctx.state, product)) {
             ctx.handled = true;
             return;
         }
@@ -305,12 +518,20 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         // The mode is armed for this entry only: a code is one gesture, not a
         // change of what the register is doing.
         boolean wasReturnMode = ctx.state.returnMode;
+        // BO-03-13-12: the line is filed under the type the range is attached to.
+        String previousType = ctx.state.returnTypeLabel;
         ctx.state.returnMode = true;
+        ctx.state.returnTypeLabel = type == null ? previousType : type.label();
         try {
             ctx.state.ticket.addItem(product.ean, articleCode,
                     translatedLabel(product), unitPrice, quantity, vatRate);
+            com.intermarche.pos.ui.ticket.LinkedArticleService.snapshot(ctx.state.ticket, product);
         } finally {
             ctx.state.returnMode = wasReturnMode;
+            ctx.state.returnTypeLabel = previousType;
+        }
+        if (type != null) {
+            ctx.state.ticket.setNotice(i18n.format("op.retourTypeEnregistre", type.label()));
         }
         ctx.handled = true;
     }

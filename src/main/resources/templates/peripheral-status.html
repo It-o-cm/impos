@@ -1,0 +1,10 @@
+{! LC-13-02-09/-14: deactivation and failure must remain visually distinct. !}
+<div role="status" style="position:absolute;top:4rem;right:1rem;z-index:8;display:flex;gap:6px;flex-wrap:wrap;max-width:90%;">
+    {#for entry in state.peripheralAvailability.entrySet()}
+        {#if entry.value == 'ABSENT'}
+        <span style="background:#333;color:#ccc;padding:4px 8px;border:1px solid #777;">{inject:i18n.get(entry.key)} : {inject:i18n.get('hardware.disabled')}</span>
+        {#else if entry.value == 'FAILED'}
+        <span style="background:#8b0000;color:white;padding:4px 8px;border:2px solid #ff5252;">{inject:i18n.get(entry.key)} : {inject:i18n.get('hardware.error')}</span>
+        {/if}
+    {/for}
+</div>

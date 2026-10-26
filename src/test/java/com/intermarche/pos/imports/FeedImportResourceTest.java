@@ -140,6 +140,21 @@ class FeedImportResourceTest {
     }
 
     /**
+     * The refusal of a code carrying a quote and a backslash is still valid
+     * JSON: a real parser reads the code back in the error message.
+     *
+     * @throws Exception never: the answer parses
+     */
+    @Test
+    void unknownCodeAnswerIsValidJson() throws Exception {
+        Response response = newResource()
+                .importFeed("NO\"PE\\", null, null, null, null, stream("EAN|NAME"));
+        String error = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(String.valueOf(response.getEntity())).get("error").asText();
+        assertTrue(error.startsWith("Code de flux inconnu: NO\"PE\\ - codes connus: "));
+    }
+
+    /**
      * The code is normalised before the table and the catalog see it:
      * surrounding blanks and a lower-case spelling still reach the right
      * importer, so a caller's typography never invents a second vocabulary.

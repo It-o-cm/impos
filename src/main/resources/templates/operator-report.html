@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{inject:i18n.get('operatorReport.title')}</title><style>
+{#include theme /}
+body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
+.pos-terminal { display:flex; flex-direction:column; gap:16px; padding:20px; }
+.content { overflow:auto; flex:1; }
+.row { display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border-color); }
+</style></head><body data-theme="{posTheme}"><div class="pos-terminal">
+<h1>{inject:i18n.get('operatorReport.title')} — {operator}</h1><div class="content">
+<p>{report.session.sessionNumber} — {report.session.terminalId} — {report.session.openingDate.format('dd/MM/yyyy HH:mm')}</p>
+{#include report-rubrics /}
+</div><a class="btn btn-primary" href="/action/session/x-report">{inject:i18n.get('sessionreport.imprimerRapportX')}</a>
+<a class="btn btn-muted" href="/session">{inject:i18n.get('common.back')}</a>
+</div></body></html>

@@ -1,5 +1,8 @@
 package com.intermarche.pos.ui.auth;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.service.sync.SyncEndpoints;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.runtime.StartupEvent;
@@ -20,8 +23,6 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Collects the orders the STORE NODE left for this register and carries them
@@ -30,10 +31,13 @@ import java.util.regex.Pattern;
  * BO-09-01-06); the close that stands down if the lane is mid-sale
  * (BO-09-01-06, BO-09-02-03); the refusal of a service request
  * (BO-04-02-05); the supervisor endorsement granted from the dashboard
- * (BO-04-02-02); and the back office acknowledging the service request this
+ * (BO-04-02-02); the back office acknowledging the service request this
  * lane sent (LC-01-07-04), which switches the lane's own indicator from
  * "in progress" to the distinct "acknowledged" one until the cashier
- * validates the handling (LC-01-07-06).
+ * validates the handling (LC-01-07-06); the end-of-period close declaring a
+ * self-service host automatically (BO-09-03-01); the reset of the tickets on
+ * hold (BO-09-01-08); and the check of the register's data against the
+ * server's (BO-09-03-05).
  *
  * <p>The register PULLS, as it does for everything else. A back office that had
  * to reach a till would need every till of the shop addressable from the
@@ -61,21 +65,8 @@ public class RemoteCommandService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(RemoteCommandService.class);
 
-    /** Reads the orders out of the node's answer: one object, two fields read. */
-    private static final Pattern ORDER = Pattern.compile(
-            "\\{\"uid\":\"([^\"]+)\",\"type\":\"([^\"]+)\"");
-
-    /**
-     * Reads the REASON of an order out of the tail of its object
-     * ({@code BO-04-02-05}).
-     *
-     * <p>A SECOND pattern and not a longer first one: widening {@link #ORDER}
-     * would mean a register that stops reading EVERY order — the forced close
-     * included — the day the node adds a field between the two it matches.
-     * Read apart, a reason that cannot be found costs only its own text.
-     */
-    private static final Pattern REASON = Pattern.compile(
-            "\"reason\":\"((?:\\\\.|[^\"\\\\])*)\"");
+    /** Reads the node's answer: a JSON array of orders. */
+    private static final ObjectMapper READER = new ObjectMapper();
 
     /** Close the session, whatever the register is doing (LC-01-02-07). */
     private static final String CLOSE_SESSION = "CLOSE_SESSION";
@@ -92,6 +83,15 @@ public class RemoteCommandService {
     /** The back office acknowledged the service request this lane sent (LC-01-07-04). */
     private static final String SUPERVISOR_ACK = "SUPERVISOR_ACK";
 
+    /** Close at rest, the host declared automatically (BO-09-03-01). */
+    private static final String CLOSE_SESSION_AUTO_DECLARE = "CLOSE_SESSION_AUTO_DECLARE";
+
+    /** Reset the tickets on hold (BO-09-01-08). */
+    private static final String PURGE_PARKED_TICKETS = "PURGE_PARKED_TICKETS";
+
+    /** Check the register's data against the server's (BO-09-03-05). */
+    private static final String VERIFY_SYNC = "VERIFY_SYNC";
+
     /** Where the store node lives. */
     @Inject SyncEndpoints syncEndpoints;
 
@@ -106,6 +106,15 @@ public class RemoteCommandService {
      * collector posts is a bundle key, never a French literal (LC-13-06).
      */
     @Inject com.intermarche.pos.ui.Messages i18n;
+
+    /** Cancels the gesture a back-office refusal answers (LC-01-05-08). */
+    @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
+
+    /** Resets the tickets on hold on the back office's order (BO-09-01-08). */
+    @Inject com.intermarche.pos.service.ParkedTicketPurgeService parkedTicketPurgeService;
+
+    /** Checks the register against the server at the end of period (BO-09-03-05). */
+    @Inject com.intermarche.pos.service.sync.register.PeriodSyncCheckService periodSyncCheckService;
 
     /** This register's identifier, the address the orders carry. */
     @ConfigProperty(name = "pos.terminal.id", defaultValue = "POS01")
@@ -183,7 +192,16 @@ public class RemoteCommandService {
                 acknowledgeRequest(order[0], order[2]);
                 continue;
             }
-            if (!CLOSE_SESSION.equals(order[1]) && !CLOSE_SESSION_IF_IDLE.equals(order[1])) {
+            if (PURGE_PARKED_TICKETS.equals(order[1])) {
+                purgeParked(order[0], order[2]);
+                continue;
+            }
+            if (VERIFY_SYNC.equals(order[1])) {
+                verify(order[0], order[2]);
+                continue;
+            }
+            if (!CLOSE_SESSION.equals(order[1]) && !CLOSE_SESSION_IF_IDLE.equals(order[1])
+                    && !CLOSE_SESSION_AUTO_DECLARE.equals(order[1])) {
                 // An order this version does not know is left PENDING rather
                 // than acknowledged: a newer register will carry it out, and a
                 // blind acknowledgement would make the node believe it was.
@@ -214,15 +232,49 @@ public class RemoteCommandService {
      * @throws Exception when the acknowledgement cannot be sent
      */
     void apply(String uid, String type) throws Exception {
-        if (state.auth.operatorBadgeId != null) {
-            if (CLOSE_SESSION_IF_IDLE.equals(type) && !state.ticket.items.isEmpty()) {
+        // LC-01-02-07: share the payment/opening monitor through the closing commit.
+        synchronized (state) {
+            boolean periodEnd = !CLOSE_SESSION.equals(type);
+            if (periodEnd && !state.ticket.items.isEmpty()) {
                 LOGGER.infof("Vente en cours sur %s : ordre de fin de période laissé en attente", terminalId);
                 return;
             }
-            String cause = CLOSE_SESSION_IF_IDLE.equals(type) ? "fin de période" : "back-office";
+            String cause = periodEnd ? "fin de période" : "back-office";
             LOGGER.infof("Fermeture forcée demandée par le nœud sur %s (%s)", terminalId, cause);
-            sessionCloseService.close(state, cause);
+            // BO-09-03-01: the host of a self-service island is declared on
+            // the theoretical amount rather than closed without a count.
+            if (!sessionCloseService.closeRemotely(state, cause, CLOSE_SESSION_AUTO_DECLARE.equals(type))) return;
         }
+        post("/api/commands/" + uid + "/ack");
+    }
+
+    /**
+     * Resets the tickets on hold of this register and acknowledges the order
+     * ({@code BO-09-01-08}). The cart under way is not on hold and is never
+     * touched.
+     *
+     * @param uid the order's token
+     * @param reason why, as the back office wrote it, possibly null
+     * @throws Exception when the acknowledgement cannot be sent
+     */
+    void purgeParked(String uid, String reason) throws Exception {
+        int purged = parkedTicketPurgeService.purge(reason);
+        LOGGER.infof("Remise à zéro de %d ticket(s) en attente sur %s", purged, terminalId);
+        post("/api/commands/" + uid + "/ack");
+    }
+
+    /**
+     * Checks this register's data against the server's figures the order
+     * carries, resynchronizing what differs, and acknowledges the order
+     * ({@code BO-09-03-05}).
+     *
+     * @param uid the order's token
+     * @param figures the server's figures, {@code DAY;COUNT;TOTAL}
+     * @throws Exception when the acknowledgement cannot be sent
+     */
+    void verify(String uid, String figures) throws Exception {
+        int pushed = periodSyncCheckService.check(figures);
+        LOGGER.infof("Contrôle caisse / serveur sur %s : %d vente(s) renvoyée(s)", terminalId, pushed);
         post("/api/commands/" + uid + "/ack");
     }
 
@@ -249,6 +301,11 @@ public class RemoteCommandService {
         // gesture (LC-01-07-05 cancels on the lane, BO-04-02-05 on the board).
         state.serviceRequest = PosState.ServiceRequestStatus.NONE;
         state.serviceRequestReason = null;
+        // LC-01-05-08: a refused authorisation request takes its gesture with it —
+        // the function is not authorised, so nothing is left waiting for a code.
+        if (state.endorsement != null && state.endorsement.active && state.endorsement.remoteRequested) {
+            endorsementService.clearRequest(state);
+        }
         state.ticket.setError(wording);
         state.touch();
         post("/api/commands/" + uid + "/ack");
@@ -313,7 +370,13 @@ public class RemoteCommandService {
     }
 
     /**
-     * Reads the orders out of the node's answer.
+     * Reads the orders out of the node's answer with the JSON library.
+     *
+     * <p>An order is read when it names its {@code uid} and its
+     * {@code type}; any other field the node adds is ignored, so a register
+     * never stops reading every order — the forced close included — the day
+     * the node adds one. The REASON ({@code BO-04-02-05}) is read inside the
+     * order's own object, unescaped by the parser.
      *
      * @param body the JSON array the node returned
      * @return one {@code {uid, type, reason}} triplet per order, in the order
@@ -321,31 +384,23 @@ public class RemoteCommandService {
      */
     List<String[]> orders(String body) {
         List<String[]> found = new ArrayList<>();
-        String text = body == null ? "" : body;
-        Matcher matcher = ORDER.matcher(text);
-        while (matcher.find()) {
-            found.add(new String[]{matcher.group(1), matcher.group(2),
-                    reasonOf(text, matcher.end())});
+        JsonNode answer;
+        try {
+            answer = READER.readTree(body == null ? "" : body);
+        } catch (JsonProcessingException unreadable) {
+            LOGGER.warnf("Réponse des ordres illisible (%s)", unreadable.getOriginalMessage());
+            return found;
+        }
+        for (JsonNode order : answer) {
+            JsonNode uid = order.path("uid");
+            JsonNode type = order.path("type");
+            if (uid.isTextual() && type.isTextual()) {
+                JsonNode reason = order.path("reason");
+                found.add(new String[]{uid.asText(), type.asText(),
+                        reason.isTextual() ? reason.asText() : null});
+            }
         }
         return found;
-    }
-
-    /**
-     * Reads the reason an order carries, looking only inside that order's
-     * own object.
-     *
-     * @param body the whole answer
-     * @param from where this order's matched head ends
-     * @return the reason, unescaped, or null when the order carries none
-     */
-    String reasonOf(String body, int from) {
-        int end = body.indexOf('}', from);
-        String tail = end < 0 ? body.substring(from) : body.substring(from, end);
-        Matcher matcher = REASON.matcher(tail);
-        if (!matcher.find()) {
-            return null;
-        }
-        return matcher.group(1).replace("\\\"", "\"").replace("\\\\", "\\");
     }
 
     /**

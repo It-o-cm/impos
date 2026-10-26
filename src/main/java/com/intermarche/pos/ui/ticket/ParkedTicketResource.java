@@ -80,12 +80,25 @@ public class ParkedTicketResource {
         return parked
                 .data("state", state)
                 .data("tickets", all.subList(from, to))
+                .data("canPrint", ticketParkingService.canPrintReceipt())
                 .data("page", current + 1)
                 .data("pageCount", pageCount)
                 .data("hasPrev", current > 0)
                 .data("hasNext", current < pageCount - 1)
                 .data("prevPage", current - 1)
                 .data("nextPage", current + 1);
+    }
+
+    /** LC-04-01-02: print on request without resuming or changing the sale.
+     * @param id parked local ticket identity
+     * @return the parked list, or the sale screen with a localized refusal
+     */
+    @GET
+    @Path("/action/parked/print/{id}")
+    public Response print(@PathParam("id") Long id) {
+        String error = ticketParkingService.printParked(id);
+        if (error != null) state.ticket.setError(error);
+        return Response.seeOther(URI.create(error == null ? "/parked" : "/")).build();
     }
 
     /**

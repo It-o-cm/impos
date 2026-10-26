@@ -111,6 +111,30 @@ public class ChequeReadingService {
      * @param onError receives the operator-facing message when it was not
      */
     private void follow(Consumer<String> onRead, Consumer<String> onError) {
+        follow(onRead, onError, false);
+    }
+
+    /** Starts and follows front printing through the same exclusive bridge operation.
+     * @param text administered front
+     * @param onPrinted completion receiver
+     * @param onError failure receiver
+     */
+    public void printFront(String text, Consumer<String> onPrinted, Consumer<String> onError) {
+        try {
+            hardware.printChequeFront(text);
+        } catch (RuntimeException failure) {
+            onError.accept(i18n.get(UNREACHABLE_KEY));
+            return;
+        }
+        follower.execute(() -> follow(onPrinted, onError, true));
+    }
+
+    /** Follows either MICR reading or front printing without requiring MICR for the latter.
+     * @param onRead completion receiver
+     * @param onError failure receiver
+     * @param front whether only the slip-print outcome is needed
+     */
+    private void follow(Consumer<String> onRead, Consumer<String> onError, boolean front) {
         long deadline = System.currentTimeMillis() + deadlineMillis;
         while (System.currentTimeMillis() < deadline) {
             Map<String, String> status;
@@ -122,7 +146,16 @@ public class ChequeReadingService {
                 return;
             }
             if (STATE_DONE.equals(status.get(STATE_KEY))) {
-                report(status, onRead, onError);
+                if (front) {
+                    String failure = status.get(FAILURE_KEY);
+                    if (failure != null && !failure.isBlank()) {
+                        onError.accept(i18n.get("pay.chequePrintFailed"));
+                    } else {
+                        onRead.accept("");
+                    }
+                } else {
+                    report(status, onRead, onError);
+                }
                 return;
             }
             if (!sleep()) {

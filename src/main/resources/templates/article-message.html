@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('articlemessage.title')}</title>
+  <style>
+    {#include theme /}
+    body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg-page); color: var(--text-main); }
+    .message-panel { box-sizing: border-box; width: min(40rem, 94vw); padding: 2rem; background: var(--bg-panel); border: 2px solid var(--danger); border-radius: 10px; text-align: center; }
+    .message-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-section); padding: 1.5rem 0; }
+    .btn { min-height: 3.5rem; width: 100%; }
+  </style>
+</head>
+<body>
+  <main class="message-panel">
+    <h1>{inject:i18n.get('articlemessage.title')}</h1>
+    {#if state.blockingArticleMessage}
+      <div class="message-text">{state.blockingArticleMessage}</div>
+      <p>{inject:i18n.get('articlemessage.notRecorded')}</p>
+      <form method="post" action="/action/article-message/ack">
+        <input type="hidden" name="messageId" value="{state.blockingArticleMessageId}">
+        <button type="submit" class="btn btn-primary">{inject:i18n.get('articlemessage.acknowledge')}</button>
+      </form>
+    {#else}
+      <a class="btn btn-primary" href="/">{inject:i18n.get('articlemessage.return')}</a>
+    {/if}
+  </main>
+</body>
+</html>

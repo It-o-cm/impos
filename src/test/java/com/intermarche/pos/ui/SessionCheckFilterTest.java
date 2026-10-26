@@ -293,4 +293,21 @@ class SessionCheckFilterTest {
             verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
         }
     }
+    /** LC-02-14-12: an unlocked lane without a session can consult prices and poll its scanner without opening a sale. */
+    @Test
+    void articleConsultationNeedsNoCashSession() throws Exception {
+        var state = new PosState();
+        state.auth.isLocked = false;
+        var filter = newFilter(state, null);
+        for (String path : new String[]{"article-info", "article-info/scan", "article-info/leave"}) {
+            var request = mock(ContainerRequestContext.class);
+            var uri = mock(UriInfo.class);
+            when(request.getUriInfo()).thenReturn(uri);
+            when(uri.getPath()).thenReturn(path);
+            filter.filter(request);
+            verify(request, never()).abortWith(any());
+        }
+        verifyNoInteractions(filter.cashSessionService);
+    }
+
 }

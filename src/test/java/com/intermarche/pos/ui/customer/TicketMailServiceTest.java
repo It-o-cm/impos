@@ -299,4 +299,108 @@ class TicketMailServiceTest {
             transport.verify(() -> Transport.send(ArgumentMatchers.any()));
         }
     }
+    /** LC-08-02: SMTP authentication supplies the administered account and secret on demand without contacting a server. */
+    @Test
+    void smtpAuthenticatorSuppliesTheAdministeredCredentials() throws Exception {
+        service.host = Optional.of("smtp.magasin.local");
+        service.user = Optional.of("smtp-user");
+        service.password = Optional.of("secret");
+        var factory = TicketMailService.class.getDeclaredMethod("session");
+        factory.setAccessible(true);
+        var session = (jakarta.mail.Session) factory.invoke(service);
+        var authentication = session.requestPasswordAuthentication(null, 25, "smtp", "prompt", "default-user");
+        org.junit.jupiter.api.Assertions.assertEquals("smtp-user", authentication.getUserName());
+        org.junit.jupiter.api.Assertions.assertEquals("secret", authentication.getPassword());
+    }
+
+    /** LC-08-02-06: a non-sale copy keeps its exact frozen body and administered MIME attachment. */
+    @Test
+    void sendsFrozenCustomerDocumentInBothForms() throws Exception {
+        service.host = Optional.of("localhost");
+        Mockito.when(posSettingsService.ticketEmailFormat()).thenReturn("BOTH");
+        var document = new com.intermarche.pos.domain.sale.CustomerDocument();
+        document.reference = "AV-42"; document.content = "CUSTOMER COPY\r\n42,00 EUR";
+        try (MockedStatic<Transport> transport = Mockito.mockStatic(Transport.class)) {
+            final jakarta.mail.Message[] captured = new jakarta.mail.Message[1];
+            transport.when(() -> Transport.send(ArgumentMatchers.any())).thenAnswer(call -> {
+                captured[0] = call.getArgument(0); return null;
+            });
+            assertTrue(service.sendDocument(document, "client@example.test"));
+            var message = captured[0];
+            assertTrue(message.getSubject().contains("AV-42"));
+            assertEquals("client@example.test", message.getAllRecipients()[0].toString());
+            var parts = (jakarta.mail.Multipart) message.getContent();
+            assertEquals(document.content, parts.getBodyPart(0).getContent());
+            assertEquals(document.content, parts.getBodyPart(1).getContent());
+            assertEquals("ticket-AV-42.txt", parts.getBodyPart(1).getFileName());
+            Mockito.verify(technicalEventService).log(TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
+                    "AV-42 -> client@example.test");
+            assertEquals(0, printer.renders);
+        }
+    }
+
+    /** Logo-bearing BODY/BOTH use related CID images; attachments are autonomous HTML with the same frozen PNG. */
+    @Test
+    void rendersLogosInEveryAdministeredMailFormat() throws Exception {
+        service.host = Optional.of("localhost");
+        String frozen = "[[IMAGE 8 1 gA==]]\nTOTAL <script> 42.00\n[[IMAGE 8 1 gA==]]";
+        for (String format : java.util.List.of("BODY", "ATTACHMENT", "BOTH")) {
+            Mockito.when(posSettingsService.ticketEmailFormat()).thenReturn(format);
+            try (MockedStatic<Transport> transport = Mockito.mockStatic(Transport.class)) {
+                final jakarta.mail.internet.MimeMessage[] captured = new jakarta.mail.internet.MimeMessage[1];
+                transport.when(() -> Transport.send(ArgumentMatchers.any())).thenAnswer(call -> {
+                    captured[0] = call.getArgument(0); return null;
+                });
+                assertTrue(service.send(ticketWith(frozen), "client@example.test"));
+                var message = captured[0]; message.saveChanges();
+                jakarta.mail.Multipart content = (jakarta.mail.Multipart) message.getContent();
+                if (!format.equals("BODY")) {
+                    assertTrue(message.isMimeType("multipart/mixed"));
+                    var attachment = content.getBodyPart(1);
+                    assertEquals("ticket-C04-000417.html", attachment.getFileName());
+                    assertTrue(attachment.isMimeType("text/html"));
+                    String html = (String) attachment.getContent();
+                    assertTrue(html.contains("data:image/png;base64,"));
+                    assertTrue(html.contains("TOTAL &lt;script&gt; 42.00"));
+                    assertFalse(html.contains("[[IMAGE")); assertFalse(html.contains("cid:"));
+                    if (format.equals("ATTACHMENT")) {
+                        assertTrue(((String) content.getBodyPart(0).getContent()).contains("C04-000417"));
+                        continue;
+                    }
+                    content = (jakarta.mail.Multipart) content.getBodyPart(0).getContent();
+                }
+                assertTrue(content.getContentType().startsWith("multipart/alternative"));
+                assertEquals("TOTAL <script> 42.00\n", content.getBodyPart(0).getContent());
+                var related = (jakarta.mail.Multipart) content.getBodyPart(1).getContent();
+                assertEquals(3, related.getCount());
+                String html = (String) related.getBodyPart(0).getContent();
+                assertFalse(html.contains("data:image")); assertFalse(html.contains("[[IMAGE"));
+                for (int rank = 0; rank < 2; rank++) {
+                    String cid = "receipt-logo-" + rank + "@impos.local";
+                    assertTrue(html.contains("cid:" + cid));
+                    var image = related.getBodyPart(rank + 1);
+                    assertEquals("<" + cid + ">", image.getHeader("Content-ID")[0]);
+                    assertEquals(jakarta.mail.Part.INLINE, image.getDisposition());
+                    assertTrue(image.isMimeType("image/png"));
+                    assertNotNull(javax.imageio.ImageIO.read(image.getInputStream()));
+                }
+            }
+        }
+    }
+
+    /** An invalid frozen raster is removed from plain MIME without losing surrounding customer text. */
+    @Test
+    void invalidLogoFallsBackToCleanTextMail() throws Exception {
+        service.host = Optional.of("localhost");
+        Mockito.when(posSettingsService.ticketEmailFormat()).thenReturn("BODY");
+        try (MockedStatic<Transport> transport = Mockito.mockStatic(Transport.class)) {
+            final jakarta.mail.Message[] captured = new jakarta.mail.Message[1];
+            transport.when(() -> Transport.send(ArgumentMatchers.any())).thenAnswer(call -> {
+                captured[0] = call.getArgument(0); return null;
+            });
+            assertTrue(service.send(ticketWith("[[IMAGE 8 1 A]]\nTOTAL 1.00"), "client@example.test"));
+            assertEquals("TOTAL 1.00", captured[0].getContent());
+        }
+    }
+
 }

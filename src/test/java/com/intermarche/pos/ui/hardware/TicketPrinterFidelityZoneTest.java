@@ -55,6 +55,7 @@ class TicketPrinterFidelityZoneTest {
         service.posSettingsService = mock(PosSettingsService.class);
         when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(true);
         when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(true);
+        when(service.posSettingsService.vatTableMode()).thenReturn("COMBINED");
         // The currency defaults of the catalogue, which print exactly what the
         // register printed before the symbol became administrable: the symbol
         // E, after the amount (BO-10-07-04/-05/-06).

@@ -9,8 +9,33 @@ import java.math.BigDecimal;
  * {@code pos.tpe.mode=auto}.
  * <p>
  * Not a CDI bean on its own: instantiated by {@link TerminalClientProducer}.
+ * <p>
+ * It answers like the real monetique (BO-04-01-48): every outcome names the
+ * server it was accepted on through the {@code VWAY} value — the primary
+ * server for the {@code auto} mode, the secondary server the degraded mode
+ * forces when it stands in for the terminal behind the degraded gate.
  */
 public class AutoAcceptTerminalClient implements PaymentTerminalClient {
+
+    /** The {@code VWAY} server code every outcome of this client reports. */
+    private final String server;
+
+    /**
+     * Builds the client of the {@code auto} mode, accepting on the primary
+     * monetique server.
+     */
+    public AutoAcceptTerminalClient() {
+        this(VerifoneTags.PRIMARY_SERVER);
+    }
+
+    /**
+     * Builds a client accepting on the given monetique server (BO-04-01-48).
+     *
+     * @param server the {@code VWAY} server code its outcomes report
+     */
+    public AutoAcceptTerminalClient(String server) {
+        this.server = server;
+    }
 
     /**
      * Accepts the debit immediately (synchronous callback).
@@ -20,7 +45,7 @@ public class AutoAcceptTerminalClient implements PaymentTerminalClient {
      */
     @Override
     public void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
-        callback.onAccepted(TerminalOutcome.ofAmount(amount));
+        callback.onAccepted(outcome(amount));
     }
 
     /**
@@ -31,7 +56,29 @@ public class AutoAcceptTerminalClient implements PaymentTerminalClient {
      */
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
-        callback.onAccepted(TerminalOutcome.ofAmount(amount));
+        callback.onAccepted(outcome(amount));
+    }
+
+    /**
+     * Builds the outcome of an immediate acceptance: the amount and the server
+     * it was accepted on (BO-04-01-48).
+     *
+     * @param amount the transaction amount
+     * @return the outcome
+     */
+    private TerminalOutcome outcome(BigDecimal amount) {
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(amount);
+        outcome.server = server;
+        return outcome;
+    }
+
+    /**
+     * Returns the {@code VWAY} server code this client's outcomes report.
+     *
+     * @return the server code
+     */
+    public String server() {
+        return server;
     }
 
     /** Nothing in flight, ever. */

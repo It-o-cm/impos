@@ -21,6 +21,19 @@ import java.util.Objects;
  */
 class RefundTest {
 
+    /**
+     * Builds a refund line carrying the given unit price and quantity.
+     *
+     * @param price    the unit price including tax
+     * @param quantity the refunded quantity
+     * @return a populated {@link RefundLine}
+     */
+    private RefundLine line(String price, String quantity) {
+        RefundLine l = new RefundLine();
+        l.price = new BigDecimal(price);
+        l.quantity = new BigDecimal(quantity);
+        return l;
+    }
 
     /**
      * The default constructor sets the lifecycle status to OPEN.
@@ -105,10 +118,9 @@ class RefundTest {
                         Refund.RefundMethod.LOYALTY,
                         Refund.RefundMethod.CREDIT},
                 Refund.RefundMethod.values());
+        Assertions.assertEquals(Refund.RefundMethod.LOYALTY, Refund.RefundMethod.valueOf("LOYALTY"));
         Assertions.assertEquals(Refund.RefundMethod.CREDIT, Refund.RefundMethod.valueOf("CREDIT"));
     }
-
-
 
     /**
      * getChecksum hashes the refund number, ticket id, total, status, method,
@@ -184,5 +196,14 @@ class RefundTest {
         Assertions.assertEquals(new BigDecimal("2.5000"), refund.withdrawnGenerosity);
         Assertions.assertEquals("REMISE PANIER | OFFRE-7", refund.keptAdvantages);
         Assertions.assertTrue(refund.loyaltyRecalculationSent);
+    }
+
+    /** LC-07 credit sync: misplaced relationship annotations on returnReason must not prevent node startup. */
+    @Test
+    void refundAssociationBelongsToLines() throws Exception {
+        org.junit.jupiter.api.Assertions.assertNotNull(Refund.class.getDeclaredField("lines")
+                .getAnnotation(jakarta.persistence.OneToMany.class));
+        org.junit.jupiter.api.Assertions.assertNull(Refund.class.getDeclaredField("returnReason")
+                .getAnnotation(jakarta.persistence.OneToMany.class));
     }
 }

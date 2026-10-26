@@ -539,10 +539,8 @@ class FidelityServiceTest {
                 new FidelityState.EarnLine("SOCLE", "Socle", new BigDecimal("0.28")));
         state.fidelity.earnEntries.add(
                 new FidelityState.EarnLine("F&L", "Fruits", new BigDecimal("0.75")));
-
         String payload = service.buildTicketClosedPayload(state, "2026-C04-000001",
                 "2990000000019", java.time.LocalDate.of(2026, 8, 12), 77L);
-
         assertTrue(payload.contains("\"valuationRequest\":{\"lines\":[]}"));
         assertTrue(payload.contains("\"valuationResponse\":{\"total\":42.00}"));
         assertTrue(payload.contains("\"ticketRef\":\"2026-C04-000001\""));
@@ -550,6 +548,26 @@ class FidelityServiceTest {
         assertTrue(payload.contains("\"reservationId\":77"));
         assertTrue(payload.contains("{\"ruleCode\":\"SOCLE\",\"amount\":0.28}"));
         assertTrue(payload.contains("},{"), "les lignes d'earn doivent être séparées: " + payload);
+        assertFalse(payload.contains("\"payments\""));
+    }
+
+    /**
+     * BO-11-04-05: where the store administers the payment data, the
+     * ticket-closed payload carries the {@code payments} member.
+     */
+    @Test
+    void buildTicketClosedPayloadCarriesThePaymentsWhereAdministered() {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{\"lines\":[]}";
+        state.fidelity.lastValuationResponseJson = "{\"total\":42.00}";
+        state.payment.payments.add(
+                new com.intermarche.pos.ui.payment.PaymentState.PaymentEntry("CASH", new BigDecimal("2.50")));
+        when(service.posSettingsService.fidelityVtPayments()).thenReturn(true);
+        String payload = service.buildTicketClosedPayload(state, "2026-C04-000001",
+                "2990000000019", java.time.LocalDate.of(2026, 8, 12), null);
+        assertTrue(payload.endsWith(",\"payments\":[{\"index\":1,\"method\":\"CASH\",\"label\":null,"
+                + "\"amount\":2.50,\"reference\":null}]}"), payload);
     }
 
     /**
@@ -1027,12 +1045,19 @@ class FidelityServiceTest {
     void validateCardRevaluesANonEmptyCart() {
         FidelityService service = serviceWithCard("2990000000019");
         service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
         PosState state = new PosState();
         state.ticket.items.add(new com.intermarche.pos.ui.ticket.TicketState.TicketItem());
 
+        org.mockito.Mockito.doAnswer(call -> {
+            assertTrue(Thread.holdsLock(state));
+            return null;
+        }).when(service.ticketService).recalculateTotal(state);
         service.validateCard(state, "2990000000019");
 
-        verify(service.ticketService).recalculateTotal(state);
+        var order = org.mockito.Mockito.inOrder(service.ticketService, service.valuationService);
+        order.verify(service.ticketService).recalculateTotal(state);
+        order.verify(service.valuationService).revalueAfterCard(state);
         assertTrue(state.fidelity.active);
     }
 
@@ -1044,6 +1069,7 @@ class FidelityServiceTest {
     void validateCardDoesNotRevalueAnEmptyCart() {
         FidelityService service = serviceWithCard("2990000000019");
         service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
         PosState state = new PosState();
 
         service.validateCard(state, "2990000000019");
@@ -1880,6 +1906,50 @@ class FidelityServiceTest {
     }
 
     /**
+     * LC-13-06-09 / -14: where the store administers it, the language the loyalty
+     * base records for the holder becomes the customer language of the sale; a
+     * language the register does not ship, or none, changes nothing.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void theHolderLanguageBecomesTheCustomerLanguage() throws Exception {
+        FidelityService service = lookupService();
+        service.i18n = TestMessages.french(new PosState());
+        when(service.posSettingsService.fidelityHolderLanguage()).thenReturn(true);
+        ImfidClient.AccountInfo dutch = account("ACTIVE", "20", "15");
+        dutch.language = "nl-BE";
+        when(service.imfidClient.account("2990000000019")).thenReturn(dutch);
+        PosState state = new PosState();
+        service.validateCard(state, "2990000000019");
+        assertEquals("nl-BE", state.fidelity.holderLanguage);
+        assertEquals("nl", state.customerLanguage);
+        dutch.language = "de";
+        PosState german = new PosState();
+        service.validateCard(german, "2990000000019");
+        assertEquals("de", german.fidelity.holderLanguage);
+        assertNull(german.customerLanguage);
+    }
+
+    /**
+     * LC-13-06-09 / -14: without the setting the holder's language is read but
+     * the customer language is left alone.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void theHolderLanguageIsIgnoredWhenNotAdministered() throws Exception {
+        FidelityService service = lookupService();
+        ImfidClient.AccountInfo dutch = account("ACTIVE", "20", "15");
+        dutch.language = "nl";
+        when(service.imfidClient.account("2990000000019")).thenReturn(dutch);
+        PosState state = new PosState();
+        service.validateCard(state, "2990000000019");
+        assertEquals("nl", state.fidelity.holderLanguage);
+        assertNull(state.customerLanguage);
+    }
+
+    /**
      * A refresh transport failure opens the breaker (exception arm): the
      * fields stay null and a second attachment does not call imfid again.
      *
@@ -2223,6 +2293,7 @@ class FidelityServiceTest {
     void applyCardPromotionsAppliesImmediateDiscountWhenEngineForwardingOff() {
         FidelityService service = serviceWithCard("2990000000019");
         service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
         when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(false);
         PosState state = new PosState();
         state.ticket.addItem("3300000000004", null, "CAFE GRAINS 500G",
@@ -2242,6 +2313,7 @@ class FidelityServiceTest {
     void applyCardPromotionsSkippedWhenEngineForwardingOn() {
         FidelityService service = serviceWithCard("2990000000019");
         service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
         when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
         PosState state = new PosState();
         state.ticket.addItem("3300000000004", null, "CAFE",
@@ -2259,6 +2331,7 @@ class FidelityServiceTest {
     void applyCardPromotionsIgnoresNonMatchingEan() {
         FidelityService service = serviceWithCard("2990000000019");
         service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
         when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(false);
         PosState state = new PosState();
         state.ticket.addItem("9999999999999", null, "AUTRE",
@@ -2277,6 +2350,7 @@ class FidelityServiceTest {
     void applyCardPromotionsNeverAppliesCagnotte() {
         FidelityService service = serviceWithCard("2990000000019");
         service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
         when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(false);
         PosState state = new PosState();
         state.ticket.addItem("3400000000003", null, "THE VERT",
@@ -2285,5 +2359,663 @@ class FidelityServiceTest {
                 promo("3400000000003", "PERCENT", "0.1000", "CAGNOTTE"));
         service.applyCardPromotions(state);
         verify(service.ticketService, never()).applyRemise(any(), any());
+    }
+    /** LC-03-04-08: a blank pending replacement is consumed without changing the attached card. */
+    @Test
+    void blankReplacementKeepsTheAttachedCard() {
+        FidelityService service = serviceWithCard("CARD");
+        PosState state = new PosState();
+        state.fidelity.pendingReplacementCard = " ";
+        service.confirmReplacement(state);
+        assertNull(state.fidelity.pendingReplacementCard);
+        org.mockito.Mockito.verifyNoInteractions(service.imfidClient);
+    }
+
+    /** EXP-76: absent and empty warning lists leave the warning mailbox untouched. */
+    @Test
+    void emptyProjectionWarningsKeepTheMailboxEmpty() throws Exception {
+        FidelityService service = serviceWithCard("CARD");
+        var method = FidelityService.class.getDeclaredMethod("stageWarnings", FidelityState.class, ImfidClient.EarnProjection.class);
+        method.setAccessible(true);
+        FidelityState state = new FidelityState();
+        var projection = new ImfidClient.EarnProjection();
+        projection.warnings = null;
+        method.invoke(service, state, projection);
+        assertTrue(state.fidelityWarnings.isEmpty());
+        projection.warnings = java.util.List.of();
+        method.invoke(service, state, projection);
+        assertTrue(state.fidelityWarnings.isEmpty());
+        projection.warnings = java.util.List.of("SERVICE WARNING");
+        method.invoke(service, state, projection);
+        assertEquals(java.util.List.of("SERVICE WARNING"), state.fidelityWarnings);
+    }
+
+    /** LC-03: absent promotions, each malformed identity leg and null cart rows cannot apply a discount. */
+    @Test
+    void cardPromotionsSkipEveryMissingIdentityLeg() {
+        FidelityService service = serviceWithCard("CARD");
+        service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
+        PosState state = new PosState();
+        state.fidelity.cardPromotions = null;
+        service.applyCardPromotions(state);
+        state.fidelity.cardPromotions = java.util.List.of();
+        service.applyCardPromotions(state);
+        state.fidelity.cardPromotions = java.util.Arrays.asList(null,
+                promo(null, "AMOUNT", "1", "IMMEDIATE_DISCOUNT"),
+                promo(" ", "AMOUNT", "1", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        state.ticket.items.add(null);
+        state.fidelity.cardPromotions = java.util.List.of(promo("EAN", "AMOUNT", "1", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService, never()).applyRemise(any(), any());
+    }
+
+    /** LC-03: weighed promotions count one unit, while a zero discount never calls the ticket service. */
+    @Test
+    void cardPromotionsCountWeighedUnitsAndIgnoreZeroBenefit() {
+        FidelityService service = serviceWithCard("CARD");
+        service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        service.valuationService = mock(com.intermarche.pos.ui.valuation.ValuationService.class);
+        PosState state = new PosState();
+        state.ticket.addItem("EAN", "PLU", "WEIGHED", BigDecimal.TEN, new BigDecimal("0.500"), BigDecimal.ZERO);
+        var item = state.ticket.items.get(0);
+        state.fidelity.cardPromotions = java.util.List.of(promo("EAN", "AMOUNT", "1", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService).applyRemise(item, new BigDecimal("1.00"));
+        org.mockito.Mockito.clearInvocations(service.ticketService);
+        state.fidelity.cardPromotions = java.util.List.of(promo("EAN", "AMOUNT", "0", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService, never()).applyRemise(any(), any());
+    }
+
+    /** LC-03: blank PLUs, missing quantities and missing/negative promotion bases keep their arithmetic fallbacks. */
+    @Test
+    void promotionArithmeticHandlesMissingAndNegativeInputs() throws Exception {
+        FidelityService service = serviceWithCard("CARD");
+        var method = FidelityService.class.getDeclaredMethod("unitsOf", com.intermarche.pos.ui.ticket.TicketState.TicketItem.class);
+        method.setAccessible(true);
+        var item = new com.intermarche.pos.ui.ticket.TicketState.TicketItem();
+        item.plu = " ";
+        item.quantity = null;
+        assertEquals(0L, method.invoke(service, item));
+        assertEquals(new BigDecimal("0.00"), FidelityService.immediateDiscount("PERCENT", BigDecimal.ONE, null, 1));
+        assertEquals(BigDecimal.ZERO, FidelityService.immediateDiscount("AMOUNT", BigDecimal.ONE, BigDecimal.TEN, -1));
+    }
+
+    /** LC-03-04: a city alone is a valid lookup criterion when every preceding criterion is absent. */
+    @Test
+    void cityAloneCanSearchForAFidelityCard() throws Exception {
+        FidelityService service = lookupService();
+        var result = lookupResult(0, false, null);
+        when(service.imfidClient.lookup(null, null, null, null, "PARIS")).thenReturn(result);
+        var view = service.lookupCards(null, null, null, null, "PARIS");
+        assertTrue(view.matches.isEmpty());
+        verify(service.imfidClient).lookup(null, null, null, null, "PARIS");
+    }
+
+    /** LC-03: a failed anonymous projection clears stale earnings and applies the retry cooldown rather than showing invented benefits. */
+    @Test
+    void failedAnonymousProjectionClearsTheEarnAndDefersRetry() throws Exception {
+        var service = serviceWithCard("unused");
+        when(service.posSettingsService.fidelityAnonymousProjection()).thenReturn(true);
+        when(service.imfidClient.earn(any(), any(), eq("ANONYMOUS"))).thenThrow(new java.io.IOException("imfid unavailable"));
+        var state = new PosState();
+        state.fidelity.earnTotal = new BigDecimal("9.99");
+        service.onValuation(state, "{}", "{}");
+        assertNull(state.fidelity.earnTotal);
+        assertTrue(state.fidelity.earnEntries.isEmpty());
+        assertFalse(state.fidelity.anonymousProjection);
+        service.onValuation(state, "{}", "{}");
+        verify(service.imfidClient, org.mockito.Mockito.times(1)).earn(any(), any(), eq("ANONYMOUS"));
+    }
+
+
+    // --- Luhn key of the loyalty cards (BO-03-06-54) ---
+
+    /**
+     * The Luhn check accepts a number whose key is right and refuses a wrong
+     * key, a number with a letter, a single digit and a null number.
+     */
+    @Test
+    void theLuhnCheck() {
+        assertTrue(FidelityService.luhn("4539578763621486"));
+        assertTrue(FidelityService.luhn("79927398713"));
+        assertFalse(FidelityService.luhn("79927398710"));
+        assertFalse(FidelityService.luhn("7992739871A"));
+        assertFalse(FidelityService.luhn("7"));
+        assertFalse(FidelityService.luhn(null));
+    }
+
+    /**
+     * The key control applies only when the shop administers it, and a
+     * service wired without its parameters lets every card through.
+     */
+    @Test
+    void theKeyControlFollowsTheParameter() {
+        FidelityService service = new FidelityService();
+        assertTrue(service.cardKeyValid("79927398710"));
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        assertTrue(service.cardKeyValid("79927398710"));
+        when(service.posSettingsService.fidelityCardLuhn()).thenReturn(true);
+        assertFalse(service.cardKeyValid("79927398710"));
+        assertTrue(service.cardKeyValid("79927398713"));
+    }
+
+    /**
+     * A card with a wrong key, typed or scanned, is refused and never
+     * attached.
+     */
+    @Test
+    void aCardWithAWrongKeyIsNotAttached() {
+        FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(service.posSettingsService.fidelityCardLuhn()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        service.validateCard(state, "79927398710");
+        assertFalse(state.fidelity.active);
+        assertEquals("CARTE FIDÉLITÉ REFUSÉE : CLÉ DE CONTRÔLE INVALIDE", state.ticket.transientError);
+    }
+
+    // --- lot 18 group G ---
+
+    /**
+     * Builds an account carrying the holder's name as the programme returns it.
+     *
+     * @param lastName the last name, or null
+     * @param firstName the first name, or null
+     * @return the account
+     */
+    private ImfidClient.AccountInfo namedAccount(String lastName, String firstName) {
+        ImfidClient.AccountInfo account = account("ACTIVE", "10.00", "8.00");
+        account.lastName = lastName;
+        account.firstName = firstName;
+        return account;
+    }
+
+    /**
+     * BO-10-03-04: a SCANNED card whose account carries the holder's name shows
+     * it on the cashier screen, trimmed, when the store administers the display.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void aScannedCardShowsTheHolderNameTheProgrammeReturns() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityShowHolderName()).thenReturn(true);
+        when(service.imfidClient.account("2990000000019")).thenReturn(namedAccount(" Durand ", " Anne "));
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        service.validateCard(state, "2990000000019");
+        assertEquals("Durand", state.fidelity.holderLastName);
+        assertEquals("Anne", state.fidelity.holderFirstName);
+        assertEquals("DURAND Anne · 2990000000019 · 8,00 €", state.fidelity.getDisplaySummary());
+    }
+
+    /**
+     * BO-10-03-04: a missing or blank first name leaves the last name alone.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void aScannedCardWithoutFirstNameShowsTheLastNameAlone() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityShowHolderName()).thenReturn(true);
+        when(service.imfidClient.account("2990000000019")).thenReturn(namedAccount("Durand", null));
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        service.validateCard(state, "2990000000019");
+        assertEquals("Durand", state.fidelity.holderLastName);
+        assertNull(state.fidelity.holderFirstName);
+        when(service.imfidClient.account("2990000000019")).thenReturn(namedAccount("Martin", "  "));
+        service.validateCard(state, "2990000000019");
+        assertEquals("Martin", state.fidelity.holderLastName);
+        assertNull(state.fidelity.holderFirstName);
+    }
+
+    /**
+     * BO-10-03-04: with the display switched off, the name the programme
+     * returned is NOT carried — the cashier screen keeps the bare number.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void theHolderNameIsNotShownWhenTheStoreSwitchesItOff() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityShowHolderName()).thenReturn(false);
+        when(service.imfidClient.account("2990000000019")).thenReturn(namedAccount("Durand", "Anne"));
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        service.validateCard(state, "2990000000019");
+        assertNull(state.fidelity.holderLastName);
+        assertEquals("2990000000019 · 8,00 €", state.fidelity.getDisplaySummary());
+    }
+
+    /**
+     * BO-10-03-04: a programme that keeps the identity to itself (no or blank
+     * last name) leaves the card anonymous, whatever the first name.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void aBlankLastNameLeavesTheCardAnonymous() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityShowHolderName()).thenReturn(true);
+        when(service.imfidClient.account("2990000000019")).thenReturn(namedAccount(" ", "Anne"));
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        service.validateCard(state, "2990000000019");
+        assertNull(state.fidelity.holderLastName);
+        assertNull(state.fidelity.holderFirstName);
+    }
+
+    /**
+     * Builds a pot balance.
+     *
+     * @param code the pot code
+     * @param balance the balance
+     * @return the pot
+     */
+    private ImfidClient.PotBalance pot(String code, String balance) {
+        ImfidClient.PotBalance pot = new ImfidClient.PotBalance();
+        pot.code = code;
+        pot.label = code;
+        pot.balance = new BigDecimal(balance);
+        return pot;
+    }
+
+    /**
+     * BO-10-02-33: enabled, the pots are requested with the transaction's earn
+     * and the loyalty payment settled under the administered tender only.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void refreshPotBalancesSendsTheTransactionElements() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPotBalancesEnabled()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.earnTotal = new BigDecimal("1.50");
+        state.payment.addPayment("FIDELITY", new BigDecimal("4.00"));
+        state.payment.addPayment("CASH", new BigDecimal("6.00"));
+        when(service.imfidClient.pots("2990000000019", new BigDecimal("1.50"), new BigDecimal("4.00")))
+                .thenReturn(java.util.List.of(pot("CAG", "12.00"), pot("PT2", "3.00")));
+        service.refreshPotBalances(state);
+        assertEquals(2, state.fidelity.potBalances.size());
+        assertEquals("CAG", state.fidelity.potBalances.get(0).code);
+    }
+
+    /**
+     * BO-10-02-33 / BO-10-03-06: the settled loyalty amount is summed under the
+     * ADMINISTERED tender when the register knows it.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void refreshPotBalancesSumsTheAdministeredTender() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPotBalancesEnabled()).thenReturn(true);
+        when(service.posSettingsService.fidelityPaymentTender()).thenReturn("VOUCHER");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.payment.addPayment("VOUCHER", new BigDecimal("2.00"));
+        state.payment.addPayment("FIDELITY", new BigDecimal("9.00"));
+        when(service.imfidClient.pots("2990000000019", null, new BigDecimal("2.00")))
+                .thenReturn(java.util.List.of(pot("CAG", "1.00")));
+        service.refreshPotBalances(state);
+        assertEquals(1, state.fidelity.potBalances.size());
+    }
+
+    /**
+     * BO-10-02-33: disabled — the default — nothing is requested and stale
+     * pots are emptied.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void refreshPotBalancesDoesNothingWhenDisabled() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.potBalances.add(pot("OLD", "1.00"));
+        service.refreshPotBalances(state);
+        assertTrue(state.fidelity.potBalances.isEmpty());
+        verify(service.imfidClient, never()).pots(any(), any(), any());
+    }
+
+    /**
+     * BO-10-02-33: without a card, or with the programme unconfigured, nothing
+     * is requested.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void refreshPotBalancesNeedsACardAndAConfiguredProgramme() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPotBalancesEnabled()).thenReturn(true);
+        service.refreshPotBalances(new com.intermarche.pos.ui.PosState());
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        service.refreshPotBalances(state);
+        assertTrue(state.fidelity.potBalances.isEmpty());
+        verify(service.imfidClient, never()).pots(any(), any(), any());
+    }
+
+    /**
+     * BO-10-02-33: a failing programme empties the pots and opens the breaker —
+     * the next request is not even attempted.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void refreshPotBalancesDegradesAndOpensTheBreaker() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPotBalancesEnabled()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.potBalances.add(pot("OLD", "1.00"));
+        when(service.imfidClient.pots(any(), any(), any())).thenThrow(new java.io.IOException("down"));
+        service.refreshPotBalances(state);
+        assertTrue(state.fidelity.potBalances.isEmpty());
+        service.refreshPotBalances(state);
+        verify(service.imfidClient, times(1)).pots(any(), any(), any());
+        assertTrue(service.isUnavailable());
+    }
+
+    /**
+     * BO-10-02-33: the fiscal moment reads the pots again, with or without a
+     * loyalty lease.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void confirmLeaseReadsThePotsAtTheFiscalMoment() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPotBalancesEnabled()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        when(service.imfidClient.pots(any(), any(), any())).thenReturn(java.util.List.of(pot("CAG", "5.00")));
+        assertNull(service.confirmLease(state, java.time.LocalDate.of(2026, 10, 24)));
+        assertEquals(1, state.fidelity.potBalances.size());
+        state.payment.fidReservationId = 5L;
+        when(service.imfidClient.confirm(5L, "2026-10-24")).thenReturn(confirmResult(200, "3.00"));
+        assertEquals(5L, service.confirmLease(state, java.time.LocalDate.of(2026, 10, 24)));
+        assertEquals(new BigDecimal("3.00"), state.fidelity.balanceAfter);
+        verify(service.imfidClient, times(2)).pots(any(), any(), any());
+    }
+
+    /**
+     * BO-10-02-33: the consultation page lists each pot when enabled.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void loadConsultationListsThePots() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPotBalancesEnabled()).thenReturn(true);
+        when(service.imfidClient.account("2990000000019")).thenReturn(account("ACTIVE", "10.00", "8.00"));
+        when(service.imfidClient.pots(any(), any(), any())).thenReturn(java.util.List.of(pot("CAG", "5.00")));
+        FidelityService.Consultation view = service.loadConsultation(stateWithCard("2990000000019"));
+        assertEquals(1, view.pots.size());
+        assertEquals("5,00 €", view.pots.get(0).getBalanceFormatted());
+    }
+
+    /**
+     * BO-10-03-06: a tender the register knows is kept; an unknown or absent one
+     * falls back on FIDELITY.
+     */
+    @Test
+    void theLoyaltyTenderFallsBackOnFidelity() {
+        assertEquals("VOUCHER", FidelityService.tenderOrDefault("VOUCHER"));
+        assertEquals("FIDELITY", FidelityService.tenderOrDefault("NOPE"));
+        assertEquals("FIDELITY", FidelityService.tenderOrDefault(null));
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPaymentTender()).thenReturn("CARD");
+        assertEquals("CARD", service.paymentTender());
+    }
+
+    /**
+     * BO-10-03-06: the lease renewal sums the settlements registered under the
+     * administered tender.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void maybeRenewLeaseSumsTheAdministeredTender() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityPaymentTender()).thenReturn("VOUCHER");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.payment.fidReservationId = 9L;
+        state.payment.fidLeaseSeconds = 100L;
+        state.payment.fidLeaseExpiresAt = java.time.LocalDateTime.now().plusSeconds(10);
+        state.payment.addPayment("VOUCHER", new BigDecimal("2.50"));
+        state.payment.addPayment("FIDELITY", new BigDecimal("7.00"));
+        when(service.imfidClient.reserve(eq("2990000000019"), any(), any())).thenReturn(granted(9L));
+        service.maybeRenewLease(state);
+        verify(service.imfidClient).reserve(eq("2990000000019"), eq(new BigDecimal("2.50")), any());
+    }
+
+    /**
+     * Builds a card promotion.
+     *
+     * @param ean the promoted EAN, or null
+     * @param type the promotion type, or null
+     * @param value the value, or null
+     * @return the promotion
+     */
+    private ImfidClient.CardPromotion promotion(String ean, String type, String value) {
+        ImfidClient.CardPromotion promotion = new ImfidClient.CardPromotion();
+        promotion.ean = ean;
+        promotion.promotionType = type;
+        promotion.value = value == null ? null : new BigDecimal(value);
+        promotion.benefit = "IMMEDIATE_DISCOUNT";
+        return promotion;
+    }
+
+    /**
+     * Builds a cart line.
+     *
+     * @param ean the EAN
+     * @param plu the PLU, or null for a unit line
+     * @param quantity the quantity
+     * @param returnLine whether it is a return line
+     * @return the line
+     */
+    private com.intermarche.pos.ui.ticket.TicketState.TicketItem line(String ean, String plu,
+            String quantity, boolean returnLine) {
+        com.intermarche.pos.ui.ticket.TicketState.TicketItem item =
+                new com.intermarche.pos.ui.ticket.TicketState.TicketItem();
+        item.ean = ean;
+        item.plu = plu;
+        item.quantity = new BigDecimal(quantity);
+        item.returnLine = returnLine;
+        return item;
+    }
+
+    /**
+     * BO-10-03-22: with personal-promotion calls administered, the ticket-closed
+     * event reports back the personal promotions the ticket TRIGGERED, with the
+     * units sold — return lines, other EANs and null lines left out, a weighed
+     * line counting as one — and nothing for a promotion no line triggered.
+     */
+    @Test
+    void theTicketClosedEventReportsTheTriggeredPersonalPromotions() {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{}";
+        state.fidelity.lastValuationResponseJson = "{}";
+        state.fidelity.cardPromotions = new java.util.ArrayList<>(java.util.Arrays.asList(
+                null, promotion(null, "AMOUNT", "1"), promotion(" ", "AMOUNT", "1"),
+                promotion("3000000000018", "AMOUNT", "0.50"),
+                promotion("3000000000025", null, null),
+                promotion("3000000000032", "PERCENT", "0.10")));
+        state.ticket.items.add(null);
+        state.ticket.items.add(line("3000000000018", null, "2", false));
+        state.ticket.items.add(line("3000000000018", null, "1", true));
+        state.ticket.items.add(line("3000000000025", "123", "0.750", false));
+        state.ticket.items.add(line("9999999999999", null, "5", false));
+        String payload = service.buildTicketClosedPayload(state, "2026-1", "2990000000019",
+                java.time.LocalDate.of(2026, 10, 24), null);
+        assertTrue(payload.endsWith(",\"triggeredPromotions\":["
+                + "{\"ean\":\"3000000000018\",\"promotionType\":\"AMOUNT\",\"value\":0.50,"
+                + "\"benefit\":\"IMMEDIATE_DISCOUNT\",\"quantity\":2},"
+                + "{\"ean\":\"3000000000025\",\"promotionType\":null,\"value\":null,"
+                + "\"benefit\":\"IMMEDIATE_DISCOUNT\",\"quantity\":1}]}"), payload);
+    }
+
+    /**
+     * BO-10-03-22: personal-promotion calls switched off — the default of the
+     * mocked settings — or no promotion read, or none triggered: the member is
+     * absent and the event is unchanged.
+     */
+    @Test
+    void theTicketClosedEventOmitsTheTriggeredPromotionsOtherwise() {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.cardPromotions = new java.util.ArrayList<>(java.util.List.of(
+                promotion("3000000000018", "AMOUNT", "0.50")));
+        state.ticket.items.add(line("3000000000018", null, "1", false));
+        assertNull(service.triggeredPromotions(state));
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
+        state.fidelity.cardPromotions = null;
+        assertNull(service.triggeredPromotions(state));
+        state.fidelity.cardPromotions = new java.util.ArrayList<>(java.util.List.of(
+                promotion("3000000000049", "AMOUNT", "0.50")));
+        assertNull(service.triggeredPromotions(state));
+    }
+
+    /**
+     * BO-10-03-22: a quote, a backslash or a line break in what the card
+     * referential served is escaped by the JSON library, so the ticket-closed
+     * event stays a document a parser reads back to the character.
+     *
+     * @throws Exception when the event is not valid JSON
+     */
+    @Test
+    void theTicketClosedEventEscapesWhatTheReferentialServed() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{\"lines\":[]}";
+        state.fidelity.lastValuationResponseJson = "{}";
+        ImfidClient.CardPromotion odd = promotion("3000000000018", "AMOUNT", "0.50");
+        odd.benefit = "a\"b\\c\nd";
+        state.fidelity.cardPromotions = new java.util.ArrayList<>(java.util.List.of(odd));
+        state.ticket.items.add(line("3000000000018", null, "1", false));
+        String payload = service.buildTicketClosedPayload(state, "2026-1", "2990000000019",
+                java.time.LocalDate.of(2026, 10, 24), null);
+        com.fasterxml.jackson.databind.JsonNode event = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload);
+        assertEquals("a\"b\\c\nd", event.get("triggeredPromotions").get(0).get("benefit").asText());
+        assertEquals("2026-10-24", event.get("fiscalDate").asText());
+        assertTrue(event.get("valuationRequest").get("lines").isArray());
+    }
+
+
+    /**
+     * The consultation writes its balances with two decimals, the French
+     * comma and the euro sign, and writes nothing for an amount it lacks.
+     */
+    @Test
+    void consultationFormatsItsBalancesInEuros() {
+        FidelityService.Consultation view = new FidelityService.Consultation();
+        assertEquals("", view.getBalanceFormatted());
+        assertEquals("", view.getAvailableFormatted());
+        view.balance = new java.math.BigDecimal("12.5");
+        view.available = new java.math.BigDecimal("3.456");
+        assertEquals("12,50 \u20ac", view.getBalanceFormatted());
+        assertEquals("3,46 \u20ac", view.getAvailableFormatted());
+    }
+
+    // --- BO-11-04-05: the payment data of the VT call ---
+
+    /**
+     * Off, the VT call carries no payment member and the payload is unchanged
+     * to the byte; on, every settlement travels with its rank, tender, amount
+     * and authorisation — the hub reference when no authorisation exists, null
+     * for an absent amount, an absent tender or no reference at all.
+     */
+    @Test
+    void theVtCallCarriesThePaymentsWhereAdministered() {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        org.junit.jupiter.api.Assertions.assertNull(service.paymentsMember(state));
+        when(service.posSettingsService.fidelityVtPayments()).thenReturn(true);
+        assertEquals("[]", ImfidClient.json(service.paymentsMember(state)));
+        com.intermarche.pos.ui.payment.PaymentState.PaymentEntry card =
+                new com.intermarche.pos.ui.payment.PaymentState.PaymentEntry("CARD", new BigDecimal("10.00"));
+        card.authorizationNumber = "A1";
+        com.intermarche.pos.ui.payment.PaymentState.PaymentEntry gift =
+                new com.intermarche.pos.ui.payment.PaymentState.PaymentEntry("GIFTCARD", null);
+        gift.hubReference = "H9";
+        com.intermarche.pos.ui.payment.PaymentState.PaymentEntry cash =
+                new com.intermarche.pos.ui.payment.PaymentState.PaymentEntry(null, new BigDecimal("2.50"));
+        com.intermarche.pos.ui.payment.PaymentState.PaymentEntry voucher =
+                new com.intermarche.pos.ui.payment.PaymentState.PaymentEntry("Bon enseigne", new BigDecimal("1.00"));
+        voucher.voucher = true;
+        voucher.voucherNumber = "952600013436712345";
+        state.payment.payments.add(card);
+        state.payment.payments.add(gift);
+        state.payment.payments.add(cash);
+        state.payment.payments.add(voucher);
+        assertEquals("[{\"index\":1,\"method\":\"CARD\",\"label\":null,\"amount\":10.00,"
+                + "\"reference\":\"A1\"},"
+                + "{\"index\":2,\"method\":\"GIFTCARD\",\"label\":null,\"amount\":null,\"reference\":\"H9\"},"
+                + "{\"index\":3,\"method\":null,\"label\":null,\"amount\":2.50,\"reference\":null},"
+                + "{\"index\":4,\"method\":\"VOUCHER\",\"label\":\"Bon enseigne\",\"amount\":1.00,"
+                + "\"reference\":\"952600013436712345\"}]",
+                ImfidClient.json(service.paymentsMember(state)));
+    }
+
+    // --- BO-11-04-07: the VT call before printing ---
+
+    /**
+     * Before printing, the loyalty service is asked again with the transaction
+     * that has just ended, and the balance it answers is the one kept for the
+     * paper; an answer without balances keeps the last one; a service that
+     * fails keeps the projection of the valuation.
+     *
+     * @throws Exception never, the client being mocked
+     */
+    @Test
+    void theVt2CallRefreshesTheBalanceBeforePrinting() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.fidelityVt2Enabled()).thenReturn(true);
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{\"lines\":[]}";
+        state.fidelity.lastValuationResponseJson = "{\"total\":42.00}";
+        state.fidelity.projectedAfterEarn = new BigDecimal("10.00");
+        ImfidClient.EarnProjection projection = new ImfidClient.EarnProjection();
+        projection.balances = new ImfidClient.Balances();
+        projection.balances.projectedAfterEarn = new BigDecimal("7.40");
+        projection.balances.asOf = "2026-10-25T10:00";
+        ImfidClient.EarnProjection bare = new ImfidClient.EarnProjection();
+        when(service.imfidClient.earn("{\"lines\":[]}", "{\"total\":42.00}"))
+                .thenReturn(projection, bare).thenThrow(new IllegalStateException("down"));
+        service.refreshBeforePrint(state);
+        assertEquals(new BigDecimal("7.40"), state.fidelity.projectedAfterEarn);
+        assertEquals("2026-10-25T10:00", state.fidelity.balanceAsOf);
+        service.refreshBeforePrint(state);
+        assertEquals(new BigDecimal("7.40"), state.fidelity.projectedAfterEarn);
+        service.refreshBeforePrint(state);
+        assertEquals(new BigDecimal("7.40"), state.fidelity.projectedAfterEarn);
+    }
+
+    /**
+     * The VT2 call is not made when the store does not ask for it, without a
+     * card, with the programme unconfigured, or without the valuation couple.
+     *
+     * @throws Exception never, the client being mocked
+     */
+    @Test
+    void theVt2CallIsSkippedWhenItCannotBeMade() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{}";
+        state.fidelity.lastValuationResponseJson = "{}";
+        service.refreshBeforePrint(state);
+        when(service.posSettingsService.fidelityVt2Enabled()).thenReturn(true);
+        service.refreshBeforePrint(new com.intermarche.pos.ui.PosState());
+        com.intermarche.pos.ui.PosState noResponse = stateWithCard("2990000000019");
+        noResponse.fidelity.lastValuationRequestJson = "{}";
+        service.refreshBeforePrint(noResponse);
+        service.refreshBeforePrint(stateWithCard("2990000000019"));
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        service.refreshBeforePrint(state);
+        org.mockito.Mockito.verify(service.imfidClient, org.mockito.Mockito.never()).earn(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
 }

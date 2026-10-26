@@ -41,6 +41,10 @@ public class BalanceTicketScanHandler implements ScanContext.ScanHandler {
     @Inject
     BalanceTicketService balanceTicketService;
 
+    /** The retrieval mode of the counter-scale baskets (BO-10-05-01). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /**
      * Handles a counter-ticket barcode by asking the shop for its lines.
      *
@@ -51,6 +55,9 @@ public class BalanceTicketScanHandler implements ScanContext.ScanHandler {
         if (ctx.handled) return;
         String code = ctx.code;
         if (code == null || code.isBlank()) return;
+        // BO-10-05-01: a shop that takes no counter ticket reads its 27 codes as
+        // the ordinary codes they then are.
+        if (posSettingsService != null && !posSettingsService.balanceTicketEnabled()) return;
         // BO-03-06-56: the ADMINISTERED range is consulted first. A store whose
         // scales print a reference somewhere else in a code of another length
         // states that range in the back office; until it does, the historical

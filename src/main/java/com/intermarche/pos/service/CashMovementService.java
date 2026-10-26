@@ -150,6 +150,28 @@ public class CashMovementService {
     public CashMovement recordAcompte(CashSession session, Employee cashier,
                                       BigDecimal amount, String orderReference) {
         LOGGER.info("Entering method recordAcompte with amount: " + amount + ", orderReference: " + orderReference);
+        LOGGER.info("Exiting method recordAcompte");
+        return recordAcompte(session, cashier, amount, orderReference, null);
+    }
+
+    /**
+     * Records a down-payment attached to an order IN A GIVEN TENDER
+     * (BO-10-01-27): the store administers the tender the deposits on the
+     * commercial management tool's documents are taken in, and only a deposit
+     * taken in cash enters the drawer.
+     *
+     * @param session the open session the movement belongs to
+     * @param cashier the operator recording the acompte, or null
+     * @param amount the down-payment amount
+     * @param orderReference the code of the order the acompte is attached to
+     * @param tender the settlement key of the deposit, or null for cash
+     * @return the recorded movement, or null when the amount or the reference is invalid
+     */
+    @Transactional
+    public CashMovement recordAcompte(CashSession session, Employee cashier,
+                                      BigDecimal amount, String orderReference, String tender) {
+        LOGGER.info("Entering method recordAcompte with amount: " + amount + ", orderReference: " + orderReference
+                + ", tender: " + tender);
         if (amount == null || amount.signum() <= 0
                 || orderReference == null || orderReference.isBlank()) {
             LOGGER.info("Exiting method recordAcompte with invalid input");
@@ -164,6 +186,7 @@ public class CashMovementService {
         movement.amount = amount;
         movement.reason = "Acompte commande " + orderReference.trim();
         movement.orderReference = orderReference.trim();
+        movement.paymentMethod = tender;
         movement.movementDate = LocalDateTime.now();
         movement.persist();
         syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
@@ -216,6 +239,44 @@ public class CashMovementService {
         movement.persist();
         syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
         LOGGER.info("Exiting method recordSafeDeposit");
+        return movement;
+    }
+    /**
+     * Records the automatic transfer to the safe of the cash a cash changer took
+     * for a sale (LC-07-15-04): a {@code WITHDRAWAL} flagged {@code safeDeposit},
+     * like a manual safe deposit, so the drawer's theoretical cash no longer
+     * counts notes it never held and the store node accounts them against the
+     * safe.
+     *
+     * <p>No endorsement: no person takes the money out, the machine already
+     * holds it. Refused on a non-positive amount.
+     *
+     * @param session the open session the sale belongs to, or null
+     * @param cashier the operator of the sale, or null
+     * @param amount the cash the machine took
+     * @return the recorded movement, or null on a non-positive amount
+     */
+    @Transactional
+    public CashMovement recordCashChangerTransfer(CashSession session, Employee cashier, BigDecimal amount) {
+        LOGGER.info("Entering method recordCashChangerTransfer with amount: " + amount);
+        if (amount == null || amount.signum() <= 0) {
+            LOGGER.info("Exiting method recordCashChangerTransfer with invalid amount");
+            return null;
+        }
+        CashMovement movement = new CashMovement();
+        movement.movementUid = UUID.randomUUID().toString();
+        movement.terminalId = ticketNumberService.getTerminalId();
+        movement.session = session;
+        movement.cashier = cashier;
+        movement.type = CashMovement.MovementType.WITHDRAWAL;
+        movement.amount = amount;
+        movement.reason = CashMovement.CASH_CHANGER_REASON;
+        movement.paymentMethod = CashMovement.CASH;
+        movement.safeDeposit = true;
+        movement.movementDate = LocalDateTime.now();
+        movement.persist();
+        syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        LOGGER.info("Exiting method recordCashChangerTransfer");
         return movement;
     }
 }

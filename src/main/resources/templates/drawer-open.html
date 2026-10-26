@@ -1,0 +1,67 @@
+{!
+ ! LC-12-01-02 : le choix du motif d'une ouverture forcee du tiroir. Affiche les
+ ! justifications administrees pour la fonction DRAWER_OPEN ; chaque bouton
+ ! renvoie son CODE, que le journal du back-office conserve avec le libelle.
+ ! RETOUR abandonne l'ouverture : le tiroir reste ferme.
+ !
+ ! L'ecran n'existe que lorsque le magasin administre une liste : sans liste,
+ ! la caisse passe directement a l'aval superviseur.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('drawer.ouvertureForcee')}</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: flex; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
+        .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
+        .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
+        .overlay-title { font-size: var(--fs-title); }
+        .reason-grid { display: grid; grid-template-columns: repeat(2, 18.75rem); gap: 14px; }
+        .reason-btn { height: 5rem; line-height: 3.125rem; color: black; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+
+<div class="pos-terminal">
+    <div class="top-bar">
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
+        <span id="clock">--:--:--</span>
+    </div>
+    <div class="main-area"></div>
+    <div class="bottom-nav"></div>
+
+    <div class="overlay" id="drawerReasonScreen">
+        <div class="overlay-panel">
+            <div class="overlay-header">
+                <div class="overlay-title">{inject:i18n.get('drawer.ouvertureForcee')}</div>
+            </div>
+            <div class="content-area" style="display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px;">
+                <div style="color:var(--text-muted); font-size:var(--fs-section); text-transform:uppercase;">{inject:i18n.get('drawer.motifOuverture')}</div>
+                <div class="reason-grid">
+                    {#for reason in reasons}
+                    <a href="/action/drawer-open?code={reason.code}" class="btn btn-warning reason-btn">{reason.label}</a>
+                    {/for}
+                </div>
+                <a href="/" class="btn btn-muted" style="width:15.625rem; height:4.375rem; margin-top:20px;">
+                    {inject:i18n.get('common.back')}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+</script>
+
+</body>
+</html>

@@ -49,6 +49,7 @@ class ReturnValuationServiceTest {
         ReturnValuationService service = new ReturnValuationService();
         service.valuationClient = mock(ValuationClient.class);
         when(service.valuationClient.isEnabled()).thenReturn(true);
+        service.objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
         return service;
     }
 
@@ -275,6 +276,21 @@ class ReturnValuationServiceTest {
         assertEquals(ReturnValuationService.RecalculationStatus.RECOMPUTED, result.status);
         assertEquals(new BigDecimal("1.00"), result.withdrawnGenerosity);
         assertEquals(List.of("REMISE 2 ACHETES"), result.keptAdvantages);
+        // LC-05-07-02: the priced couple rides along for the loyalty programme.
+        assertTrue(result.requestJson.contains("\"produceEan\":\"111\""));
+        assertEquals("{}", result.responseJson);
+    }
+
+    /**
+     * A recalculation that did not happen carries no priced couple
+     * (LC-05-07-02).
+     */
+    @Test
+    void aRecalculationThatDidNotHappenCarriesNoCouple() {
+        ReturnValuationService.Recalculation none = ReturnValuationService.Recalculation
+                .none(ReturnValuationService.RecalculationStatus.UNAVAILABLE);
+        assertNull(none.requestJson);
+        assertNull(none.responseJson);
     }
 
     /**

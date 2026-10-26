@@ -7,6 +7,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{inject:i18n.get('returndetail.retourClientDetail')}</title>
   <style>
     {#include theme /}
@@ -114,6 +115,11 @@
           <span class="ticket-name-label" id="currentTicketName">{state.refund.selectedTicket.ticketNumber}</span>
         </div>
       </div>
+      {#if state.refund.infoMessage??}
+      {! LC-05-03-01 : l'article dematerialise attend son code, puis annonce ce
+       ! qu'il porte encore et ce qui sera rembourse a sa desactivation. !}
+      <div style="margin: 8px 20px 0; background: rgba(46,125,50,0.15); border: 1px solid var(--success); color: var(--success); padding: 8px; font-weight: bold; font-size: var(--fs-label); text-align: center; border-radius: 6px;">{state.refund.infoMessage}</div>
+      {/if}
 
       <div class="content-area">
         <div id="ticketMode">
@@ -201,7 +207,7 @@
           </form>
           {/if}
 
-          <div style="color:var(--text-muted); font-size:var(--fs-label); height:1.2em;" id="helperText">{inject:i18n.get('returndetail.nbsp')}</div>
+          <div style="color:var(--text-muted); font-size:var(--fs-label); height:1.2em;" id="helperText"></div>
         </div>
 
         <div id="numpadContainer"></div>
@@ -375,6 +381,12 @@
   document.addEventListener('DOMContentLoaded', bindAmountPad);
 </script>
 
+{#if state.refund.pendingCardRefund}
+<div class="pos-glass" style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;">
+    <div class="pos-modal-panel" style="padding:2rem;">{inject:i18n.get('pay.paiementCarteCours')}</div>
+</div>
+<script>setTimeout(() => { window.location.href = '/return'; }, 2000);</script>
+{/if}
 </body>
 </html>
 

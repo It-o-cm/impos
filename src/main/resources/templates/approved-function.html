@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><title>{inject:i18n.get('op.avalFonction')}</title></head>
+<body><form id="approvedForm" method="post" action="{target}">
+{#for field in fields.entrySet}{#for value in field.value}<input type="hidden" name="{field.key}" value="{value}">{/for}{/for}
+<input type="hidden" name="_posApproval" value="{token}">
+<button type="submit">{inject:i18n.get('common.validate')}</button>
+</form><script>document.getElementById('approvedForm').requestSubmit();</script></body></html>

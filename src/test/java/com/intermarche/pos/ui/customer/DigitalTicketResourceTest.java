@@ -65,8 +65,11 @@ class DigitalTicketResourceTest {
         });
         DigitalTicketResource resource = new DigitalTicketResource();
         resource.digitalTicket = template;
+        resource.i18n = com.intermarche.pos.ui.TestMessages.french();
+        when(sentinel.render()).thenReturn("PAGE");
         resource.ticketMailService = mock(TicketMailService.class);
         resource.qrCodeService = mock(QrCodeService.class);
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         resource.baseUrl = baseUrl;
         return resource;
     }
@@ -244,12 +247,36 @@ class DigitalTicketResourceTest {
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
-            assertSame(sentinel, resource.view(7L, KEY, false));
+            assertEquals("PAGE", resource.view(7L, KEY, false));
         }
         assertSame(ticket, captured.get("ticket"));
         assertEquals("/t/7/" + KEY, captured.get("path"));
         assertEquals(Boolean.FALSE, captured.get("sent"));
         assertFalse(((List<?>) captured.get("buckets")).isEmpty());
+        assertEquals("fr", captured.get("lang"));
+    }
+
+    /**
+     * LC-13-06-14: the receipt of a ticket sold in the customer's language is
+     * rendered in that language — the page states it and its labels speak it.
+     */
+    @Test
+    void viewRendersTheReceiptInTheTicketLanguage() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        ticket.customerLanguage = "nl-BE";
+        java.util.concurrent.atomic.AtomicReference<String> label = new java.util.concurrent.atomic.AtomicReference<>();
+        when(sentinel.render()).thenAnswer(inv -> {
+            label.set(resource.i18n.get("common.back"));
+            return "PAGE";
+        });
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            assertEquals("PAGE", resource.view(7L, KEY, false));
+        }
+        assertEquals("nl", captured.get("lang"));
+        assertEquals("TERUG", label.get());
+        assertEquals("RETOUR", resource.i18n.get("common.back"));
     }
 
     /**
@@ -262,7 +289,7 @@ class DigitalTicketResourceTest {
         DigitalTicketResource resource = newResource(Optional.empty());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(null);
-            assertSame(sentinel, resource.view(1L, KEY, false));
+            assertEquals("PAGE", resource.view(1L, KEY, false));
         }
         assertNull(captured.get("ticket"));
         assertEquals("/t/1/" + KEY, captured.get("path"));
@@ -350,7 +377,7 @@ class DigitalTicketResourceTest {
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.OPEN);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(8L)).thenReturn(ticket);
-            assertSame(sentinel, resource.view(8L, KEY, false));
+            assertEquals("PAGE", resource.view(8L, KEY, false));
         }
         assertNull(captured.get("ticket"));
         assertTrue(((List<?>) captured.get("buckets")).isEmpty());
@@ -472,4 +499,21 @@ class DigitalTicketResourceTest {
         verifyNoInteractions(resource.ticketMailService);
         assertEquals("/t/11/" + KEY, response.getLocation().toString());
     }
+
+    /** EXP-43: digital receipt subtotals restart after each marked line and exclude cancelled articles. */
+    @Test
+    void digitalReceiptRestatesItsSubtotalBoundary() throws Exception {
+        var resource = newResource(Optional.empty());
+        var ticket = closableTicket("KEY", Ticket.TicketStatus.CLOSED);
+        ticket.lines.getFirst().lineUid = "L1";
+        ticket.lines.getFirst().totalPrice = new java.math.BigDecimal("2.50");
+        ticket.lines.getFirst().subtotalBoundary = true;
+        var method = DigitalTicketResource.class.getDeclaredMethod("render", Ticket.class, Long.class, String.class, boolean.class);
+        method.setAccessible(true);
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            assertEquals(sentinel, method.invoke(resource, ticket, 1L, "KEY", false));
+        }
+        assertEquals(java.util.Map.of("L1", "2,50"), captured.get("subtotals"));
+    }
+
 }

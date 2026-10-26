@@ -115,4 +115,23 @@ class OrderResourceTest {
         assertSame(view, resource.orderPage(null));
         assertSame(view, resource.orderPage("whatever"));
     }
+
+    /** LC-06-03: absent and blank deposit inputs both parse as zero before the service validates the amount. */
+    @Test
+    void missingDepositInputParsesAsZero() throws Exception {
+        var method = OrderResource.class.getDeclaredMethod("parseAmount", String.class);
+        method.setAccessible(true);
+        assertEquals(BigDecimal.ZERO, method.invoke(newResource(), (Object) null));
+        assertEquals(BigDecimal.ZERO, method.invoke(newResource(), " "));
+    }
+
+    /** LC-12 and LC-04: malformed monetary input is neutralized before creating any financial document; covers numeric parsing failures. */
+    @Test
+    void malformedMoneyCannotBecomeAFinancialAmount() throws Exception {
+        var method = OrderResource.class.getDeclaredMethod("parseAmount", String.class);
+        method.setAccessible(true);
+        assertEquals(java.math.BigDecimal.ZERO, method.invoke(newResource(), "12,3,4"));
+        assertEquals(java.math.BigDecimal.ZERO, method.invoke(newResource(), "NaN"));
+    }
+
 }

@@ -163,45 +163,66 @@ public class TicketMailService {
      */
     public boolean send(Ticket ticket, String address) {
         LOGGER.info("Entering method send with ticket: " + ticket + ", address: " + address);
-        String content = contentOf(ticket);
+        return deliver(ticket.ticketNumber, address, contentOf(ticket));
+    }
+
+    /** Sends a frozen customer copy using the same administered MIME format.
+     * @param document issued customer copy selected by its database identifier
+     * @param address validated recipient address
+     * @return whether SMTP accepted the message
+     */
+    public boolean sendDocument(com.intermarche.pos.domain.sale.CustomerDocument document, String address) {
+        return deliver(document.reference, address, document.content);
+    }
+
+    /** Delivers customer content and journals the request, including relay failures.
+     * @param reference issued reference
+     * @param address recipient address
+     * @param content frozen customer content
+     * @return whether SMTP accepted the message
+     */
+    private boolean deliver(String reference, String address, String content) {
         String format = normalizeFormat(posSettingsService.ticketEmailFormat());
         technicalEventService.log(TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
-                ticket.ticketNumber + " -> " + address);
+                reference + " -> " + address);
         if (!isConfigured()) {
             LOGGER.infof("Ticket %s envoyé à %s (aucun relais SMTP configuré : journalisé seulement)",
-                    ticket.ticketNumber, address);
+                    reference, address);
             LOGGER.info("Exiting method send");
             return false;
         }
         try {
-            Transport.send(build(ticket, address, content, format));
-            LOGGER.infof("Ticket %s envoyé à %s (%s)", ticket.ticketNumber, address, format);
+            Transport.send(buildDocument(reference, address, content, format));
+            LOGGER.infof("Ticket %s envoyé à %s (%s)", reference, address, format);
             LOGGER.info("Exiting method send");
             return true;
         } catch (Exception e) {
             LOGGER.warnf("Envoi du ticket %s à %s impossible : %s",
-                    ticket.ticketNumber, address, e.getMessage());
+                    reference, address, e.getMessage());
             LOGGER.info("Exiting method send");
             return false;
         }
     }
 
-    /**
-     * Builds the message carrying a ticket.
-     *
-     * @param ticket the ticket sent
-     * @param address the recipient address
-     * @param content the ticket as text
-     * @param format the normalized form of the send
-     * @return the message, ready for the transport
-     * @throws Exception when the address or the content cannot be assembled
+    /** Builds the common customer document MIME message.
+     * @param reference issued reference
+     * @param address recipient
+     * @param content frozen customer copy
+     * @param format normalized BODY, ATTACHMENT or BOTH
+     * @return message ready for transport
+     * @throws Exception when MIME assembly fails
      */
-    private MimeMessage build(Ticket ticket, String address, String content, String format)
+    private MimeMessage buildDocument(String reference, String address, String content, String format)
             throws Exception {
         MimeMessage message = new MimeMessage(session());
         message.setFrom(new InternetAddress(from));
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(address));
-        message.setSubject(i18n.format("mail.objet", ticket.ticketNumber), "UTF-8");
+        message.setSubject(i18n.format("mail.objet", reference), "UTF-8");
+        var rendered = CustomerReceiptRendering.render(content);
+        if (!rendered.logos().isEmpty()) {
+            return buildWithLogos(message, reference, rendered, format);
+        }
+        content = rendered.text();
         if (FORMAT_BODY.equals(format)) {
             message.setText(content, "UTF-8");
             return message;
@@ -211,15 +232,80 @@ public class TicketMailService {
         // An attachment-only send still carries a readable line: a message whose body
         // is empty reads as a mistake, and some clients hide the attachment entirely.
         body.setText(FORMAT_BOTH.equals(format) ? content
-                : i18n.format("mail.corpsPieceJointe", ticket.ticketNumber), "UTF-8");
+                : i18n.format("mail.corpsPieceJointe", reference), "UTF-8");
         parts.addBodyPart(body);
         MimeBodyPart attachment = new MimeBodyPart();
         attachment.setText(content, "UTF-8");
-        attachment.setFileName("ticket-" + ticket.ticketNumber + ".txt");
+        attachment.setFileName("ticket-" + reference + ".txt");
         attachment.setDisposition(MimeBodyPart.ATTACHMENT);
         parts.addBodyPart(attachment);
         message.setContent(parts);
         return message;
+    }
+
+    /** Adds embedded logo images to customer formats without exposing printer directives.
+     * @param message common addressed message
+     * @param reference issued document reference
+     * @param rendered readable formats from the frozen source
+     * @param format administered BODY, ATTACHMENT or BOTH
+     * @return completed MIME message
+     * @throws Exception when MIME assembly fails
+     */
+    private MimeMessage buildWithLogos(MimeMessage message, String reference,
+                                      CustomerReceiptRendering.Rendered rendered, String format) throws Exception {
+        if (FORMAT_BODY.equals(format)) {
+            message.setContent(logoBody(rendered));
+            return message;
+        }
+        MimeMultipart mixed = new MimeMultipart("mixed");
+        MimeBodyPart body = new MimeBodyPart();
+        if (FORMAT_BOTH.equals(format)) {
+            body.setContent(logoBody(rendered));
+        } else {
+            body.setText(i18n.format("mail.corpsPieceJointe", reference), "UTF-8");
+        }
+        mixed.addBodyPart(body);
+        MimeBodyPart attachment = new MimeBodyPart();
+        attachment.setContent("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head><body>"
+                + rendered.html() + "</body></html>", "text/html; charset=UTF-8");
+        attachment.setFileName("ticket-" + reference + ".html");
+        attachment.setDisposition(MimeBodyPart.ATTACHMENT);
+        mixed.addBodyPart(attachment);
+        message.setContent(mixed);
+        return message;
+    }
+
+    /** Builds text/HTML alternatives with CID-linked PNGs, requiring no remote image fetch.
+     * @param rendered escaped receipt and frozen PNGs
+     * @return message alternatives with related image parts
+     * @throws Exception when a MIME part cannot be assembled
+     */
+    private MimeMultipart logoBody(CustomerReceiptRendering.Rendered rendered) throws Exception {
+        MimeMultipart alternatives = new MimeMultipart("alternative");
+        MimeBodyPart plain = new MimeBodyPart();
+        plain.setText(rendered.text(), "UTF-8");
+        alternatives.addBodyPart(plain);
+        MimeMultipart related = new MimeMultipart("related");
+        MimeBodyPart html = new MimeBodyPart();
+        String content = rendered.html();
+        for (var logo : rendered.logos()) {
+            content = content.replaceFirst(java.util.regex.Pattern.quote(logo.dataUri()),
+                    java.util.regex.Matcher.quoteReplacement("cid:" + logo.contentId()));
+        }
+        html.setContent(content, "text/html; charset=UTF-8");
+        related.addBodyPart(html);
+        for (var logo : rendered.logos()) {
+            MimeBodyPart image = new MimeBodyPart();
+            image.setDataHandler(new jakarta.activation.DataHandler(
+                    new jakarta.mail.util.ByteArrayDataSource(logo.png(), "image/png")));
+            image.setHeader("Content-ID", "<" + logo.contentId() + ">");
+            image.setDisposition(MimeBodyPart.INLINE);
+            related.addBodyPart(image);
+        }
+        MimeBodyPart htmlWithImages = new MimeBodyPart();
+        htmlWithImages.setContent(related);
+        alternatives.addBodyPart(htmlWithImages);
+        return alternatives;
     }
 
     /**

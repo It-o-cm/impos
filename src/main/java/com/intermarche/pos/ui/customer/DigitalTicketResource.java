@@ -56,9 +56,17 @@ public class DigitalTicketResource {
     @Inject
     QrCodeService qrCodeService;
 
+    /** The localised messages, scoped to the ticket's language (LC-13-06-14). */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** Actually delivers the receipt (LC-08-02-04/07/08). */
     @Inject
     TicketMailService ticketMailService;
+
+    /** The administered rounding of the VAT table (BO-10-02-18). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
 
     /** Public base URL encoded in the QR (e.g. "http://caisse04:8080"); absent = path only. */
     @ConfigProperty(name = "pos.digital.base-url")
@@ -71,17 +79,22 @@ public class DigitalTicketResource {
      * @param key the access key printed on the paper ticket
      * @param sent true when the PRG redirect of the email action flags a
      *        just-sent confirmation to display
+     * <p>The page speaks the language the ticket was sold in — chosen by the
+     * customer or retrieved from the loyalty base (LC-13-06-14) — so it is
+     * rendered here, inside that language, rather than after the method returns.
+     *
      * @return the digital receipt page, or its unavailable variant
      */
     @GET
     @Path("/{id}/{key}")
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance view(@PathParam("id") Long id, @PathParam("key") String key,
-                                 @QueryParam("sent") boolean sent) {
+    public String view(@PathParam("id") Long id, @PathParam("key") String key,
+                       @QueryParam("sent") boolean sent) {
         LOGGER.info("Entering method view with id: " + id + ", key: " + key + ", sent: " + sent);
         Ticket ticket = load(id, key);
         LOGGER.info("Exiting method view");
-        return render(ticket, id, key, sent);
+        return i18n.forLanguage(ticket == null ? null : ticket.customerLanguage,
+                () -> render(ticket, id, key, sent).data("lang", i18n.getLang()).render());
     }
 
     /**
@@ -191,7 +204,8 @@ public class DigitalTicketResource {
      * @return the rendered page
      */
     private TemplateInstance render(Ticket ticket, Long id, String key, boolean sent) {
-        VatBreakdown breakdown = new VatBreakdown();
+        // BO-10-02-18: the administered rounding, as on the paper ticket.
+        VatBreakdown breakdown = new VatBreakdown(posSettingsService.calcRoundingMode());
         if (ticket != null) {
             for (TicketLine line : ticket.lines) {
                 // Cancelled articles (lot C4) are outside the sale: excluded

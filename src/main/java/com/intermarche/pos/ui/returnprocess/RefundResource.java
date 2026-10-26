@@ -61,6 +61,7 @@ public class RefundResource {
     @GET
     public TemplateInstance showSearchPage() {
         LOGGER.info("Entering method showSearchPage");
+        refundService.completeCardRefund(state);
         if (state.refund.isTicketSelected()) { LOGGER.info("Exiting method showSearchPage"); return detail(); }
         LOGGER.info("Exiting method showSearchPage");
         return search();
@@ -82,6 +83,7 @@ public class RefundResource {
         // left its detail open): the PRG GET must render the result list.
         state.refund.clearSelection();
         state.refund.searchPattern = rawValue != null ? rawValue.trim() : "";
+        state.refund.searchCriteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
         refundService.searchTickets(state);
         LOGGER.info("Exiting method doSearch");
         return redirectReturn();
@@ -411,7 +413,8 @@ public class RefundResource {
      */
     private TemplateInstance search() {
         return returnSearchPage.data("state", state)
-                .data("returnTypes", posListService.returnTypes());
+                .data("returnTypes", posListService.returnTypes())
+                .data("identificationForced", refundService.identificationForced(state));
     }
 
     /**
@@ -423,5 +426,16 @@ public class RefundResource {
      */
     private Response redirectReturn() {
         return Response.seeOther(URI.create("/return")).build();
+    }
+    /** LC-04-05-01: exposes the shared cumulative filters before choosing an origin ticket.
+     * @param criteria the posted form fields
+     * @return the return search through the ordinary redirect
+     */
+    @POST
+    @Path("/search/criteria")
+    @Consumes("application/x-www-form-urlencoded")
+    public Response searchCriteria(@BeanParam com.intermarche.pos.ui.ticket.TicketSearchCriteria criteria) {
+        refundService.searchCriteria(state, criteria);
+        return redirectReturn();
     }
 }

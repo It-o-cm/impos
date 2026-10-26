@@ -2,14 +2,19 @@ package com.intermarche.pos.domain.payment;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import java.math.BigDecimal;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TenderDefinition}, targeting 100% branch coverage.
@@ -468,5 +473,123 @@ class TenderDefinitionTest {
         assertTrue(tender.locallyModifiable("   "));
         assertFalse(tender.locallyModifiable("500-599"));
         assertTrue(tender.locallyModifiable("001-099"));
+    }
+
+    /** BO-03-02: exact and numeric equality differ; every malformed range bound fails independently. */
+    @org.junit.jupiter.api.Test
+    void coverageNumericAliasAndInvalidRangeLegs() {
+        org.junit.jupiter.api.Assertions.assertTrue(TenderDefinition.inRange("01", "1"));
+        org.junit.jupiter.api.Assertions.assertFalse(TenderDefinition.inRange("2", "1"));
+        org.junit.jupiter.api.Assertions.assertFalse(TenderDefinition.inRange("x", "1"));
+        org.junit.jupiter.api.Assertions.assertFalse(TenderDefinition.inRange("1", "x"));
+        org.junit.jupiter.api.Assertions.assertFalse(TenderDefinition.inRange("x", "0-2"));
+        org.junit.jupiter.api.Assertions.assertFalse(TenderDefinition.inRange("1", "x-2"));
+        org.junit.jupiter.api.Assertions.assertFalse(TenderDefinition.inRange("1", "0-x"));
+    }
+
+    /**
+     * Builds a tender of the given code, nature and monetics answers.
+     *
+     * @param code the tender code
+     * @param nature the administered nature, or null
+     * @param active whether it is in service
+     * @param monetic the monetics answers, or null
+     * @return the tender
+     */
+    private TenderDefinition tender(String code, String nature, boolean active, String monetic) {
+        TenderDefinition tender = new TenderDefinition();
+        tender.code = code;
+        tender.nature = nature;
+        tender.active = active;
+        tender.moneticCodes = monetic;
+        return tender;
+    }
+
+    /**
+     * BO-03-02-01: a tender the store adds is carried out as its administered
+     * nature; a native one, or one with a blank nature, is its own nature.
+     */
+    @Test
+    void theNatureOfATenderIsItsAdministeredNatureOrItsCode() {
+        assertEquals("CARD", tender("AMEX", " CARD ", true, null).nature());
+        assertEquals("CASH", tender("CASH", null, true, null).nature());
+        assertEquals("TR", tender("TR", "  ", true, null).nature());
+        assertTrue(tender("AMEX", "CARD", true, null).isAdditional());
+        assertFalse(tender("CARD", null, true, null).isAdditional());
+        assertFalse(tender(null, null, true, null).isAdditional());
+        assertTrue(tender("CHQ2", "CHEQUE", true, null).isChequeNature());
+        assertFalse(tender("AMEX", "CARD", true, null).isChequeNature());
+    }
+
+    /**
+     * BO-03-02-29: the supervision islands are matched case-insensitively,
+     * separated by semicolons or commas; no island, or no list, names nothing.
+     */
+    @Test
+    void theSupervisionIslandsAreMatchedByCode() {
+        TenderDefinition tender = tender("FIDELITY", null, true, null);
+        assertFalse(tender.supervisedOnIsland("CLS"));
+        tender.supervisionIslands = "  ";
+        assertFalse(tender.supervisedOnIsland("CLS"));
+        tender.supervisionIslands = "DRIVE, cls;AUTRE";
+        assertTrue(tender.supervisedOnIsland(" CLS "));
+        assertFalse(tender.supervisedOnIsland("CAISSE"));
+        assertFalse(tender.supervisedOnIsland(null));
+        assertFalse(tender.supervisedOnIsland(" "));
+    }
+
+    /**
+     * BO-03-02-44: a monetics answer is matched as TAG:value; an absent value
+     * or an absent list matches nothing.
+     */
+    @Test
+    void aMoneticsAnswerIsMatchedByTagAndValue() {
+        TenderDefinition amex = tender("AMEX", "CARD", true, null);
+        assertFalse(amex.answersMonetic("D16", "43"));
+        amex.moneticCodes = " ";
+        assertFalse(amex.answersMonetic("D16", "43"));
+        amex.moneticCodes = "D16:43 ; d46:1010";
+        assertTrue(amex.answersMonetic("D16", " 43"));
+        assertTrue(amex.answersMonetic("D46", "1010"));
+        assertFalse(amex.answersMonetic("D46", "43"));
+        assertFalse(amex.answersMonetic("D16", null));
+        assertFalse(amex.answersMonetic("D16", " "));
+    }
+
+    /**
+     * BO-03-02-44: a known D16 is resolved first across the referential, then
+     * the D46 fallback; an inactive tender never answers, and an answer nobody
+     * carries resolves nothing.
+     */
+    @Test
+    void theMoneticsTenderPrefersD16ThenD46() {
+        TenderDefinition sleeping = tender("OLD", "CARD", false, "D16:43;D46:9");
+        TenderDefinition sodexo = tender("SODEXO", "TR", true, "D46:1010");
+        TenderDefinition amex = tender("AMEX", "CARD", true, "D16:43");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> TenderDefinition.list("order by displayOrder, code"))
+                    .thenReturn(List.of(sleeping, sodexo, amex));
+            assertSame(amex, TenderDefinition.findByMonetic("43", "1010"));
+            assertSame(sodexo, TenderDefinition.findByMonetic("99", "1010"));
+            assertNull(TenderDefinition.findByMonetic("99", "9"));
+        }
+    }
+
+    /**
+     * BO-03-02-01: the payment screen offers the ACTIVE tenders the store
+     * added whose nature it settles on an amount — not the native rows, not a
+     * sleeping one, not one of a nature with its own panel.
+     */
+    @Test
+    void theAdditionalTendersAreTheActiveAddedOnesOfAnAmountNature() {
+        TenderDefinition amex = tender("AMEX", "CARD", true, null);
+        TenderDefinition sleeping = tender("PASS", "CARD", false, null);
+        TenderDefinition nativeCard = tender("CARD", null, true, null);
+        TenderDefinition panel = tender("CHF", "DEVISE", true, null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> TenderDefinition.list("order by displayOrder, code"))
+                    .thenReturn(List.of(amex, sleeping, nativeCard, panel));
+            assertEquals(List.of(amex), TenderDefinition.listActiveAdditional());
+        }
     }
 }

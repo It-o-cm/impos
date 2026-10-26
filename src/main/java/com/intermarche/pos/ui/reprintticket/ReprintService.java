@@ -55,6 +55,7 @@ public class ReprintService {
      */
     public void loadHistory() {
         LOGGER.info("Entering method loadHistory");
+        state.reprint.searchCriteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
         state.reprint.setTickets(
                 Ticket.find("status = ?1 ORDER BY creationDate DESC", Ticket.TicketStatus.CLOSED).list()
         );
@@ -158,6 +159,7 @@ public class ReprintService {
      */
     public void search(String pattern) {
         LOGGER.info("Entering method search with pattern: " + pattern);
+        state.reprint.searchCriteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
         if (pattern == null || pattern.isBlank()) {
             if (state.reprint.reassignMode) {
                 startReassignMode();
@@ -318,4 +320,13 @@ public class ReprintService {
         state.touch();
         LOGGER.info("Exiting method printForeign");
     }
+    /** LC-04-05-01: applies the same cumulative criteria as returns, including the reassignment-only restriction.
+     * @param criteria the independently entered filters
+     */
+    public void searchCriteria(com.intermarche.pos.ui.ticket.TicketSearchCriteria criteria) {
+        state.reprint.searchCriteria = criteria;
+        state.reprint.setTickets(ticketSearchService.searchCriteria(criteria, state.reprint.reassignMode));
+        state.touch();
+    }
 }
+

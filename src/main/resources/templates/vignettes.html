@@ -1,0 +1,81 @@
+{!
+ ! VIGNETTES DE LA PRISE DE POSTE (VignetteResource, BO-11-01-20).
+ ! La caissière lit, pour sa session ouverte, les ventes clôturées et le
+ ! nombre théorique de vignettes de la formule administrée, et déclare celles
+ ! qu'elle a distribuées. La déclaration remonte au nœud magasin avec le
+ ! journal technique.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('vignette.t21Titre')}</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); }
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 32px; width: 36rem; max-width: 92vw; display: flex; flex-direction: column; gap: 18px; }
+    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
+    .figures { display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; font-size: var(--fs-body); }
+    .figures .value { font-weight: bold; text-align: right; }
+    .notice { text-align: center; padding: 10px; border-radius: 8px; }
+    .notice.ok { border: 1px solid var(--success); }
+    .notice.error { border: 1px solid var(--danger); }
+    .count-input { font-size: var(--fs-title); text-align: center; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-page); color: var(--text-main); width: 100%; box-sizing: border-box; }
+    .row { display: flex; gap: 10px; }
+    .row .btn { flex: 1; }
+    .empty-text { color: var(--text-muted); text-align: center; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('vignette.t21Titre')}</span>
+      <span id="clock"></span>
+    </div>
+    <div class="main-area">
+      <div class="panel">
+        <h2>{inject:i18n.get('vignette.t21Titre')}</h2>
+        {#if saved}<div class="notice ok">{inject:i18n.get('vignette.t21Enregistree')}</div>{/if}
+        {#if error == 'count'}<div class="notice error">{inject:i18n.get('vignette.t21NombreInvalide')}</div>{/if}
+        {#if error == 'disabled'}<div class="notice error">{inject:i18n.get('vignette.t21Inactive')}</div>{/if}
+        {#if !enabled}
+        <div class="empty-text">{inject:i18n.get('vignette.t21Inactive')}</div>
+        {#else if !summary}
+        <div class="empty-text">{inject:i18n.get('vignette.t21AucuneSession')}</div>
+        {#else}
+        <div class="figures">
+          <span>{inject:i18n.get('vignette.t21Session')}</span><span class="value" id="vignetteSession">{summary.sessionNumber}</span>
+          <span>{inject:i18n.get('vignette.t21Tickets')}</span><span class="value" id="vignetteTickets">{summary.tickets}</span>
+          <span>{inject:i18n.get('vignette.t21Theoriques')}</span><span class="value" id="vignetteTheoretical">{summary.theoretical}</span>
+          <span>{inject:i18n.get('vignette.t21Declarees')}</span><span class="value" id="vignetteDeclared">{summary.declared}</span>
+        </div>
+        <form method="post" action="/action/vignettes/declare">
+          <label for="vignetteCount">{inject:i18n.get('vignette.t21Distribuees')}</label>
+          <input class="count-input" id="vignetteCount" name="count" type="number" min="1" inputmode="numeric" required>
+          <div class="row" style="margin-top:12px;">
+            <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+            <button type="submit" class="btn btn-success">{inject:i18n.get('vignette.t21Declarer')}</button>
+          </div>
+        </form>
+        {/if}
+        {#if !enabled || !summary}
+        <div class="row">
+          <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        </div>
+        {/if}
+      </div>
+    </div>
+    <div class="bottom-nav"></div>
+  </div>
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

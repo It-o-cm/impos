@@ -162,7 +162,7 @@ public class FinancialMovementResource {
             // both were given and name administered means.
             form.put("source", source);
             form.put("destination", destination);
-            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("amount", amountStr);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/financial-movement");
             LOGGER.info("Exiting method record: aval demande");
             return redirect("/financial-movement");

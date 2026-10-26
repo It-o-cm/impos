@@ -24,8 +24,11 @@ import java.math.BigDecimal;
  */
 public class DegradedModePaymentTerminalClient implements PaymentTerminalClient {
 
-    /** The terminal implementation selected by {@code pos.tpe.mode}. */
-    private final PaymentTerminalClient configured;
+    /**
+     * The terminal implementation selected by {@code pos.tpe.mode} or by the
+     * administered terminal family, read at each transaction (BO-03-09-19).
+     */
+    private final java.util.function.Supplier<PaymentTerminalClient> configured;
 
     /** The immediate-acceptance implementation used while degraded. */
     private final PaymentTerminalClient autoAccept;
@@ -46,6 +49,24 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
     public DegradedModePaymentTerminalClient(PaymentTerminalClient configured, PaymentTerminalClient autoAccept,
                                               PosSettingsService posSettingsService,
                                               com.intermarche.pos.ui.PosState state) {
+        this(() -> configured, autoAccept, posSettingsService, state);
+    }
+
+    /**
+     * Wraps a terminal resolved LIVE with the degraded-mode gate (BO-03-09-19):
+     * the family and the address the back office administers for this register
+     * reach it after the register started, so the terminal is asked for at
+     * each transaction rather than fixed once.
+     *
+     * @param configured the source of the configured terminal
+     * @param autoAccept the immediate-acceptance implementation
+     * @param posSettingsService the settings catalog holding the toggle
+     * @param state the register state carrying the operator's forcing
+     */
+    public DegradedModePaymentTerminalClient(java.util.function.Supplier<PaymentTerminalClient> configured,
+                                              PaymentTerminalClient autoAccept,
+                                              PosSettingsService posSettingsService,
+                                              com.intermarche.pos.ui.PosState state) {
         this.configured = configured;
         this.autoAccept = autoAccept;
         this.posSettingsService = posSettingsService;
@@ -64,8 +85,14 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      * @return true while the terminal is bypassed
      */
     private boolean degraded() {
-        return posSettingsService.paymentDegradedMode()
-                || (state != null && state.isMoneticsDegradedForced());
+        if (state == null) {
+            return posSettingsService.paymentDegradedMode();
+        }
+        // BO-03-02-48: the administered switch lapses by itself after the
+        // administered delay, like the forcing does.
+        return state.administeredDegradedActive(posSettingsService.paymentDegradedMode(),
+                posSettingsService.moneticsDegradedForcedMinutes())
+                || state.isMoneticsDegradedForced();
     }
 
     /**
@@ -76,7 +103,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      * @return the configured (non-degraded) terminal
      */
     public PaymentTerminalClient configured() {
-        return configured;
+        return configured.get();
     }
 
     /**
@@ -87,7 +114,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      * @return the currently active terminal
      */
     private PaymentTerminalClient active() {
-        return degraded() ? autoAccept : configured;
+        return degraded() && !(configured() instanceof HardwareBridgeTerminalClient) ? autoAccept : configured();
     }
 
     /**
@@ -104,9 +131,23 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
     @Override
     public void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
         if (degraded()) {
+            if (configured() instanceof HardwareBridgeTerminalClient bridge) {
+                bridge.requestDegradedDebit(amount, callback);
+                return;
+            }
             autoAccept.requestDebit(amount, new DegradedOutcomeCallback(callback));
         } else {
-            configured.requestDebit(amount, callback);
+            configured().requestDebit(amount, callback);
+        }
+    }
+
+    /** LC-07-06-02: combined processing belongs to the configured terminal. */
+    @Override
+    public void requestCombinedDebit(BigDecimal amount, BigDecimal eligible, TerminalTransactionCallback callback) {
+        if (degraded() && configured() instanceof HardwareBridgeTerminalClient bridge) {
+            bridge.requestDegradedCombinedDebit(amount, eligible, callback);
+        } else {
+            configured().requestCombinedDebit(amount, eligible, callback);
         }
     }
 
@@ -120,9 +161,13 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
         if (degraded()) {
+            if (configured() instanceof HardwareBridgeTerminalClient bridge) {
+                bridge.requestDegradedCredit(amount, callback);
+                return;
+            }
             autoAccept.requestCredit(amount, new DegradedOutcomeCallback(callback));
         } else {
-            configured.requestCredit(amount, callback);
+            configured().requestCredit(amount, callback);
         }
     }
 
@@ -140,7 +185,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      */
     @Override
     public void onRegisterOpened() {
-        configured.onRegisterOpened();
+        configured().onRegisterOpened();
     }
 
     /**
@@ -149,7 +194,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      */
     @Override
     public void onRegisterClosed() {
-        configured.onRegisterClosed();
+        configured().onRegisterClosed();
     }
 
     /**

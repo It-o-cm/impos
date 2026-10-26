@@ -57,14 +57,24 @@ public class CashSessionResource {
     @Inject @Location("session") Template session;
     /** The X report, read on screen before it is asked for on paper. */
     @Inject @Location("session-report") Template sessionReportPage;
+    /** LC-12-07-01: credentials are requested before any revenue is read. */
+    @Inject @Location("operator-report-auth") Template operatorReportAuth;
+    /** LC-12-07-01: operator-only revenue, without another cashier's drawer totals. */
+    @Inject @Location("operator-report") Template operatorReport;
+
     /** The over-threshold discrepancy arbitration page (EXP-82). */
     @Inject @Location("variance-alert") Template varianceAlert;
     /** Checks and journals the supervisor validation of a discrepancy (EXP-82). */
     @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
     @Inject CashSessionService cashSessionService;
+    /** Revokes host-control permits under the same register lock as session opening (LC-13-03-01/-06). */
+    @Inject @org.eclipse.microprofile.rest.client.inject.RestClient
+    com.intermarche.pos.ui.hardware.HardwareClient controlHardware;
     @Inject TicketPrinterService ticketPrinterService;
     @Inject TechnicalEventService technicalEventService;
     @Inject HardwareService hardwareService;
+    /** The cash changer, whose out-of-threshold denominations are said at opening (LC-13-01-01). */
+    @Inject com.intermarche.pos.ui.hardware.CashChangerService cashChangerService;
     @Inject PosState state;
     /** The back-office parameters (opening-float default, close-drawer gate). */
     @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
@@ -143,24 +153,39 @@ public class CashSessionResource {
     @Path("/action/session/open")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response openSession(@FormParam("openingFloat") String floatStr) {
-        LOGGER.info("Entering method openSession with floatStr: " + floatStr);
-        if (state.trainingMode) {
+        synchronized (state) {
+            LOGGER.info("Entering method openSession with floatStr: " + floatStr);
+            if (state.trainingMode) {
+                LOGGER.info("Exiting method openSession");
+                return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
+            }
+            try {
+                // LC-13-03-01/-06: no armed independent command may survive session opening.
+                controlHardware.revokeWorkstation();
+            } catch (RuntimeException failure) {
+                state.ticket.setError(i18n.get("maintenance.failed"));
+                return Response.seeOther(URI.create("/maintenance")).build();
+            }
+            BigDecimal openingFloat = parseAmount(floatStr);
+            CashSession opened = cashSessionService.openSession(state.auth.operatorId, openingFloat);
+            state.touch();
+            if (opened == null) {
+                LOGGER.info("Exiting method openSession");
+                return Response.seeOther(URI.create("/session?error=open-failed")).build();
+            }
+            // A successful opening flows straight into the sale: the status page
+            // (X report, Z closing) is a MENU destination, not a post-opening
+            // stop — right after opening, its only visible actions would be
+            // reading and CLOSING, which is absurd at that point of the day.
+            // LC-13-01-01: at register opening, what the cash changer flags out of
+            // its thresholds is said on the sale screen the cashier lands on.
+            String alert = cashChangerService.levelAlert();
+            if (alert != null) {
+                state.ticket.setWarning(alert);
+            }
             LOGGER.info("Exiting method openSession");
-            return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
+            return Response.seeOther(URI.create("/")).build();
         }
-        BigDecimal openingFloat = parseAmount(floatStr);
-        CashSession opened = cashSessionService.openSession(state.auth.operatorId, openingFloat);
-        state.touch();
-        if (opened == null) {
-            LOGGER.info("Exiting method openSession");
-            return Response.seeOther(URI.create("/session?error=open-failed")).build();
-        }
-        // A successful opening flows straight into the sale: the status page
-        // (X report, Z closing) is a MENU destination, not a post-opening
-        // stop — right after opening, its only visible actions would be
-        // reading and CLOSING, which is absurd at that point of the day.
-        LOGGER.info("Exiting method openSession");
-        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
@@ -188,7 +213,7 @@ public class CashSessionResource {
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
         LOGGER.info("Exiting method showXReport");
-        return sessionReportPage.data("report", cashSessionService.buildReport(current));
+        return operatorReportAuth.data("print", false).data("error", null);
     }
 
     /**
@@ -205,11 +230,8 @@ public class CashSessionResource {
             LOGGER.info("Exiting method printXReport");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
-        CashSessionService.SessionReport report = cashSessionService.buildReport(current);
-        ticketPrinterService.printSessionReport(report);
-        technicalEventService.log(TechnicalEvent.EventType.X_REPORT_PRINTED, current.sessionNumber);
-        LOGGER.info("Exiting method printXReport");
-        return Response.seeOther(URI.create("/session/x-report")).build();
+        LOGGER.info("Exiting method printXReport (authorization required)");
+        return Response.seeOther(URI.create("/session/x-report/print-authorization")).build();
     }
 
     /**
@@ -470,6 +492,74 @@ public class CashSessionResource {
             return new BigDecimal(value.replace(",", "."));
         } catch (NumberFormatException e) {
             return BigDecimal.ZERO;
+        }
+    }
+
+    /** LC-12-07-01: direct print URLs also require a fresh approval.
+     * @return the tactile authorization form, without loading any report
+     */
+    @GET
+    @Path("/session/x-report/print-authorization")
+    public TemplateInstance printReportAuthorization() {
+        return operatorReportAuth.data("print", true).data("error", null);
+    }
+
+    /** LC-12-07-01: checks and journals supervisor approval before reading or printing operator revenue.
+     * @param supervisor supervisor login
+     * @param password supervisor credential
+     * @param print whether the approved snapshot should also be printed
+     * @return the authorized snapshot or an authorization refusal without figures
+     */
+    @POST
+    @Path("/session/x-report/authorized")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Object authorizedOperatorReport(@FormParam("supervisor") String supervisor,
+            @FormParam("supervisorPassword") String password, @FormParam("print") boolean print) {
+        synchronized (state) {
+            CashSession current = cashSessionService.getOpenSession();
+            if (current == null || state.auth.operatorId == null) {
+                return Response.seeOther(URI.create("/session?error=no-session")).build();
+            }
+            if (!endorsementService.authorize(supervisor, password, "OPERATOR_REVENUE")) {
+                return operatorReportAuth.data("print", print)
+                        .data("error", i18n.get("op.autorisationSuperviseurRefusee"));
+            }
+            CashSessionService.SessionReport report = cashSessionService.buildOperatorReport(current, state.auth.operatorId);
+            if (print) {
+                ticketPrinterService.printOperatorReport(report, state.getOperatorName());
+                technicalEventService.log(TechnicalEvent.EventType.X_REPORT_PRINTED,
+                        current.sessionNumber + " / " + state.auth.operatorBadgeId);
+            }
+            return operatorReport.data("report", report).data("operator", state.getOperatorName());
+        }
+    }
+
+    /** LC-12-07-01: keeps the existing register-wide X available behind the same fresh supervisor approval.
+     * @param supervisor supervisor login
+     * @param password supervisor credential
+     * @param print whether to print the register-wide snapshot
+     * @return the existing X report, or the credential form on refusal
+     */
+    @POST
+    @Path("/session/x-report/register-authorized")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Object authorizedRegisterReport(@FormParam("supervisor") String supervisor,
+            @FormParam("supervisorPassword") String password, @FormParam("print") boolean print) {
+        synchronized (state) {
+            CashSession current = cashSessionService.getOpenSession();
+            if (current == null || state.auth.operatorId == null) {
+                return Response.seeOther(URI.create("/session?error=no-session")).build();
+            }
+            if (!endorsementService.authorize(supervisor, password, "REGISTER_REVENUE")) {
+                return operatorReportAuth.data("print", print)
+                        .data("error", i18n.get("op.autorisationSuperviseurRefusee"));
+            }
+            CashSessionService.SessionReport report = cashSessionService.buildReport(current);
+            if (print) {
+                ticketPrinterService.printSessionReport(report);
+                technicalEventService.log(TechnicalEvent.EventType.X_REPORT_PRINTED, current.sessionNumber);
+            }
+            return sessionReportPage.data("report", report);
         }
     }
 }

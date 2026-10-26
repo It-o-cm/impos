@@ -273,4 +273,25 @@ class FidelityResourceTest {
         assertEquals("/", response.getLocation().toString());
         assertNull(resource.state.fidelity.lastLookup);
     }
+
+    /** LC-03-04-17: the default name-search mode retains both name fields when the form omits its mode. */
+    @Test
+    void omittedLookupModeKeepsBothNameFields() {
+        var resource = newResource();
+        resource.lookupFidelity(null, "DURAND", "JEAN");
+        assertEquals("name", resource.state.fidelity.lastLookupMode);
+        assertEquals("JEAN", resource.state.fidelity.lastLookupFirstName);
+        verify(resource.fidelityService).lookupCards(null, null, "DURAND", "JEAN", null);
+    }
+
+    /** LC-03-04-08: both replacement choices reach the service and redirect to the sale without replaying the action. */
+    @Test
+    void replacementChoicesDelegateAndRedirect() {
+        var resource = newResource();
+        assertEquals(303, resource.confirmReplacement().getStatus());
+        assertEquals("/", resource.keepReplacement().getLocation().toString());
+        verify(resource.fidelityService).confirmReplacement(resource.state);
+        verify(resource.fidelityService).keepReplacement(resource.state);
+    }
+
 }

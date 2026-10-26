@@ -25,6 +25,10 @@ public class CashCountService {
     @jakarta.inject.Inject
     com.intermarche.pos.ui.Messages i18n;
 
+    /** The administered roll composition (BO-03-02-42). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
 
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(CashCountService.class);
@@ -73,6 +77,21 @@ public class CashCountService {
     public List<CashItem> getRolls() {
         LOGGER.info("Entering method getRolls");
         List<CashItem> items = new ArrayList<>();
+        // BO-03-02-42: the rolls are the ADMINISTERED composition — face value,
+        // amount and number of coins — the very one the change order uses.
+        List<ChangeOrderCalculator.RollValue> composition = posSettingsService == null
+                ? List.of()
+                : ChangeOrderCalculator.parseRollValues(posSettingsService.changeOrderRollValues());
+        if (!composition.isEmpty()) {
+            for (ChangeOrderCalculator.RollValue roll : composition) {
+                items.add(new CashItem(rollId(roll.faceValue()),
+                        i18n.format("cash.rouleauCompose", roll.faceValue().stripTrailingZeros().toPlainString(),
+                                String.valueOf(roll.coinCount()), roll.rollValue().setScale(2).toPlainString()),
+                        roll.rollValue().doubleValue()));
+            }
+            LOGGER.info("Exiting method getRolls");
+            return items;
+        }
         items.add(new CashItem("r2",   i18n.get("cash.rouleau2"),  50.0));
         items.add(new CashItem("r1",   i18n.get("cash.rouleau1"),  25.0));
         items.add(new CashItem("r050", i18n.get("cash.rouleau050"), 20.0));
@@ -81,6 +100,21 @@ public class CashCountService {
         items.add(new CashItem("r005", i18n.get("cash.rouleau005"),  2.0));
         LOGGER.info("Exiting method getRolls");
         return items;
+    }
+
+    /**
+     * The id a roll of the given face value is counted under: {@code r2} and
+     * {@code r1} for the euro coins, {@code r050} … {@code r001} for the cents —
+     * the ids the count detail always used.
+     *
+     * @param face the face value, strictly positive
+     * @return the roll id
+     */
+    static String rollId(java.math.BigDecimal face) {
+        if (face.compareTo(java.math.BigDecimal.ONE) >= 0) {
+            return "r" + face.stripTrailingZeros().toPlainString();
+        }
+        return "r" + String.format("%03d", face.movePointRight(2).intValue());
     }
 
     /**

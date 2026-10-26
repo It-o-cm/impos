@@ -58,6 +58,19 @@ public class AuthState implements Serializable {
     public String scannedBadgeId = null;
 
     /**
+     * The last Dallas key read while locked, or null (one-shot mailbox the
+     * lock page empties, BO-01-02-07).
+     */
+    public String scannedDallasKey = null;
+
+    /**
+     * The Dallas key this register PHYSICALLY read, consumed by the one
+     * sign-in it opens (BO-01-02-07): what keeps a key number typed in the
+     * identifier field from opening anything.
+     */
+    public String presentedDallasKey = null;
+
+    /**
      * The last badge scanned for a SUPERVISOR IDENTIFICATION, or null (one-shot
      * mailbox, the twin of {@link #scannedBadgeId} for the other identification
      * this register asks for).
@@ -159,6 +172,8 @@ public class AuthState implements Serializable {
         this.supervisorBadgeId = null;
         this.supervisorBadgeArmedUntil = 0L;
         this.presentedBadgeId = null;
+        this.scannedDallasKey = null;
+        this.presentedDallasKey = null;
         this.closeRequestedByBadge = false;
         this.lockedOperatorId = null;
         this.lockedOperatorName = "";
@@ -180,6 +195,8 @@ public class AuthState implements Serializable {
         this.supervisorBadgeId = null;
         this.supervisorBadgeArmedUntil = 0L;
         this.presentedBadgeId = null;
+        this.scannedDallasKey = null;
+        this.presentedDallasKey = null;
         this.closeRequestedByBadge = false;
         this.lockedOperatorId = null;
         this.lockedOperatorName = "";
@@ -207,6 +224,8 @@ public class AuthState implements Serializable {
         this.supervisorBadgeId = null;
         this.supervisorBadgeArmedUntil = 0L;
         this.presentedBadgeId = null;
+        this.scannedDallasKey = null;
+        this.presentedDallasKey = null;
         this.closeRequestedByBadge = false;
     }
 
@@ -255,6 +274,38 @@ public class AuthState implements Serializable {
      * Clears the badge mailbox (called once the lock page consumed it).
      */
     public void clearScannedBadge() { this.scannedBadgeId = null; }
+
+    /**
+     * Deposits a Dallas key read while the register is locked (BO-01-02-07).
+     *
+     * @param key the normalized key identifier
+     */
+    public void setScannedDallasKey(String key) {
+        this.scannedDallasKey = key;
+        this.presentedDallasKey = key;
+    }
+
+    /**
+     * Empties the Dallas key mailbox, for the lock page.
+     *
+     * @return the key read since the last call, or null
+     */
+    public String takeScannedDallasKey() {
+        String key = this.scannedDallasKey;
+        this.scannedDallasKey = null;
+        return key;
+    }
+
+    /**
+     * Consumes the proof that a Dallas key was physically read.
+     *
+     * @return the read key, or null when none is pending
+     */
+    public String takePresentedDallasKey() {
+        String key = this.presentedDallasKey;
+        this.presentedDallasKey = null;
+        return key;
+    }
 
     /**
      * Arms the supervisor-identification mailbox for a short while, which is how

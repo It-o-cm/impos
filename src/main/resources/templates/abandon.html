@@ -99,9 +99,9 @@
         <div class="payments">
           <div class="head">{inject:i18n.get('abandon.reglementsSerontAnnules')}</div>
           {#for entry in payments}
-          <div class="row"><span>{entry.method}</span><span>{entry.amount} €</span></div>
+          <div class="row"><span>{inject:i18n.code('ticketsearch.payment.', entry.method)}</span><span>{inject:units.money(entry.amount)} €</span></div>
           {/for}
-          <div class="row"><strong>{inject:i18n.get('abandon.total2')}</strong><strong>{paymentTotal} €</strong></div>
+          <div class="row"><strong>{inject:i18n.get('abandon.total2')}</strong><strong>{inject:units.money(paymentTotal)} €</strong></div>
         </div>
         {/if}
 

@@ -294,4 +294,32 @@ class DegradedModePaymentTerminalClientTest {
         verify(configured).requestDebit(amount, callback);
         verifyNoInteractions(autoAccept);
     }
+    /** LC-07-08-02: a bridge never routes forced debit, credit or combined processing to local acceptance. */
+    @Test
+    void bridgeForcingUsesRealTerminal() {
+        var bridge = mock(HardwareBridgeTerminalClient.class);
+        var gate = new DegradedModePaymentTerminalClient(bridge, autoAccept, posSettingsService, state);
+        when(posSettingsService.paymentDegradedMode()).thenReturn(true);
+        var callback = mock(TerminalTransactionCallback.class);
+        gate.requestDebit(BigDecimal.ONE, callback);
+        gate.requestCredit(BigDecimal.ONE, callback);
+        gate.requestCombinedDebit(BigDecimal.ONE, BigDecimal.ZERO, callback);
+        gate.abort();
+        verify(bridge).requestDegradedDebit(BigDecimal.ONE, callback);
+        verify(bridge).requestDegradedCredit(BigDecimal.ONE, callback);
+        verify(bridge).requestDegradedCombinedDebit(BigDecimal.ONE, BigDecimal.ZERO, callback);
+        verify(bridge).abort();
+        verifyNoInteractions(autoAccept);
+    }
+
+    /** LC-07-06-02: normal combined requests and non-bridge simulator forcing preserve the configured combined port. */
+    @Test
+    void combinedRoutingOutsideBridgeForcing() {
+        var callback = mock(TerminalTransactionCallback.class);
+        gate.requestCombinedDebit(BigDecimal.ONE, BigDecimal.ZERO, callback);
+        when(posSettingsService.paymentDegradedMode()).thenReturn(true);
+        gate.requestCombinedDebit(BigDecimal.ONE, BigDecimal.ZERO, callback);
+        verify(configured, times(2)).requestCombinedDebit(BigDecimal.ONE, BigDecimal.ZERO, callback);
+    }
+
 }

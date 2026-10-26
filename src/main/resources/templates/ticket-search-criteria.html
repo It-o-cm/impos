@@ -1,0 +1,65 @@
+{! LC-04-05-01: the same touch-only cumulative filters serve return and duplicata. !}
+<style>
+.criteria-search { flex-shrink:0; margin:5px 10px; }
+.criteria-search summary { cursor:pointer; padding:10px; border:1px solid var(--border-strong); border-radius:6px; font-weight:bold; }
+.criteria-body { position:fixed; z-index:80; inset:4.5rem 1rem 5.5rem; padding:12px; background:var(--bg-panel); border:2px solid var(--primary); border-radius:10px; display:flex; flex-direction:column; gap:8px; overflow:auto; }
+.criteria-controls { display:flex; flex:1; min-height:0; gap:12px; }
+.criteria-fields { width:55%; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+.criteria-field { flex-shrink:0; display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; min-height:2.8rem; padding:8px; color:var(--text-main); background:var(--bg-page); border:1px solid var(--border-strong); border-radius:5px; text-align:left; }
+.criteria-field strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.criteria-field.active { border-color:var(--success); }
+.criteria-keyboard { flex:1; min-width:0; overflow:auto; }
+.criteria-actions { display:flex; gap:8px; flex-shrink:0; }
+.criteria-actions button { flex:1; }
+.criteria-error { color:var(--danger); font-weight:bold; }
+</style>
+<details class="criteria-search" id="ticketCriteria">
+  <summary>{inject:i18n.get('ticketsearch.advanced')}</summary>
+  <form method="post" action="{searchAction}" class="criteria-body" id="criteriaForm">
+    <strong>{inject:i18n.get('ticketsearch.combine')}</strong>
+    <div class="criteria-controls">
+      <div class="criteria-fields">
+        <button type="button" class="criteria-field" data-field="number" data-mode="text" data-keyboard="searchAlpha"><span>{inject:i18n.get('ticketsearch.number')}</span><strong id="criteria-number-display">{criteria.number}</strong></button>
+        <input type="hidden" id="criteria-number" name="number" value="{criteria.number}">
+        <button type="button" class="criteria-field" data-field="loyaltyCard" data-mode="text" data-keyboard="searchAlpha"><span>{inject:i18n.get('ticketsearch.loyaltyCard')}</span><strong id="criteria-loyaltyCard-display">{criteria.loyaltyCard}</strong></button>
+        <input type="hidden" id="criteria-loyaltyCard" name="loyaltyCard" value="{criteria.loyaltyCard}">
+        <button type="button" class="criteria-field" data-field="articleCode" data-mode="text" data-keyboard="numpad"><span>{inject:i18n.get('ticketsearch.articleCode')}</span><strong id="criteria-articleCode-display">{criteria.articleCode}</strong></button>
+        <input type="hidden" id="criteria-articleCode" name="articleCode" value="{criteria.articleCode}">
+        <button type="button" class="criteria-field" data-field="date" data-mode="text" data-keyboard="ticketSearch"><span>{inject:i18n.get('ticketsearch.date')}</span><strong id="criteria-date-display">{criteria.date}</strong></button>
+        <input type="hidden" id="criteria-date" name="date" value="{criteria.date}">
+        <button type="button" class="criteria-field" data-field="amount" data-mode="cents" data-keyboard="numpad"><span>{inject:i18n.get('ticketsearch.amount')}</span><strong id="criteria-amount-display">{criteria.amount}</strong></button>
+        <input type="hidden" id="criteria-amount" name="amount" value="{criteria.amount}">
+        <button type="button" class="criteria-field" data-field="terminalId" data-mode="text" data-keyboard="searchAlpha"><span>{inject:i18n.get('ticketsearch.terminalId')}</span><strong id="criteria-terminalId-display">{criteria.terminalId}</strong></button>
+        <input type="hidden" id="criteria-terminalId" name="terminalId" value="{criteria.terminalId}">
+        <label class="criteria-field">{inject:i18n.get('ticketsearch.paymentMethod')}
+          <select name="paymentMethod" id="criteria-paymentMethod">
+            <option value="">{inject:i18n.get('ticketsearch.anyPayment')}</option>
+          <option value="CASH" {#if criteria.paymentMethod == 'CASH'}selected{/if}>{inject:i18n.get('ticketsearch.payment.CASH')}</option>
+          <option value="CARD" {#if criteria.paymentMethod == 'CARD'}selected{/if}>{inject:i18n.get('ticketsearch.payment.CARD')}</option>
+          <option value="CHEQUE" {#if criteria.paymentMethod == 'CHEQUE'}selected{/if}>{inject:i18n.get('ticketsearch.payment.CHEQUE')}</option>
+          <option value="CHEQUE_DEFERRED" {#if criteria.paymentMethod == 'CHEQUE_DEFERRED'}selected{/if}>{inject:i18n.get('ticketsearch.payment.CHEQUE_DEFERRED')}</option>
+          <option value="VOUCHER" {#if criteria.paymentMethod == 'VOUCHER'}selected{/if}>{inject:i18n.get('ticketsearch.payment.VOUCHER')}</option>
+          <option value="FIDELITY" {#if criteria.paymentMethod == 'FIDELITY'}selected{/if}>{inject:i18n.get('ticketsearch.payment.FIDELITY')}</option>
+          <option value="TR" {#if criteria.paymentMethod == 'TR'}selected{/if}>{inject:i18n.get('ticketsearch.payment.TR')}</option>
+          <option value="CREDIT" {#if criteria.paymentMethod == 'CREDIT'}selected{/if}>{inject:i18n.get('ticketsearch.payment.CREDIT')}</option>
+          <option value="ARRONDI" {#if criteria.paymentMethod == 'ARRONDI'}selected{/if}>{inject:i18n.get('ticketsearch.payment.ARRONDI')}</option>
+          <option value="DEVISE" {#if criteria.paymentMethod == 'DEVISE'}selected{/if}>{inject:i18n.get('ticketsearch.payment.DEVISE')}</option>
+          <option value="SECOURS" {#if criteria.paymentMethod == 'SECOURS'}selected{/if}>{inject:i18n.get('ticketsearch.payment.SECOURS')}</option>
+          <option value="ACOMPTE" {#if criteria.paymentMethod == 'ACOMPTE'}selected{/if}>{inject:i18n.get('ticketsearch.payment.ACOMPTE')}</option>
+          <option value="TRD" {#if criteria.paymentMethod == 'TRD'}selected{/if}>{inject:i18n.get('ticketsearch.payment.TRD')}</option>
+          <option value="GIFTCARD" {#if criteria.paymentMethod == 'GIFTCARD'}selected{/if}>{inject:i18n.get('ticketsearch.payment.GIFTCARD')}</option>
+          <option value="RESTOFLASH" {#if criteria.paymentMethod == 'RESTOFLASH'}selected{/if}>{inject:i18n.get('ticketsearch.payment.RESTOFLASH')}</option>
+          <option value="SOGEC" {#if criteria.paymentMethod == 'SOGEC'}selected{/if}>{inject:i18n.get('ticketsearch.payment.SOGEC')}</option>
+          </select>
+        </label>
+      </div>
+      <div class="criteria-keyboard pos-kb-compact" id="criteriaKeyboard"></div>
+    </div>
+    <div class="criteria-actions">
+      <button type="button" class="btn btn-muted" id="criteriaReset">{inject:i18n.get('ticketsearch.clear')}</button>
+      <button type="button" class="btn btn-muted" id="criteriaClose">{inject:i18n.get('common.back')}</button>
+      <button type="submit" class="btn btn-primary">{inject:i18n.get('articleinfo.chercher')}</button>
+    </div>
+  </form>
+</details>
+{#if criteria.errorKey??}<div class="criteria-error">{inject:i18n.get(criteria.errorKey)}</div>{/if}

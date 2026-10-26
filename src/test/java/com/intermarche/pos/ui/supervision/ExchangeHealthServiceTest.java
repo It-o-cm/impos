@@ -286,4 +286,13 @@ class ExchangeHealthServiceTest {
             assertEquals(300L, view.pullSeconds);
         }
     }
+
+    /** LC-13-05: an absent reference fingerprint is displayed as a dash rather than dereferenced. */
+    @Test
+    void absentFingerprintUsesADash() throws Exception {
+        var method = ExchangeHealthService.class.getDeclaredMethod("shortHash", String.class);
+        method.setAccessible(true);
+        assertEquals("—", method.invoke(new ExchangeHealthService(), (Object) null));
+    }
+
 }

@@ -54,6 +54,9 @@ public class ArticleInfoResource {
     /** The ticket the taken article is added to. */
     @Inject TicketService ticketService;
 
+    /** LC-02-14-12: isolates price-check scans from the sale draft. */
+    @Inject ArticleInfoScanState scans;
+
     /** Whether a ticket can exist at all: the lock and the logged operator. */
     @Inject PosState state;
 
@@ -63,20 +66,32 @@ public class ArticleInfoResource {
     /** The electronic journal this screen writes its price checks to (BO-04-01-38). */
     @Inject com.intermarche.pos.service.TechnicalEventService technicalEventService;
 
+    /** Read-only quantity, label and scale calculations (LC-02-14-01/-17/-18). */
+    @Inject ArticlePriceCheckService priceChecks;
+
+    /** Retains the original plain lookup entry for callers.
+     * @param code the article identity
+     * @return the consultation view
+     */
+    public TemplateInstance infoPage(String code) {
+        return infoPage(code, null);
+    }
+
     /**
      * Shows the article-info screen: a lookup form, and — when a code is given —
      * the found article read-only, or a not-found message.
      *
      * @param code the code to look up (EAN, PLU or internal code), or null/blank
      *        to show just the form
+     * @param quantity an optional decimal quantity or net weight to consult
      * @return the article-info page
      */
     @GET
     @Path("/article-info")
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance infoPage(@QueryParam("code") String code) {
+    public TemplateInstance infoPage(@QueryParam("code") String code, @QueryParam("quantity") String quantity) {
         LOGGER.info("Entering method infoPage with code: " + code);
-        ArticleInfo info = (code == null || code.isBlank()) ? null : lookup(code.trim());
+        ArticleInfo info = (code == null || code.isBlank()) ? null : lookup(code.trim(), quantity);
         boolean notFound = code != null && !code.isBlank() && info == null;
         // BO-04-01-38: the check itself is the event, found or not — a code
         // nobody recognises is exactly what a shop looks for afterwards. The
@@ -92,7 +107,8 @@ public class ArticleInfoResource {
                 .data("code", code == null ? "" : code)
                 .data("info", info)
                 .data("notFound", notFound)
-                .data("canTake", canTake());
+                .data("canTake", canTake())
+                .data("scanToken", scans.open());
     }
 
     /**
@@ -127,33 +143,63 @@ public class ArticleInfoResource {
             LOGGER.info("Exiting method takeArticle: rien a prendre");
             return Response.seeOther(URI.create("/article-info")).build();
         }
+        scans.clear();
         ticketService.processScan(trimmed);
         LOGGER.info("Exiting method takeArticle");
         return Response.seeOther(URI.create("/")).build();
+    }
+
+    /** LC-02-14-12: polls the current price-check page without touching the sale ticket.
+     * @param token the page lease
+     * @return the latest scanned code
+     */
+    @GET
+    @Path("/article-info/scan")
+    @Produces(MediaType.APPLICATION_JSON)
+    public java.util.Map<String, String> scannedCode(@QueryParam("token") String token) {
+        return java.util.Map.of("code", scans.poll(token));
+    }
+
+    /** LC-02-14-12: releases a closed browser page without disrupting a newer consultation.
+     * @param token the leaving page lease
+     * @return an empty acknowledgement
+     */
+    @jakarta.ws.rs.POST
+    @Path("/article-info/leave")
+    public Response leaveLookup(@QueryParam("token") String token) {
+        scans.leave(token);
+        return Response.noContent().build();
     }
 
     /**
      * Looks an article up by EAN, then PLU, then internal code — read only.
      *
      * @param code the code keyed or scanned
+     * @param quantity an optional decimal quantity or net weight
      * @return the article info, or null when no active article carries the code
      */
-    private ArticleInfo lookup(String code) {
+    private ArticleInfo lookup(String code, String quantity) {
         Product product = Product.findActiveByEan(code);
+        com.intermarche.pos.ui.scanner.WeightedEanScanHandler.PriceCheckLabel label = null;
         if (product == null) {
-            product = Product.findActiveByPlu(code);
+            label = priceChecks.decode(code);
+            product = Product.findActiveByPlu(label == null ? code : label.articleCode());
         }
         if (product == null) {
             return null;
         }
         Price price = Price.findCurrentPrice(product.id);
-        return new ArticleInfo(product, price);
+        ArticleInfo info = new ArticleInfo(product, price);
+        info.check = priceChecks.calculate(product, price, quantity, label);
+        return info;
     }
 
     /**
      * The read-only view of an article: label, code, price and VAT.
      */
     public static class ArticleInfo {
+        /** Quantity-dependent consultation, without a sale mutation (LC-02-14-01/-17/-18). */
+        public ArticlePriceCheckService.Check check;
         /** The article's sale label. */
         public final String label;
         /** The article's EAN, or a dash when it has none. */

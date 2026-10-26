@@ -100,6 +100,13 @@ class HomeResourceTest {
         resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
         // The endorsement flow, for the FIN SUPERVISEUR route (EXP-33).
         resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        // LC-08-04-18: whether the FACTURE key opens the Portuguese documents.
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        // LC-09-01-04: the key of the program installed on the till.
+        resource.externalProgramService = mock(ExternalProgramService.class);
+        // BO-03-10-16/17, BO-03-09-10: the cash menu and the single queue.
+        resource.cashMenuService = mock(CashMenuService.class);
+        resource.singleQueueService = mock(SingleQueueService.class);
         return resource;
     }
 
@@ -261,6 +268,83 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.home());
+        verify(mainView).data("ptDocuments", false);
+    }
+
+    /**
+     * BO-10-02-35: the sale screen resolves which lines show their article
+     * code before it renders.
+     */
+    @Test
+    void homeResolvesTheArticleCodesFirst() {
+        HomeResource resource = newResource();
+        resource.articleCodeService = mock(com.intermarche.pos.ui.ticket.ArticleCodeService.class);
+        when(resource.state.isLocked()).thenReturn(false);
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.home());
+        verify(resource.articleCodeService).resolve(resource.state.ticket);
+    }
+
+    /**
+     * LC-08-04-18: a register issuing the Portuguese documents tells the sale
+     * screen, whose FACTURE key then opens them.
+     */
+    @Test
+    void homeTellsTheSaleScreenAboutThePortugueseDocuments() {
+        HomeResource resource = newResource();
+        when(resource.posSettingsService.ptDocuments()).thenReturn(true);
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.home());
+        verify(mainView).data("ptDocuments", true);
+    }
+
+    /**
+     * BO-03-09-27: the sale screen receives the administered third-party
+     * applications, one key each.
+     */
+    @Test
+    void homeOffersTheAdministeredExternalApps() {
+        HomeResource resource = newResource();
+        java.util.List<com.intermarche.pos.service.PosSettingsService.ExternalApp> apps =
+                java.util.List.of(new com.intermarche.pos.service.PosSettingsService.ExternalApp("MONNAYEUR", "http://m"));
+        when(resource.posSettingsService.externalApps()).thenReturn(apps);
+        TemplateInstance mainView = stubMain(resource);
+        resource.home();
+        verify(mainView).data("externalApps", apps);
+    }
+
+    /**
+     * LC-09-01-04: the sale screen shows the external program's key, labelled,
+     * only when the back office administered a program.
+     */
+    @Test
+    void homeShowsTheExternalProgramKeyOnlyWhenAdministered() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        resource.home();
+        verify(mainView).data("externalProgram", null);
+        when(resource.externalProgramService.isConfigured()).thenReturn(true);
+        when(resource.externalProgramService.label()).thenReturn("CASH MANAGEMENT");
+        resource.home();
+        verify(mainView).data("externalProgram", "CASH MANAGEMENT");
+    }
+
+    /**
+     * LC-09-01-04: the key starts the program and says so; a refusal is shown
+     * as an error.
+     */
+    @Test
+    void theExternalProgramKeyLaunchesAndReports() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        when(resource.externalProgramService.launch()).thenReturn(null);
+        when(resource.externalProgramService.label()).thenReturn("CASH MANAGEMENT");
+        assertSame(mainView, resource.launchExternalProgram());
+        verify(resource.state.ticket).setNotice("PROGRAMME LANCÉ : CASH MANAGEMENT");
+        when(resource.externalProgramService.launch()).thenReturn("INTROUVABLE");
+        assertSame(mainView, resource.launchExternalProgram());
+        verify(resource.state.ticket).setError("INTROUVABLE");
+        verify(resource.state, org.mockito.Mockito.times(2)).touch();
     }
 
     /**
@@ -322,10 +406,12 @@ class HomeResourceTest {
         resource.state.version = 7L;
         resource.state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
         resource.state.boMessageArrived = true;
+        resource.state.blockingArticleMessage = "Check package";
         when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
         Map<String, Object> result = resource.getTicketFragment(7L);
         assertEquals("PENDING", result.get("serviceRequest"));
         assertEquals(true, result.get("boArrived"));
+        assertEquals(true, result.get("articleMessageActive"));
     }
 
     /**
@@ -1267,6 +1353,54 @@ class HomeResourceTest {
     }
 
     /**
+     * {@code getTicketFragment} carries and clears the selfscanning request
+     * (LC-06-05-03): the poll opens the selfscanning screen exactly once.
+     */
+    @Test
+    void getTicketFragmentCarriesAndClearsTheSelfScanRequest() {
+        HomeResource resource = newResource();
+        resource.state.version = 7L;
+        resource.state.selfScanRequested = true;
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(7L);
+        assertEquals(true, result.get("selfScanRequested"));
+        assertEquals(false, resource.state.selfScanRequested);
+        assertEquals(false, resource.getTicketFragment(7L).get("selfScanRequested"));
+    }
+
+    /**
+     * {@code getTicketFragment} carries and clears the screen a scanned function
+     * barcode opens (BO-03-06-59): the poll opens it exactly once.
+     */
+    @Test
+    void getTicketFragmentCarriesAndClearsTheFunctionScreen() {
+        HomeResource resource = newResource();
+        resource.state.version = 7L;
+        resource.state.functionPath = "/parked";
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(7L);
+        assertEquals("/parked", result.get("functionPath"));
+        assertNull(resource.state.functionPath);
+        assertEquals("", resource.getTicketFragment(7L).get("functionPath"));
+    }
+
+    /**
+     * {@code getTicketFragment} carries and clears the document-choice request
+     * (LC-06-02-04, -08): the poll opens the recall screen exactly once.
+     */
+    @Test
+    void getTicketFragmentCarriesAndClearsTheDocumentRequest() {
+        HomeResource resource = newResource();
+        resource.state.version = 7L;
+        resource.state.documentChoiceRequested = true;
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(7L);
+        assertEquals(true, result.get("documentRequested"));
+        assertEquals(false, resource.state.documentChoiceRequested);
+        assertEquals(false, resource.getTicketFragment(7L).get("documentRequested"));
+    }
+
+    /**
      * {@code supervisorMessage} delegates the chosen reason and the free-text
      * message to the service and redirects home (EXP-19/84).
      */
@@ -1303,4 +1437,72 @@ class HomeResourceTest {
         verify(resource.homeService).answerSurvey("Oui");
     }
 
+
+    /** BO-06-06-04/LC-05-02: a pending cancellation opens its reasons and each administered return mode keeps its own destination. */
+    @Test
+    void cancellationReasonsAndReturnModesRouteToTheirOwnScreens() {
+        var resource = newResource();
+        resource.state.ticket.pendingCancelUid = "LINE";
+        resource.cancelReason = mock(Template.class);
+        var view = mock(TemplateInstance.class, org.mockito.Mockito.RETURNS_SELF);
+        when(resource.cancelReason.data("state", resource.state)).thenReturn(view);
+        assertEquals(view, resource.home());
+        verify(resource.homeService).cancelReasons();
+        when(resource.homeService.startReturnType("DEDICATED")).thenReturn(true);
+        assertEquals("/return", resource.startReturnType("DEDICATED").getLocation().toString());
+        assertEquals("/", resource.startReturnType("SALE").getLocation().toString());
+    }
+
+    /** LC-03-07-10, BO-06-06-04 and LC-02: operator actions delegate their exact input and return to the sale screen. */
+    @Test
+    void remainingSaleActionsPreserveInputAndReturnRouting() {
+        var resource = newResource();
+        var view = stubMain(resource);
+        assertEquals("/", resource.surveySkip().getLocation().toString());
+        verify(resource.homeService).skipSurvey();
+        assertSame(view, resource.markSubtotal());
+        verify(resource.homeService).markSubtotal();
+        assertSame(view, resource.cancelLineReason("DAMAGED"));
+        verify(resource.homeService).cancelLineWithReason("DAMAGED");
+        assertSame(view, resource.cancelLineReasonAbandoned());
+        verify(resource.homeService).cancelLineReasonAbandoned();
+        assertEquals("/", resource.applyPresetKey("DISCOUNT").getLocation().toString());
+        verify(resource.homeService).applyPresetKey("DISCOUNT");
+        assertEquals("/", resource.addManualFamily("FRUIT", "3,50").getLocation().toString());
+        verify(resource.ticketService).addFamilyPricedItem(resource.state, "FRUIT", "3,50");
+    }
+
+
+    /** LC-02-12-05: the distinct cancellation endpoint never calls the product-add service. */
+    @Test
+    void groupCancellationRouteDelegatesWithoutAdding() {
+        HomeResource resource = newResource();
+        Response response = resource.cancelGroupArticle("300");
+        assertEquals(303, response.getStatus());
+        verify(resource.homeService).cancelGroupArticle("300");
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * BO-03-09-10: the single-queue key flips the availability; a register not
+     * taking part is told so, a published state is announced, an unpublished
+     * one is reported.
+     */
+    @Test
+    void theSingleQueueKeyPublishesTheAvailability() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        when(resource.singleQueueService.toggle()).thenReturn(null);
+        assertSame(mainView, resource.toggleSingleQueue());
+        verify(resource.state.ticket).setError("La file unique n'est pas activée sur cette caisse.");
+        when(resource.singleQueueService.toggle()).thenReturn("AVAILABLE", "UNAVAILABLE", "AVAILABLE");
+        when(resource.singleQueueService.publish()).thenReturn(true, true, false);
+        resource.toggleSingleQueue();
+        verify(resource.state.ticket).setNotice("Caisse déclarée disponible pour le client suivant.");
+        resource.toggleSingleQueue();
+        verify(resource.state.ticket).setNotice("Caisse déclarée non disponible.");
+        resource.toggleSingleQueue();
+        verify(resource.state.ticket).setError("Système de file unique injoignable : l'état n'a pas été transmis.");
+        verify(resource.state, org.mockito.Mockito.times(4)).touch();
+    }
 }

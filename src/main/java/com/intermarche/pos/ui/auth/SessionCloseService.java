@@ -68,6 +68,8 @@ public class SessionCloseService {
 
     /** The credentials check, shared with the opening. */
     @Inject AuthService authService;
+    @Inject com.intermarche.pos.service.CashSessionService cashSessionService;
+    @Inject com.intermarche.pos.service.TicketPersistenceService ticketPersistenceService;
 
     /** The journal, where an opening, a close and a forcing are recorded. */
     @Inject TechnicalEventService technicalEventService;
@@ -202,6 +204,116 @@ public class SessionCloseService {
         }
         authService.logout(state);
         LOGGER.info("Exiting method close");
+    }
+
+    /**
+     * LC-01-02-07: persist the actual session close before acknowledging a remote order.
+     * An unfinished settlement is retained until it can be completed or cancelled.
+     * @param state current register, including a paused operator
+     * @param cause source of the remote order
+     * @return false while an unsettled payment prevents safe closure
+     */
+    @jakarta.transaction.Transactional
+    public boolean closeRemotely(PosState state, String cause) {
+        return closeRemotely(state, cause, false);
+    }
+
+    /**
+     * Closes the register on a remote order, the host's declaration made
+     * automatically where the order asks for it (BO-09-03-01), and prints the
+     * technical ticket of the forced close where the store administers it
+     * (BO-09-01-06, BO-09-02-03).
+     *
+     * <p>An automatic declaration closes the session on its THEORETICAL
+     * amount, as the island's own automatic declaration does, and prints its
+     * Z; any other remote close is a close without count.
+     *
+     * @param state current register, including a paused operator
+     * @param cause source of the remote order
+     * @param autoDeclaration whether the host is declared automatically
+     * @return false while an unsettled payment prevents safe closure
+     */
+    @jakarta.transaction.Transactional
+    public boolean closeRemotely(PosState state, String cause, boolean autoDeclaration) {
+        if (!state.payment.transactionComplete
+                && (state.payment.paymentInProgress || state.payment.paidAmount.signum() > 0)) {
+            return false;
+        }
+        Long cashierId = state.auth.operatorId != null
+                ? state.auth.operatorId : state.auth.lockedOperatorId;
+        // An unpaid draft must not reappear attached to a closed session.
+        if (!state.payment.transactionComplete && state.payment.ticketDbId != null) {
+            ticketPersistenceService.cancelDraft(state.payment.ticketDbId);
+        }
+        long parked = pendingCount();
+        com.intermarche.pos.domain.session.CashSession open = cashSessionService.getOpenSession();
+        String sessionNumber = open == null ? null : open.sessionNumber;
+        String badge = state.auth.operatorBadgeId != null
+                ? state.auth.operatorBadgeId : state.auth.lockedOperatorBadgeId;
+        String name = state.auth.operatorBadgeId != null
+                ? state.auth.operatorName : state.auth.lockedOperatorName;
+        if (autoDeclaration) {
+            com.intermarche.pos.service.CashSessionService.SessionReport report =
+                    cashSessionService.closeSession(cashierId, null, null, null, true);
+            if (report != null) {
+                ticketPrinterService.printSessionReport(report);
+            }
+        } else {
+            cashSessionService.forceCloseSession(cashierId);
+        }
+        // BO-09-01-06, BO-09-02-03: the forced close leaves its technical
+        // ticket at the till and its line in the electronic journal.
+        // A post left locked or signed out is closed all the same: its ticket
+        // then names the host who opened the session being closed.
+        com.intermarche.pos.domain.people.Employee opener = open == null ? null : open.openingCashier;
+        String shownBadge = badge;
+        String shownName = name;
+        if (badge == null && opener != null) {
+            shownBadge = opener.badgeId;
+            shownName = opener.getFullName();
+        }
+        if (posSettingsService.periodForcedCloseTicket()) {
+            printTechnicalTicket(sessionNumber, shownBadge, shownName, cause, autoDeclaration, parked);
+            technicalEventService.log(TechnicalEvent.EventType.SESSION_CLOSED,
+                    "Ticket technique de fermeture forcée imprimé — " + cause, shownBadge);
+        }
+        if (badge != null) {
+            close(state, cause);
+        } else {
+            // A recovered operator-free draft must not survive its cash-session closure.
+            authService.logout(state);
+        }
+        return true;
+    }
+
+    /**
+     * Prints the TECHNICAL TICKET of a forced close (BO-09-01-06,
+     * BO-09-02-03): the register, the session it closed, its operator, what
+     * forced it, how the drawer was declared and the tickets on hold the close
+     * purged.
+     *
+     * @param sessionNumber the session closed, or null when none was open
+     * @param badge the operator's badge, or null
+     * @param name the operator's name, or null
+     * @param cause what forced the close
+     * @param autoDeclaration whether the host was declared automatically
+     * @param parked the tickets on hold the close purged
+     */
+    void printTechnicalTicket(String sessionNumber, String badge, String name, String cause,
+                              boolean autoDeclaration, long parked) {
+        List<String> lines = List.of(
+                "TICKET TECHNIQUE",
+                "FERMETURE FORCÉE DE CAISSE",
+                "",
+                "Caisse      : " + terminalId,
+                "Session     : " + (sessionNumber == null ? "—" : sessionNumber),
+                "Opérateur   : " + (badge == null ? "—" : badge),
+                "Nom         : " + (name == null ? "—" : name),
+                "Cause       : " + cause,
+                "Déclaration : " + (autoDeclaration ? "automatique (théorique)" : "sans comptage"),
+                "En attente  : " + parked + " ticket(s) annulé(s)",
+                "Le          : " + STAMP.format(LocalDateTime.now()));
+        ticketPrinterService.printRenderedTicket(String.join("\n", lines));
     }
 
     /**

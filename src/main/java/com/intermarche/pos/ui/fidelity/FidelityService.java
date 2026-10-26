@@ -1,5 +1,9 @@
 package com.intermarche.pos.ui.fidelity;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.util.RawValue;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -90,6 +94,50 @@ public class FidelityService {
     @Inject
     com.intermarche.pos.ui.ticket.TicketService ticketService;
 
+    /** LC-03-04-05: refreshes the basket on a card arriving before the first settlement. */
+    @Inject com.intermarche.pos.ui.valuation.ValuationService valuationService;
+
+    /**
+     * Tells whether a loyalty card passes the key control the shop administers
+     * (BO-03-06-54): with the Luhn control on, its last digit must be the Luhn
+     * key of the others; off, or on a service wired without its parameters,
+     * every card passes.
+     *
+     * @param card the card number, possibly null
+     * @return true when the card is accepted
+     */
+    public boolean cardKeyValid(String card) {
+        return posSettingsService == null || !posSettingsService.fidelityCardLuhn() || luhn(card);
+    }
+
+    /**
+     * Checks a number against the Luhn algorithm (ISO/IEC 7812): from the
+     * right, every second digit is doubled, nine subtracted when it exceeds
+     * nine, and the sum of all digits must end in zero.
+     *
+     * @param number the number to check, possibly null
+     * @return true when the number is made of at least two digits and its key is right
+     */
+    static boolean luhn(String number) {
+        if (number == null || !number.matches("\\d{2,}")) {
+            return false;
+        }
+        int sum = 0;
+        boolean doubled = false;
+        for (int i = number.length() - 1; i >= 0; i--) {
+            int digit = number.charAt(i) - '0';
+            if (doubled) {
+                digit *= 2;
+                if (digit > 9) {
+                    digit -= 9;
+                }
+            }
+            sum += digit;
+            doubled = !doubled;
+        }
+        return sum % 10 == 0;
+    }
+
     /**
      * Attaches the card to the in-memory state and wakes the polling — then
      * REVALUES the cart: the engine request must carry the customerCode, and
@@ -102,23 +150,35 @@ public class FidelityService {
      * @param card the card number, scanned or typed
      */
     public void validateCard(PosState state, String card) {
-        LOGGER.info("Entering method validateCard with state: " + state + ", card: " + card);
-        state.fidelity.assignCard(card);
-        refreshAccountDisplay(state);
-        // BEFORE the revaluation, and that order carries: the basket about to
-        // leave must already hold the promotions, or the engine prices a sale
-        // the holder is entitled to a discount on without seeing it.
-        refreshCardPromotions(state);
-        // Promotions addendum §2/§3.1: the register applies the IMMEDIATE_DISCOUNT
-        // promotions itself (guarded so it never doubles with the engine — see
-        // applyCardPromotions). Done before the revaluation so the discounted
-        // lines are the ones synced and priced.
-        applyCardPromotions(state);
-        if (!state.ticket.items.isEmpty()) {
-            ticketService.recalculateTotal(state);
+        // LC-03-04-05: card attachment and repricing share the settlement monitor.
+        synchronized (state) {
+            LOGGER.info("Entering method validateCard with state: " + state + ", card: " + card);
+            // BO-03-06-54: a card whose Luhn key is wrong is a misread or a forged
+            // number; it is refused here, where the scan and the manual entry meet.
+            if (!cardKeyValid(card)) {
+                state.ticket.setError(i18n.get("op.carteFideliteCleInvalide"));
+                state.touch();
+                LOGGER.info("Exiting method validateCard");
+                return;
+            }
+            state.fidelity.assignCard(card);
+            refreshAccountDisplay(state);
+            // BEFORE the revaluation, and that order carries: the basket about to
+            // leave must already hold the promotions, or the engine prices a sale
+            // the holder is entitled to a discount on without seeing it.
+            refreshCardPromotions(state);
+            // Promotions addendum §2/§3.1: the register applies the IMMEDIATE_DISCOUNT
+            // promotions itself (guarded so it never doubles with the engine — see
+            // applyCardPromotions). Done before the revaluation so the discounted
+            // lines are the ones synced and priced.
+            applyCardPromotions(state);
+            if (!state.ticket.items.isEmpty()) {
+                ticketService.recalculateTotal(state);
+                valuationService.revalueAfterCard(state);
+            }
+            state.touch(); // Indispensable pour le polling
+            LOGGER.info("Exiting method validateCard");
         }
-        state.touch(); // Indispensable pour le polling
-        LOGGER.info("Exiting method validateCard");
     }
 
     /**
@@ -171,10 +231,53 @@ public class FidelityService {
             if (account != null) {
                 state.fidelity.accountStatus = account.status;
                 state.fidelity.availableBalance = account.availableBalance;
+                state.fidelity.holderLanguage = account.language;
+                applyHolderIdentity(state, account);
+                applyHolderLanguage(state);
             }
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             LOGGER.warnf("Lecture compte fidélité indisponible (%s): affichage sans solde", e.getMessage());
+        }
+    }
+
+    /**
+     * Carries the holder's name onto the cashier screen when the programme
+     * returns it with the account of a SCANNED card (BO-10-03-04): the summary
+     * next to the fidelity icon then reads the name before the number, exactly
+     * as after a lookup. Only where the store administers the display, and only
+     * when the programme sent a last name — a programme that keeps the identity
+     * to itself leaves the bare card number, as before.
+     *
+     * @param state the current POS state
+     * @param account the account the programme answered
+     */
+    private void applyHolderIdentity(PosState state, ImfidClient.AccountInfo account) {
+        if (account.lastName == null || account.lastName.isBlank()
+                || !posSettingsService.fidelityShowHolderName()) {
+            return;
+        }
+        state.fidelity.holderLastName = account.lastName.trim();
+        state.fidelity.holderFirstName = account.firstName == null || account.firstName.isBlank()
+                ? null : account.firstName.trim();
+    }
+
+    /**
+     * Switches the customer language of the sale to the language the loyalty
+     * base records for the holder (LC-13-06-09, -14): the customer display, the
+     * receipt and the ticket kept for the API speak it from now on. Only where
+     * the store administers it, and only to a language the register ships.
+     *
+     * @param state the current POS state
+     */
+    private void applyHolderLanguage(PosState state) {
+        if (!posSettingsService.fidelityHolderLanguage()) {
+            return;
+        }
+        String language = i18n.supportedLanguage(state.fidelity.holderLanguage);
+        if (language != null) {
+            state.customerLanguage = language;
+            state.touch();
         }
     }
 
@@ -473,12 +576,8 @@ public class FidelityService {
             return;
         }
         try {
-            java.math.BigDecimal reserved = state.payment.payments.stream()
-                    .filter(p -> "FIDELITY".equals(p.method))
-                    .map(p -> p.amount)
-                    .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
             ImfidClient.ReservationResult result = imfidClient.reserve(
-                    state.fidelity.label, reserved, leaseTicketRef(state));
+                    state.fidelity.label, burnedAmount(state), leaseTicketRef(state));
             if (result.httpStatus == 200 || result.httpStatus == 201) {
                 state.payment.fidLeaseExpiresAt = parseLocal(result.expiresAt);
             }
@@ -520,10 +619,26 @@ public class FidelityService {
     public Long confirmLease(PosState state, java.time.LocalDate fiscalDate) {
         LOGGER.info("Entering method confirmLease with state: " + state + ", fiscalDate: " + fiscalDate);
         Long reservationId = state.payment.fidReservationId;
-        if (reservationId == null) {
-            LOGGER.info("Exiting method confirmLease");
-            return null;
+        if (reservationId != null) {
+            confirmReservation(state, reservationId, fiscalDate);
         }
+        // BO-10-02-33: the fiscal moment is when the transaction's advantages
+        // and loyalty payment are final — the pot balances are read again here
+        // so what the sale leaves behind is what the state holds for the paper.
+        refreshPotBalances(state);
+        LOGGER.info("Exiting method confirmLease");
+        return reservationId;
+    }
+
+    /**
+     * Confirms one granted lease with imfid (spec §5.2) and keeps the ledger's
+     * balance after the burn; a transport failure is logged and tolerated.
+     *
+     * @param state the current POS state
+     * @param reservationId the lease id
+     * @param fiscalDate the ticket's fiscal date
+     */
+    private void confirmReservation(PosState state, Long reservationId, java.time.LocalDate fiscalDate) {
         try {
             ImfidClient.ConfirmResult confirmation = imfidClient.confirm(reservationId, fiscalDate.toString());
             if (confirmation.httpStatus == 410) {
@@ -542,15 +657,81 @@ public class FidelityService {
             LOGGER.warnf("Confirmation de bail fidélité injoignable (%s): l'ingestion tranchera",
                     e.getMessage());
         }
-        LOGGER.info("Exiting method confirmLease");
-        return reservationId;
+    }
+
+    /**
+     * Reads the balance of each pot of the attached card, computed by the
+     * programme with the CURRENT transaction (BO-10-02-33): the advantages the
+     * ticket earns and the loyalty payment already settled travel with the
+     * request. Only where the store administers it; off, without a card, with
+     * the programme unconfigured or behind the breaker, the pots are emptied —
+     * a degraded programme shows nothing rather than a stale figure.
+     *
+     * @param state the current POS state
+     */
+    public void refreshPotBalances(PosState state) {
+        if (!posSettingsService.fidelityPotBalancesEnabled() || !state.fidelity.active
+                || !imfidClient.isConfigured() || System.currentTimeMillis() < fidSkipUntil) {
+            state.fidelity.potBalances = new java.util.ArrayList<>();
+            return;
+        }
+        try {
+            state.fidelity.potBalances = new java.util.ArrayList<>(imfidClient.pots(
+                    state.fidelity.label, state.fidelity.earnTotal, burnedAmount(state)));
+        } catch (Exception e) {
+            fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
+            state.fidelity.potBalances = new java.util.ArrayList<>();
+            LOGGER.warnf("Soldes des cagnottes indisponibles (%s)", e.getMessage());
+        }
+    }
+
+    /**
+     * Sums the loyalty-purse settlements already registered on the sale, under
+     * the administered loyalty tender (BO-10-03-06).
+     *
+     * @param state the current POS state
+     * @return the settled loyalty amount, zero when none
+     */
+    private java.math.BigDecimal burnedAmount(PosState state) {
+        String tender = paymentTender();
+        return state.payment.payments.stream()
+                .filter(p -> tender.equals(p.method))
+                .map(p -> p.amount)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+    }
+
+    /**
+     * The tender key a loyalty-purse settlement is registered under on this
+     * register (BO-10-03-06).
+     *
+     * @return the administered key when the register knows it, FIDELITY otherwise
+     */
+    public String paymentTender() {
+        return tenderOrDefault(posSettingsService.fidelityPaymentTender());
+    }
+
+    /**
+     * Validates an administered loyalty tender key (BO-10-03-06): the key picks
+     * the payment class the settlement is persisted as, so a key the register
+     * cannot build would not relabel the settlement, it would lose it — such a
+     * key falls back on FIDELITY, as the customer-credit tender falls back on
+     * CREDIT.
+     *
+     * @param administered the administered key, possibly null or unknown
+     * @return the key when the register knows it, FIDELITY otherwise
+     */
+    public static String tenderOrDefault(String administered) {
+        if (com.intermarche.pos.domain.payment.PaymentTypes.forKey(administered) == null) {
+            return "FIDELITY";
+        }
+        return administered;
     }
 
     /**
      * Composes the ticket-closed event payload (spec §6): the verbatim
      * couple, the displayed earn (trace only), the card, the fiscal date and
-     * the reservation id — by string composition, the couple never
-     * reserialized.
+     * the reservation id — built by the JSON library, the couple written
+     * verbatim (never reserialized).
      *
      * @param state the current POS state (couple + displayed entries)
      * @param ticketRef the closed ticket's unique reference
@@ -567,31 +748,159 @@ public class FidelityService {
             LOGGER.info("Exiting method buildTicketClosedPayload");
             return null;
         }
-        StringBuilder displayed = new StringBuilder("[");
-        for (int i = 0; i < state.fidelity.earnEntries.size(); i++) {
-            FidelityState.EarnLine line = state.fidelity.earnEntries.get(i);
-            if (i > 0) displayed.append(',');
-            displayed.append("{\"ruleCode\":\"").append(line.ruleCode)
-                    .append("\",\"amount\":").append(line.amount.toPlainString()).append('}');
+        ObjectNode payload = JsonNodeFactory.instance.objectNode()
+                .put("ticketRef", ticketRef)
+                .put("card", card)
+                .put("fiscalDate", String.valueOf(fiscalDate));
+        payload.putRawValue("valuationRequest", new RawValue(state.fidelity.lastValuationRequestJson));
+        payload.putRawValue("valuationResponse", new RawValue(state.fidelity.lastValuationResponseJson));
+        ArrayNode displayed = payload.putArray("displayedEarn");
+        for (FidelityState.EarnLine line : state.fidelity.earnEntries) {
+            displayed.addObject().put("ruleCode", line.ruleCode).put("amount", line.amount);
         }
-        displayed.append(']');
+        if (reservationId != null) {
+            payload.put("reservationId", reservationId);
+        }
         // BO-03-10-08: the island's promotion channel rides the ticket-closed
         // event towards the loyalty programme. Appended ONLY when administered,
         // so an unposted channel leaves the payload identical to the byte to
         // what it was before the option existed.
         String channel = posSettingsService.islandPromotionChannel();
-        String channelMember = (channel != null && !channel.isBlank())
-                ? ",\"channel\":\"" + channel + "\"" : "";
+        if (channel != null && !channel.isBlank()) {
+            payload.put("channel", channel);
+        }
+        ArrayNode triggered = triggeredPromotions(state);
+        if (triggered != null) {
+            payload.set("triggeredPromotions", triggered);
+        }
+        ArrayNode payments = paymentsMember(state);
+        if (payments != null) {
+            payload.set("payments", payments);
+        }
         LOGGER.info("Exiting method buildTicketClosedPayload");
-        return "{\"ticketRef\":\"" + ticketRef + "\","
-                + "\"card\":\"" + card + "\","
-                + "\"fiscalDate\":\"" + fiscalDate + "\","
-                + "\"valuationRequest\":" + state.fidelity.lastValuationRequestJson + ","
-                + "\"valuationResponse\":" + state.fidelity.lastValuationResponseJson + ","
-                + "\"displayedEarn\":" + displayed
-                + (reservationId != null ? ",\"reservationId\":" + reservationId : "")
-                + channelMember
-                + "}";
+        return ImfidClient.json(payload);
+    }
+
+    /**
+     * Composes the {@code payments} member of the VT call (BO-11-04-05): every
+     * settlement of the ticket — its rank, its method key (VOUCHER for a
+     * voucher, its type's label beside it), its amount and its authorisation,
+     * hub reference or voucher number — so the loyalty server receives the
+     * payment data with the basket. Only where the store administers it; off,
+     * the member is ABSENT and the event is the one imfid received before it
+     * existed, to the byte.
+     *
+     * @param state the current POS state
+     * @return the payments array, or null when the member is not administered
+     */
+    ArrayNode paymentsMember(PosState state) {
+        if (!posSettingsService.fidelityVtPayments()) {
+            return null;
+        }
+        ArrayNode entries = JsonNodeFactory.instance.arrayNode();
+        int index = 0;
+        for (com.intermarche.pos.ui.payment.PaymentState.PaymentEntry payment : state.payment.payments) {
+            index++;
+            String reference = payment.authorizationNumber != null ? payment.authorizationNumber
+                    : payment.hubReference != null ? payment.hubReference : payment.voucherNumber;
+            // A voucher entry carries its type's label where the others carry
+            // their method key: the call states the key every settlement shares.
+            entries.addObject()
+                    .put("index", index)
+                    .put("method", payment.voucher ? "VOUCHER" : payment.method)
+                    .put("label", payment.voucher ? payment.method : null)
+                    .put("amount", payment.amount)
+                    .put("reference", reference);
+        }
+        return entries;
+    }
+
+    /**
+     * Makes the VT call BEFORE THE TICKET IS PRINTED (BO-11-04-07): the loyalty
+     * service is asked again with the transaction that has just ended — its
+     * basket and, the lease being confirmed, its loyalty payment — and the
+     * balance it answers is the one the paper states. Only where the store
+     * administers it, for a card, with the programme configured and a couple
+     * captured; a service that does not answer leaves the projection of the
+     * last valuation in place, never a blank.
+     *
+     * @param state the current POS state
+     */
+    public void refreshBeforePrint(PosState state) {
+        FidelityState fid = state.fidelity;
+        if (!posSettingsService.fidelityVt2Enabled() || !fid.active || !imfidClient.isConfigured()
+                || fid.lastValuationRequestJson == null || fid.lastValuationResponseJson == null) {
+            return;
+        }
+        try {
+            ImfidClient.EarnProjection projection =
+                    imfidClient.earn(fid.lastValuationRequestJson, fid.lastValuationResponseJson);
+            if (projection.balances != null) {
+                fid.projectedAfterEarn = projection.balances.projectedAfterEarn;
+                fid.balanceAsOf = projection.balances.asOf;
+            }
+            LOGGER.infof("Appel VT avant impression: solde %s", fid.projectedAfterEarn);
+        } catch (Exception e) {
+            LOGGER.warnf("Appel VT avant impression sans réponse (%s): solde de la valorisation", e.getMessage());
+        }
+    }
+
+    /**
+     * Composes the {@code triggeredPromotions} member of the ticket-closed
+     * event (BO-10-03-22): the PERSONAL promotions read from the card
+     * referential at attachment that this ticket actually triggered — a sold
+     * line carries their EAN — reported back at the end of the ticket so the
+     * referential counts them against the holder's limit. Each entry carries
+     * the promotion as the referential served it plus the units sold, a weighed
+     * line counting as one.
+     * <p>
+     * Only where the store administers personal-promotion calls
+     * ({@code fidelity.jv-promotion-enabled}); off, or when nothing was
+     * triggered, the member is ABSENT and the event is the one imfid received
+     * before it existed, to the byte.
+     *
+     * @param state the current POS state
+     * @return the entries, or null when the member is absent
+     */
+    ArrayNode triggeredPromotions(PosState state) {
+        if (!posSettingsService.fidelityJvPromotionEnabled() || state.fidelity.cardPromotions == null) {
+            return null;
+        }
+        ArrayNode entries = JsonNodeFactory.instance.arrayNode();
+        for (ImfidClient.CardPromotion promotion : state.fidelity.cardPromotions) {
+            if (promotion == null || promotion.ean == null || promotion.ean.isBlank()) {
+                continue;
+            }
+            long units = soldUnits(state, promotion.ean);
+            if (units <= 0) {
+                continue;
+            }
+            entries.addObject()
+                    .put("ean", promotion.ean)
+                    .put("promotionType", promotion.promotionType)
+                    .put("value", promotion.value)
+                    .put("benefit", promotion.benefit)
+                    .put("quantity", units);
+        }
+        return entries.isEmpty() ? null : entries;
+    }
+
+    /**
+     * Counts the units SOLD on the ticket for one EAN (BO-10-03-22): return
+     * lines are not sales and do not trigger a promotion.
+     *
+     * @param state the current POS state
+     * @param ean the promoted EAN
+     * @return the units sold, a weighed line counting as one
+     */
+    private long soldUnits(PosState state, String ean) {
+        long units = 0L;
+        for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : state.ticket.items) {
+            if (item != null && !item.returnLine && ean.equals(item.ean)) {
+                units += unitsOf(item);
+            }
+        }
+        return units;
     }
 
     /**
@@ -656,6 +965,9 @@ public class FidelityService {
                     view.rows.add(new String[] { date, label, amount });
                 }
             }
+            // BO-10-02-33: the balance of each pot, with the current transaction.
+            refreshPotBalances(state);
+            view.pots = state.fidelity.potBalances;
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             view.message = i18n.get("op.serviceFideliteIndisponible");
@@ -674,6 +986,8 @@ public class FidelityService {
         public java.math.BigDecimal available;
         /** Display rows: date, label, signed amount. */
         public java.util.List<String[]> rows = new java.util.ArrayList<>();
+        /** The balance of each pot with the current transaction (BO-10-02-33), empty when not requested. */
+        public java.util.List<ImfidClient.PotBalance> pots = new java.util.ArrayList<>();
         /** The message shown instead of data (degraded, unknown, no card). */
         public String message;
 
@@ -683,6 +997,39 @@ public class FidelityService {
          * @return true when the account was read
          */
         public boolean hasAccount() { return balance != null; }
+
+        /**
+         * Returns the book balance as the screen shows it: two decimals, the
+         * French comma and the euro sign.
+         *
+         * @return the formatted balance, empty when the account was not read
+         */
+        public String getBalanceFormatted() {
+            return euros(balance);
+        }
+
+        /**
+         * Returns the available balance as the screen shows it: two decimals,
+         * the French comma and the euro sign.
+         *
+         * @return the formatted available balance, empty when absent
+         */
+        public String getAvailableFormatted() {
+            return euros(available);
+        }
+
+        /**
+         * Writes an amount with two decimals, the French comma and the euro sign.
+         *
+         * @param amount the amount, or null
+         * @return the formatted amount, empty for null
+         */
+        private static String euros(java.math.BigDecimal amount) {
+            if (amount == null) {
+                return "";
+            }
+            return amount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().replace('.', ',') + " \u20ac";
+        }
     }
 
     /**
@@ -785,6 +1132,9 @@ public class FidelityService {
             fid.burnableBase = projection.burnableBase;
             stageEntries(fid, projection);
             stageWarnings(fid, projection);
+            // BO-03-03-26 / -27: the short and commercial messages travel with
+            // the projection they belong to.
+            fid.messages = ImfidClient.LoyaltyMessages.of(projection);
             if (projection.balances != null) {
                 fid.projectedAfterEarn = projection.balances.projectedAfterEarn;
                 fid.balanceAsOf = projection.balances.asOf;
@@ -816,6 +1166,7 @@ public class FidelityService {
             fid.anonymousProjection = true;
             stageEntries(fid, projection);
             stageWarnings(fid, projection);
+            fid.messages = ImfidClient.LoyaltyMessages.of(projection);
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             fid.clearEarn();

@@ -4,19 +4,38 @@ import com.intermarche.pos.domain.barcode.AlertLevel;
 import com.intermarche.pos.domain.barcode.CouponControl;
 import com.intermarche.pos.domain.barcode.CouponField;
 import com.intermarche.pos.domain.barcode.CouponType;
-import com.intermarche.pos.domain.catalog.*;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.setting.EchelonSetting;
+import com.intermarche.pos.domain.people.CrudOption;
 import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.setting.TouchGroupSetting;
+import com.intermarche.pos.domain.people.EmployeeProfile;
+import com.intermarche.pos.domain.people.Profile;
+import com.intermarche.pos.domain.people.ProfileGrant;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.sync.RefApplyAudit;
 import com.intermarche.pos.domain.sync.RefState;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Register-side application of a referential snapshot (phase 6 lot 3), one
@@ -46,6 +65,31 @@ public class RefApplyService {
      */
     @jakarta.inject.Inject
     com.intermarche.pos.service.DocumentTemplateService documentTemplateService;
+
+    /**
+     * The role of this node, the same property the pull loop reads: a
+     * {@code register} applies what its store node sends, a {@code store}
+     * applies what the head office sends.
+     */
+    @ConfigProperty(name = "pos.role", defaultValue = "register")
+    String role;
+
+    /**
+     * Whether a column the upstream snapshot leaves NULL keeps the value this
+     * node already holds instead of being cleared.
+     *
+     * <p>The two links of the chain do not share one answer. A register
+     * applies its store node verbatim: the store is the authority on what the
+     * lane holds, and a value it emptied must disappear at the register too. A
+     * store node receiving from the head office keeps what it chose locally:
+     * a head office snapshot that does not carry a column says nothing about
+     * it, and must not erase the store's own choice behind its back.
+     *
+     * @return true on a store node, false on a register
+     */
+    boolean keepsLocalOnSilence() {
+        return "store".equalsIgnoreCase(role);
+    }
 
     /**
      * Applies a family snapshot: upsert by code (families carry no active
@@ -144,8 +188,12 @@ public class RefApplyService {
             setting.islandCodes = dto.islandCodes;
             setting.terminalIds = dto.terminalIds;
             setting.tpvTypes = dto.tpvTypes;
-            // BO-03-01-19: the translated wordings descend with the row.
-            setting.labels = dto.labels;
+            // BO-03-01-19: the translated wordings descend with the row; on a
+            // store node, a wording the store typed for its own customers is
+            // not the head office's to erase by staying silent about it.
+            if (dto.labels != null || !keepsLocalOnSilence()) {
+                setting.labels = dto.labels;
+            }
             setting.persist();
             seen.add(dto.familyCode);
         }
@@ -192,6 +240,15 @@ public class RefApplyService {
             product.variableWeight = dto.variableWeight;
             product.attributes = dto.attributes != null
                     ? new java.util.HashMap<>(dto.attributes) : new java.util.HashMap<>();
+            // BO-02-03-03: the additional sale codes replace the register's own.
+            product.saleCodes = dto.saleCodes != null
+                    ? new java.util.TreeSet<>(dto.saleCodes) : new java.util.TreeSet<>();
+            // BO-03-01-13: the sales volume is the store node's own computation
+            // over its registers' sales; a head office snapshot never overwrites
+            // it, a register takes what its store computed.
+            if (!keepsLocalOnSilence()) {
+                product.salesVolume = dto.salesVolume;
+            }
             product.persist();
             seen.add(dto.ean);
         }
@@ -215,16 +272,36 @@ public class RefApplyService {
     @Transactional
     public void applyVatRates(List<RefPayloads.VatRateDto> dtos) {
         LOGGER.info("Entering method applyVatRates with dtos: " + dtos);
-        Price.update("set vat = null where vat is not null");
-        VatRate.deleteAll();
+        // An UPSERT by number, never a wipe: the prices point at the rows, and a
+        // table deleted and re-created detached every one of them — the price
+        // file, unchanged, was not re-applied, so one regime corrected in the
+        // back office left the whole catalogue of the till on the default rate
+        // (BO-02-02-01). Only the regimes the snapshot no longer carries go, and
+        // only their prices are detached.
+        java.util.Set<Integer> kept = new java.util.HashSet<>();
         for (RefPayloads.VatRateDto dto : dtos) {
-            VatRate rate = new VatRate();
-            rate.number = dto.number;
+            kept.add(dto.number);
+            VatRate rate = VatRate.findByNumber(dto.number);
+            boolean created = rate == null;
+            if (created) {
+                rate = new VatRate();
+                rate.number = dto.number;
+            }
             rate.rate = dto.rate;
             rate.label = dto.label;
             rate.country = dto.country;
             rate.legalMention = dto.legalMention;
-            rate.persist();
+            rate.exempt = dto.exempt;
+            rate.exemptionCode = dto.exemptionCode;
+            if (created) {
+                rate.persist();
+            }
+        }
+        for (VatRate stale : VatRate.<VatRate>listAll()) {
+            if (!kept.contains(stale.number)) {
+                Price.update("set vat = null where vat = ?1", stale);
+                stale.delete();
+            }
         }
         LOGGER.infof("Référentiel TVA remplacé: %d régime(s)", dtos.size());
         LOGGER.info("Exiting method applyVatRates");
@@ -263,6 +340,49 @@ public class RefApplyService {
                         find("code", domain).firstResult();
         LOGGER.info("Exiting method feedContent");
         return feed == null ? null : feed.content;
+    }
+
+    /**
+     * The state of the store's referential a feed file was integrated over,
+     * and the state it left (BO-02-03-33).
+     *
+     * @param base the fingerprint before, empty for an empty referential, or null
+     * @param result the fingerprint after, or null
+     */
+    public record FeedStamp(String base, String result) {
+
+        /**
+         * Whether the file applies over a register at the given state: the
+         * register must stand exactly where the store stood when it integrated
+         * the file, a register that never applied the domain where the store
+         * held nothing.
+         *
+         * @param applied the fingerprint the register last applied, or null
+         * @return true when applying the file reproduces the store's result
+         */
+        public boolean startsFrom(String applied) {
+            if (base == null || result == null) {
+                return false;
+            }
+            return base.isEmpty() ? applied == null : base.equals(applied);
+        }
+    }
+
+    /**
+     * Reads the stamps of one engine feed this register holds (BO-02-03-33),
+     * in a transaction of its own for the pull thread, as {@link #feedContent}.
+     *
+     * @param domain the feed code
+     * @return the stamps, or null when this register holds no such feed
+     */
+    @Transactional
+    public FeedStamp feedStamp(String domain) {
+        LOGGER.info("Entering method feedStamp with domain: " + domain);
+        com.intermarche.pos.domain.sync.EngineFeed feed =
+                com.intermarche.pos.domain.sync.EngineFeed.<com.intermarche.pos.domain.sync.EngineFeed>
+                        find("code", domain).firstResult();
+        LOGGER.info("Exiting method feedStamp");
+        return feed == null ? null : new FeedStamp(feed.baseFingerprint, feed.resultFingerprint);
     }
 
     /**
@@ -369,11 +489,17 @@ public class RefApplyService {
             employee.email = dto.email;
             employee.role = Employee.EmployeeRole.valueOf(dto.role);
             employee.badgeId = dto.badgeId;
+            // BO-03-06-51: a node that does not know the column printed no card.
+            employee.supervisorCard = Boolean.TRUE.equals(dto.supervisorCard);
+            // BO-04-02-01: the profiles the holder endorses by.
+            employee.profileNames = dto.profiles;
             // BO-01-01-04 / BO-01-02-12: the operator's language and the age of
             // their secret come from the node like the secret itself.
             employee.language = dto.language;
             employee.passwordChangedAt = dto.passwordChangedAt == null
                     ? null : java.time.LocalDateTime.parse(dto.passwordChangedAt);
+            // BO-01-02-07: the key that opens the register without a PIN.
+            employee.dallasKey = dallasKeyFor(employee, dto.loginName, dto.dallasKey);
             // A theme chosen AT THE REGISTER wins over the pulled one: the
             // register-side selector must not be mysteriously undone by the
             // next referential pull. The store's value only seeds employees
@@ -427,6 +553,17 @@ public class RefApplyService {
                     : CouponField.Kind.valueOf(dto.codeKind);
             type.manualAmountOnAllNines = dto.manualAmountOnAllNines;
             type.islandCodes = dto.islandCodes;
+            // BO-03-06-08 and -30 to -38: the tender the range is settled as, and
+            // the instruments this register issues under it. Chosen on the store
+            // node: a head office snapshot silent about them must not erase them.
+            if (dto.tenderCode != null || !keepsLocalOnSilence()) {
+                type.tenderCode = dto.tenderCode;
+            }
+            if (dto.issuedKind != null || !keepsLocalOnSilence()) {
+                type.issuedKind = dto.issuedKind;
+            }
+            // BO-03-02-37: the protocol of a prepaid card range, carried verbatim.
+            type.cardProtocol = dto.cardProtocol;
             applyCouponFields(type, dto);
             applyCouponControls(type, dto);
             type.persist();
@@ -527,6 +664,7 @@ public class RefApplyService {
             template.duplicateTitle = dto.duplicateTitle;
             template.numberPrefix = dto.numberPrefix;
             template.copyTitles = dto.copyTitles;
+            template.echelonScope = dto.echelonScope;
             template.persist();
             seen.add(dto.code);
         }
@@ -544,6 +682,56 @@ public class RefApplyService {
         LOGGER.infof("Référentiel gabarits appliqué: %d ligne(s), %d désactivé(s)",
                 dtos.size(), deactivated);
         LOGGER.info("Exiting method applyDocumentTemplates");
+    }
+
+    /**
+     * Applies the PRINTABLE DOCUMENTS snapshot (BO-03-04-06, -09, -10 and
+     * -14): upsert by code, and a row the snapshot no longer carries is DELETED.
+     *
+     * <p>Deleted and not deactivated, because deleting a document is precisely
+     * what the back office asked for (BO-03-04-10): a register that kept it
+     * inactive would still carry a name nobody administers. The papers already
+     * printed under it are not touched — they carry their own name and number.
+     *
+     * <p>A row whose nature this version does not know is read as an invoice:
+     * the document stays printable rather than disappearing from the till.
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyPrintableDocuments(List<RefPayloads.PrintableDocumentDto> dtos) {
+        LOGGER.info("Entering method applyPrintableDocuments with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.PrintableDocumentDto dto : dtos) {
+            com.intermarche.pos.domain.setting.PrintableDocument document =
+                    com.intermarche.pos.domain.setting.PrintableDocument.findByCode(dto.code);
+            if (document == null) {
+                document = new com.intermarche.pos.domain.setting.PrintableDocument();
+                document.code = dto.code;
+            }
+            com.intermarche.pos.domain.sale.DocumentType kind =
+                    com.intermarche.pos.domain.sale.DocumentType.byName(dto.kind);
+            document.label = dto.label;
+            document.kind = kind == null ? com.intermarche.pos.domain.sale.DocumentType.FACTURE : kind;
+            document.output = com.intermarche.pos.domain.setting.PrintableDocument.outputOf(dto.output);
+            document.templateCode = dto.templateCode;
+            document.active = dto.active;
+            document.priority = dto.priority;
+            document.persist();
+            seen.add(dto.code);
+        }
+        long removed = 0;
+        for (com.intermarche.pos.domain.setting.PrintableDocument document
+                : com.intermarche.pos.domain.setting.PrintableDocument
+                        .<com.intermarche.pos.domain.setting.PrintableDocument>listAll()) {
+            if (!seen.contains(document.code)) {
+                document.delete();
+                removed++;
+            }
+        }
+        LOGGER.infof("Référentiel documents imprimables appliqué: %d ligne(s), %d retirée(s)",
+                dtos.size(), removed);
+        LOGGER.info("Exiting method applyPrintableDocuments");
     }
 
     /**
@@ -608,10 +796,16 @@ public class RefApplyService {
             tender.changeAllowed = dto.changeAllowed;
             tender.changeTenderCode = dto.changeTenderCode;
             // BO-03-09-30: a snapshot from a node that does not know the column
-            // names no product code, which is what every tender named before it.
-            tender.vicProductCode = dto.vicProductCode;
+            // names no product code, which is what every tender named before it;
+            // on a store node, a head office snapshot that does not carry the
+            // column must not take the store's product codes back to none.
+            if (dto.vicProductCode != null || !keepsLocalOnSilence()) {
+                tender.vicProductCode = dto.vicProductCode;
+            }
             // BO-03-02-27/-29: what a self-service lane may settle with, and
-            // what it calls the hostess for.
+            // what it calls the hostess for — both carried verbatim: a head
+            // office that describes the self-service lanes describes them for
+            // every store.
             tender.selfServiceAllowed = dto.selfServiceAllowed;
             tender.selfServiceSupervision = dto.selfServiceSupervision;
             tender.cashierDeclaration = dto.cashierDeclaration;
@@ -630,6 +824,16 @@ public class RefApplyService {
             tender.printCount = Math.max(1, dto.printCount);
             tender.printDuplicate = dto.printDuplicate;
             tender.printForced = dto.printForced;
+            // BO-03-02-01/-24/-29/-36/-44: carried verbatim, like the other
+            // rules of the tender — the snapshot is the truth.
+            tender.nature = dto.nature;
+            tender.supervisionIslands = dto.supervisionIslands;
+            tender.moneticCodes = dto.moneticCodes;
+            tender.coinMachine = dto.coinMachine;
+            tender.micrReading = dto.micrReading;
+            tender.chequeAuthorization = dto.chequeAuthorization;
+            tender.accountNumberEntry = dto.accountNumberEntry;
+            tender.chequeAutoPrint = dto.chequeAutoPrint;
             tender.persist();
             seen.add(dto.code);
         }
@@ -722,6 +926,7 @@ public class RefApplyService {
             island.active = dto.active;
             island.terminalIds = effectiveTerminalIds(dto);
             island.persist();
+            reconstructPoints(dto.code, island.terminalIds);
             seen.add(dto.code);
         }
         long deactivated = 0;
@@ -820,6 +1025,49 @@ public class RefApplyService {
     }
 
     /**
+     * Rebuilds the island&rarr;register relation on the receiving side from the
+     * backward-compatible {@code terminalIds} string: each listed terminal gets
+     * an active {@link com.intermarche.pos.domain.store.CheckoutPoint} pointing at
+     * the island, and a point of this island no longer listed is deactivated. The
+     * relation the store node holds as first-class checkout points travels the
+     * wire as the historical semicolon list, so an un-updated register still
+     * reads it, and an updated register rebuilds the objects.
+     *
+     * @param islandCode the island the terminals belong to
+     * @param terminalIds the semicolon list of terminal identifiers, or null
+     */
+    void reconstructPoints(String islandCode, String terminalIds) {
+        Set<String> wanted = new java.util.LinkedHashSet<>();
+        if (terminalIds != null) {
+            for (String raw : terminalIds.split(";")) {
+                String trimmed = raw.trim();
+                if (!trimmed.isEmpty()) {
+                    wanted.add(trimmed);
+                }
+            }
+        }
+        for (String terminal : wanted) {
+            com.intermarche.pos.domain.store.CheckoutPoint point =
+                    com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(terminal);
+            if (point == null) {
+                point = new com.intermarche.pos.domain.store.CheckoutPoint();
+                point.terminalId = terminal;
+            }
+            point.islandCode = islandCode;
+            point.active = true;
+            point.persist();
+        }
+        for (com.intermarche.pos.domain.store.CheckoutPoint point
+                : com.intermarche.pos.domain.store.CheckoutPoint
+                        .<com.intermarche.pos.domain.store.CheckoutPoint>list("islandCode = ?1", islandCode)) {
+            if (!wanted.contains(point.terminalId) && point.active) {
+                point.active = false;
+                point.persist();
+            }
+        }
+    }
+
+    /**
      * Derives the effective attached terminals of an island from whichever
      * payload form the node sent (BO-03-09/BO-03-10), without preference or
      * warning: when the contact-point list is present and non-empty the
@@ -898,17 +1146,38 @@ public class RefApplyService {
             range.matchPattern = dto.matchPattern;
             // BO-03-06-56/-60/-61: a snapshot from a node that does not know the
             // column yet leaves every range an ARTICLE range, which is what they
-            // all were before it existed.
-            range.purpose = dto.purpose == null
-                    ? com.intermarche.pos.domain.barcode.ArticleBarcodeRange.Purpose.ARTICLE
-                    : com.intermarche.pos.domain.barcode.ArticleBarcodeRange.Purpose
-                            .valueOf(dto.purpose);
+            // all were before it existed. On a store node the destination is
+            // chosen locally: a head office snapshot that does not carry the
+            // field must not take it back to ARTICLE behind the store's back.
+            if (dto.purpose != null || !keepsLocalOnSilence()) {
+                range.purpose = dto.purpose == null
+                        ? com.intermarche.pos.domain.barcode.ArticleBarcodeRange.Purpose.ARTICLE
+                        : com.intermarche.pos.domain.barcode.ArticleBarcodeRange.Purpose
+                                .valueOf(dto.purpose);
+            }
             // BO-03-06-43: a snapshot from a node that does not know the column
-            // names no promotion, which is what every range named before it.
-            range.promotionCode = dto.promotionCode;
+            // names no promotion, which is what every range named before it;
+            // same store-node reasoning as the destination above.
+            if (dto.promotionCode != null || !keepsLocalOnSilence()) {
+                range.promotionCode = dto.promotionCode;
+            }
             // BO-03-06-41: likewise, a node that does not know the column asks
             // nobody, which is what every range did before it existed.
-            range.lookupUrl = dto.lookupUrl;
+            if (dto.lookupUrl != null || !keepsLocalOnSilence()) {
+                range.lookupUrl = dto.lookupUrl;
+            }
+            // BO-03-06-59: the register function a FUNCTION range calls.
+            if (dto.functionCode != null || !keepsLocalOnSilence()) {
+                range.functionCode = dto.functionCode;
+            }
+            // BO-03-06-43 / -41: the definition of a range's promotion and the
+            // mapping of its partner's answer, same store-node reasoning.
+            if (dto.promotionType != null || !keepsLocalOnSilence()) {
+                range.promotionType = dto.promotionType;
+            }
+            if (dto.lookupField != null || !keepsLocalOnSilence()) {
+                range.lookupField = dto.lookupField;
+            }
             range.persist();
             seen.add(dto.code);
         }
@@ -993,6 +1262,41 @@ public class RefApplyService {
     }
 
     /**
+     * Applies the units of measure (BO-02-03-17): upsert by code, and a unit
+     * absent from the snapshot is DEACTIVATED rather than deleted, an article
+     * may still name it.
+     *
+     * @param dtos the full unit snapshot
+     */
+    @Transactional
+    public void applyMeasureUnits(List<RefPayloads.MeasureUnitDto> dtos) {
+        LOGGER.info("Entering method applyMeasureUnits with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.MeasureUnitDto dto : dtos) {
+            com.intermarche.pos.domain.catalog.MeasureUnit unit =
+                    com.intermarche.pos.domain.catalog.MeasureUnit.findByCode(dto.code);
+            if (unit == null) {
+                unit = new com.intermarche.pos.domain.catalog.MeasureUnit();
+                unit.code = dto.code;
+            }
+            unit.label = dto.label;
+            unit.symbol = dto.symbol;
+            unit.decimalAllowed = dto.decimalAllowed;
+            unit.active = dto.active;
+            unit.persist();
+            seen.add(unit.code);
+        }
+        for (com.intermarche.pos.domain.catalog.MeasureUnit unit
+                : com.intermarche.pos.domain.catalog.MeasureUnit.listAllOrdered()) {
+            if (!seen.contains(unit.code) && unit.active) {
+                unit.active = false;
+                unit.persist();
+            }
+        }
+        LOGGER.info("Exiting method applyMeasureUnits");
+    }
+
+    /**
      * Applies the foreign-currency snapshot ({@code LC-07-14}): upsert by ISO code,
      * and the currencies absent from the snapshot are DEACTIVATED rather than
      * deleted — a receipt from last month still names one, and a code that comes
@@ -1017,7 +1321,12 @@ public class RefApplyService {
             currency.euroPerUnit = rate == null ? java.math.BigDecimal.ONE : rate;
             currency.active = dto.active;
             currency.displayOrder = dto.displayOrder;
-            currency.changeTenderCode = dto.changeTenderCode;
+            // BO-03-02-39: the change tender descends verbatim to a register. On
+            // a store node it is chosen locally: a head office snapshot that does
+            // not carry the field must not wipe that choice.
+            if (dto.changeTenderCode != null || !keepsLocalOnSilence()) {
+                currency.changeTenderCode = dto.changeTenderCode;
+            }
             currency.persist();
             seen.add(dto.code);
         }
@@ -1132,6 +1441,89 @@ public class RefApplyService {
         }
         LOGGER.infof("Référentiel listes administrées appliqué: %d liste(s)", dtos.size());
         LOGGER.info("Exiting method applyPosLists");
+    }
+
+    /**
+     * Applies the return-type snapshot ({@code BO-03-13-01} to {@code -04},
+     * {@code -11}, {@code -12}): upsert by code, a type the snapshot no longer
+     * names deleted — the back office decides which types exist, and a type it
+     * deactivated travels deactivated rather than missing.
+     *
+     * @param dtos the full return-type snapshot
+     */
+    @Transactional
+    public void applyReturnTypes(List<RefPayloads.ReturnTypeDto> dtos) {
+        LOGGER.info("Entering method applyReturnTypes with " + dtos.size() + " type(s)");
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.ReturnTypeDto dto : dtos) {
+            com.intermarche.pos.domain.setting.ReturnTypeDefinition row =
+                    com.intermarche.pos.domain.setting.ReturnTypeDefinition.findByCode(dto.code);
+            if (row == null) {
+                row = new com.intermarche.pos.domain.setting.ReturnTypeDefinition();
+                row.code = dto.code;
+            }
+            row.label = dto.label;
+            row.ticketMode = dto.ticketMode;
+            row.endorsementExempt = dto.endorsementExempt;
+            row.originOptional = dto.originOptional;
+            row.priceConfirmed = dto.priceConfirmed;
+            row.depositReturn = dto.depositReturn;
+            row.rangeCode = dto.rangeCode;
+            row.displayOrder = dto.displayOrder;
+            row.active = dto.active;
+            row.persist();
+            seen.add(dto.code);
+        }
+        for (com.intermarche.pos.domain.setting.ReturnTypeDefinition row
+                : com.intermarche.pos.domain.setting.ReturnTypeDefinition
+                        .<com.intermarche.pos.domain.setting.ReturnTypeDefinition>listAll()) {
+            if (!seen.contains(row.code)) {
+                row.delete();
+            }
+        }
+        LOGGER.infof("Référentiel types de retour appliqué: %d type(s)", dtos.size());
+        LOGGER.info("Exiting method applyReturnTypes");
+    }
+
+    /**
+     * Applies the prepaid-card-type snapshot ({@code BO-03-02-37}): upsert by
+     * code, a type the snapshot no longer names deleted.
+     *
+     * @param dtos the full prepaid-card-type snapshot
+     */
+    @Transactional
+    public void applyPrepaidCardTypes(List<RefPayloads.PrepaidCardTypeDto> dtos) {
+        LOGGER.info("Entering method applyPrepaidCardTypes with " + dtos.size() + " type(s)");
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.PrepaidCardTypeDto dto : dtos) {
+            com.intermarche.pos.domain.payment.PrepaidCardType row =
+                    com.intermarche.pos.domain.payment.PrepaidCardType.findByCode(dto.code);
+            if (row == null) {
+                row = new com.intermarche.pos.domain.payment.PrepaidCardType();
+                row.code = dto.code;
+            }
+            row.label = dto.label;
+            row.protocol = dto.protocol == null || dto.protocol.isBlank()
+                    ? com.intermarche.pos.domain.payment.PrepaidCardType.PROTOCOL_NEXO : dto.protocol;
+            row.provider = dto.provider;
+            row.ranges = dto.ranges;
+            row.paymentAllowed = dto.paymentAllowed;
+            row.balanceAllowed = dto.balanceAllowed;
+            row.activationAllowed = dto.activationAllowed;
+            row.displayOrder = dto.displayOrder;
+            row.active = dto.active;
+            row.persist();
+            seen.add(dto.code);
+        }
+        for (com.intermarche.pos.domain.payment.PrepaidCardType row
+                : com.intermarche.pos.domain.payment.PrepaidCardType
+                        .<com.intermarche.pos.domain.payment.PrepaidCardType>listAll()) {
+            if (!seen.contains(row.code)) {
+                row.delete();
+            }
+        }
+        LOGGER.infof("Référentiel types de cartes prépayées appliqué: %d type(s)", dtos.size());
+        LOGGER.info("Exiting method applyPrepaidCardTypes");
     }
 
     /**
@@ -1430,11 +1822,16 @@ public class RefApplyService {
                 row = new com.intermarche.pos.domain.sync.EngineFeed();
                 row.code = dto.code;
             } else if (dto.version != null && dto.version.equals(row.version)) {
+                // BO-02-03-33: the stamps of a file arrive after the file itself.
+                row.baseFingerprint = dto.baseFingerprint;
+                row.resultFingerprint = dto.resultFingerprint;
                 seen.add(dto.code);
                 continue;
             }
             row.content = dto.content;
             row.version = dto.version;
+            row.baseFingerprint = dto.baseFingerprint;
+            row.resultFingerprint = dto.resultFingerprint;
             row.receivedAt = java.time.LocalDateTime.now();
             row.persist();
             seen.add(dto.code);
@@ -1443,6 +1840,283 @@ public class RefApplyService {
                 "code not in ?1", seen.isEmpty() ? java.util.List.of("") : seen);
         LOGGER.infof("Flux moteur appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
         LOGGER.info("Exiting method applyEngineFeeds");
+    }
+
+    /**
+     * Applies a country snapshot (store node, route A): the echelon tree is
+     * fully owned by the central node, and nothing on the store references a
+     * country by foreign key, so the table is replaced as a whole — the same
+     * wholesale strategy as prices.
+     *
+     * @param dtos the full countries snapshot
+     */
+    @Transactional
+    public void applyCountries(List<RefPayloads.CountryDto> dtos) {
+        LOGGER.info("Entering method applyCountries with dtos: " + dtos);
+        Country.deleteAll();
+        for (RefPayloads.CountryDto dto : dtos) {
+            Country row = new Country();
+            row.code = dto.code;
+            row.name = dto.name;
+            row.defaultLanguage = dto.defaultLanguage;
+            row.persist();
+        }
+        LOGGER.infof("Référentiel pays appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyCountries");
+    }
+
+    /**
+     * Applies an enseigne snapshot (store node, route A): wholesale replacement,
+     * like the countries — no foreign key on the store points at an enseigne.
+     *
+     * @param dtos the full enseignes snapshot
+     */
+    @Transactional
+    public void applyEnseignes(List<RefPayloads.EnseigneDto> dtos) {
+        LOGGER.info("Entering method applyEnseignes with dtos: " + dtos);
+        Enseigne.deleteAll();
+        for (RefPayloads.EnseigneDto dto : dtos) {
+            Enseigne row = new Enseigne();
+            row.code = dto.code;
+            row.name = dto.name;
+            row.countryCode = dto.countryCode;
+            row.defaultLanguage = dto.defaultLanguage;
+            row.persist();
+        }
+        LOGGER.infof("Référentiel enseignes appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyEnseignes");
+    }
+
+    /**
+     * Applies a PDV snapshot (store node, route A): wholesale replacement. The
+     * enseigne link and the adhérent grouping travel by code, so a re-parenting
+     * done centrally lands as a plain field change here.
+     *
+     * @param dtos the full PDVs snapshot
+     */
+    @Transactional
+    public void applyPdvs(List<RefPayloads.PdvDto> dtos) {
+        LOGGER.info("Entering method applyPdvs with dtos: " + dtos);
+        Pdv.deleteAll();
+        for (RefPayloads.PdvDto dto : dtos) {
+            Pdv row = new Pdv();
+            row.pdvNumber = dto.pdvNumber;
+            row.name = dto.name;
+            row.enseigneCode = dto.enseigneCode;
+            row.adherentCode = dto.adherentCode;
+            row.active = dto.active;
+            row.persist();
+        }
+        LOGGER.infof("Référentiel PDV appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyPdvs");
+    }
+
+    /**
+     * Applies the profiles the central node administers (BO-01-03-04): upsert
+     * by name, every one marked central, the grants rewritten with their
+     * validating profile resolved by name; a central profile the centre no
+     * longer sends is removed with its assignments. The store's own profiles
+     * are untouched, unless the centre sends one of the same name, which it
+     * then takes over.
+     *
+     * @param dtos the full profile snapshot of the centre
+     */
+    @Transactional
+    public void applyProfiles(List<RefPayloads.ProfileDto> dtos) {
+        LOGGER.info("Entering method applyProfiles with " + dtos.size() + " profile(s)");
+        Map<String, Profile> byName = new HashMap<>();
+        for (RefPayloads.ProfileDto dto : dtos) {
+            Profile profile = Profile.findByName(dto.name);
+            if (profile == null) {
+                profile = new Profile();
+                profile.name = dto.name;
+            }
+            profile.description = dto.description;
+            profile.hierarchyLevel = dto.hierarchyLevel;
+            profile.centralManaged = true;
+            profile.persist();
+            byName.put(dto.name, profile);
+        }
+        for (RefPayloads.ProfileDto dto : dtos) {
+            Profile profile = byName.get(dto.name);
+            List<ProfileGrant> grants = new java.util.ArrayList<>();
+            for (RefPayloads.ProfileGrantDto g : dto.grants) {
+                CrudOption option = optionOf(g.option);
+                if (g.featureKey == null || option == null) {
+                    continue;
+                }
+                Profile validator = g.validatingProfileName == null ? null : byName.get(g.validatingProfileName);
+                if (validator == null && g.validatingProfileName != null) {
+                    validator = Profile.findByName(g.validatingProfileName);
+                }
+                grants.add(new ProfileGrant(g.featureKey, option, g.requiresValidation,
+                        validator == null ? null : validator.id));
+            }
+            profile.grants = grants;
+        }
+        long removed = 0;
+        for (Profile profile : Profile.<Profile>list("centralManaged", true)) {
+            if (!byName.containsKey(profile.name)) {
+                EmployeeProfile.delete("profileId", profile.id);
+                profile.delete();
+                removed++;
+            }
+        }
+        LOGGER.infof("Profils centraux appliqués: %d ligne(s), %d retiré(s)", dtos.size(), removed);
+        LOGGER.info("Exiting method applyProfiles");
+    }
+
+    /**
+     * Applies the accounts the central node administers for this point of
+     * sale (BO-01-01-03): upsert by login, both secret hashes included, every
+     * one marked central; a central account the centre no longer sends is
+     * deactivated. The local state of an account — failed attempts, lockout,
+     * theme — is kept, and the store's own accounts are untouched, unless the
+     * centre sends one of the same login, which it then takes over. An
+     * account whose address or badge another local account already holds is
+     * skipped: two holders of one badge would be one person at the register.
+     *
+     * @param dtos the accounts the centre hands to this point of sale
+     */
+    @Transactional
+    public void applyAccounts(List<RefPayloads.AccountDto> dtos) {
+        LOGGER.info("Entering method applyAccounts with " + dtos.size() + " account(s)");
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.AccountDto dto : dtos) {
+            Employee account = Employee.find("loginName", dto.loginName).firstResult();
+            Employee emailHolder = dto.email == null ? null : Employee.find("email", dto.email).firstResult();
+            if (emailHolder != null && (account == null || !emailHolder.id.equals(account.id))) {
+                LOGGER.warnf("Compte central %s ignoré : adresse %s déjà portée par %s",
+                        dto.loginName, dto.email, emailHolder.loginName);
+                continue;
+            }
+            if (account == null) {
+                account = new Employee();
+                account.loginName = dto.loginName;
+            }
+            Employee badgeHolder = dto.badgeId == null ? null : Employee.find("badgeId", dto.badgeId).firstResult();
+            if (badgeHolder != null && (account.id == null || !badgeHolder.id.equals(account.id))) {
+                LOGGER.warnf("Compte central %s ignoré : badge %s déjà porté par %s",
+                        dto.loginName, dto.badgeId, badgeHolder.loginName);
+                continue;
+            }
+            account.firstName = dto.firstName == null ? "" : dto.firstName;
+            account.lastName = dto.lastName;
+            account.email = dto.email;
+            account.password = dto.password;
+            account.role = Employee.EmployeeRole.valueOf(dto.role);
+            account.badgeId = dto.badgeId;
+            account.active = dto.active;
+            account.phone = dto.phone;
+            account.startDate = dto.startDate == null ? null : LocalDate.parse(dto.startDate);
+            account.department = dto.department;
+            account.hierarchyLevel = dto.hierarchyLevel;
+            account.language = dto.language;
+            account.echelonScopes = dto.echelonScopes;
+            account.authMode = Employee.AuthMode.from(dto.authMode);
+            account.mustChangePassword = dto.mustChangePassword;
+            account.passwordChangedAt = dto.passwordChangedAt == null
+                    ? null : LocalDateTime.parse(dto.passwordChangedAt);
+            account.supervisorCard = dto.supervisorCard;
+            account.dallasKey = dallasKeyFor(account, dto.loginName, dto.dallasKey);
+            account.centralManaged = true;
+            account.persist();
+            Employee.flush();
+            Employee.adoptBackOfficePasswordHash(account.id, dto.backOfficePassword);
+            seen.add(dto.loginName);
+        }
+        long deactivated = 0;
+        for (Employee account : Employee.<Employee>list("centralManaged", true)) {
+            if (!seen.contains(account.loginName) && account.active) {
+                account.active = false;
+                account.persist();
+                deactivated++;
+            }
+        }
+        LOGGER.infof("Comptes centraux appliqués: %d ligne(s), %d désactivé(s)", seen.size(), deactivated);
+        LOGGER.info("Exiting method applyAccounts");
+    }
+
+    /**
+     * Applies the profile assignments of the central accounts (BO-01-03-04):
+     * the central assignments are replaced as a whole, account by login and
+     * profile by name; an assignment naming an account or a profile this node
+     * does not hold is skipped. The store's own assignments are untouched.
+     *
+     * @param dtos the assignments the centre hands to this point of sale
+     */
+    @Transactional
+    public void applyAccountProfiles(List<RefPayloads.AccountProfileDto> dtos) {
+        LOGGER.info("Entering method applyAccountProfiles with " + dtos.size() + " assignment(s)");
+        EmployeeProfile.delete("centralManaged", true);
+        int applied = 0;
+        for (RefPayloads.AccountProfileDto dto : dtos) {
+            Employee account = Employee.find("loginName", dto.loginName).firstResult();
+            Profile profile = Profile.findByName(dto.profileName);
+            if (account == null || profile == null) {
+                continue;
+            }
+            EmployeeProfile binding = new EmployeeProfile();
+            binding.employeeId = account.id;
+            binding.profileId = profile.id;
+            binding.echelonScope = dto.echelonScope == null ? EmployeeProfile.GLOBAL : dto.echelonScope;
+            binding.centralManaged = true;
+            binding.persist();
+            applied++;
+        }
+        LOGGER.infof("Affectations centrales appliquées: %d ligne(s)", applied);
+        LOGGER.info("Exiting method applyAccountProfiles");
+    }
+
+    /**
+     * Resolves an option from its distributed name.
+     *
+     * @param name the name, possibly null
+     * @return the option, or null when unknown
+     */
+    static CrudOption optionOf(String name) {
+        for (CrudOption option : CrudOption.values()) {
+            if (option.name().equals(name)) {
+                return option;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Applies an echelon-parameters snapshot (store node, route A): wholesale
+     * replacement, then the settings cache is dropped so this store re-resolves
+     * its own PDV's effective values on the next read — this is what carries a
+     * value posed at the enseigne down to the registers, and what makes a
+     * future-dated value apply on its own once its day comes (BO-03-12-03/04).
+     * The store's OWN local overrides live in a different table ({@code
+     * pos_settings}) and are untouched, so they survive this apply.
+     *
+     * @param dtos the full echelon-settings snapshot
+     */
+    @Transactional
+    public void applyEchelonSettings(List<RefPayloads.EchelonSettingDto> dtos) {
+        LOGGER.info("Entering method applyEchelonSettings with dtos: " + dtos);
+        // Wholesale replacement of the CENTRAL levels only. The two levels below
+        // the PDV — ISLAND and CHECKOUT_POINT — are administered locally on this
+        // store node and are NOT part of the central snapshot, so a central pull
+        // must not wipe them (a plain deleteAll() would silently destroy the
+        // island and per-terminal settings on every pull).
+        EchelonSetting.delete("level in ?1",
+                List.of(EchelonLevel.COUNTRY, EchelonLevel.ENSEIGNE, EchelonLevel.PDV));
+        for (RefPayloads.EchelonSettingDto dto : dtos) {
+            EchelonSetting row = new EchelonSetting();
+            row.level = EchelonLevel.valueOf(dto.level);
+            row.echelonCode = dto.echelonCode;
+            row.settingKey = dto.settingKey;
+            row.settingValue = dto.settingValue;
+            row.pendingValue = dto.pendingValue;
+            row.effectiveDate = dto.effectiveDate != null ? LocalDate.parse(dto.effectiveDate) : null;
+            row.persist();
+        }
+        posSettingsService.invalidate();
+        LOGGER.infof("Paramètres d'échelon appliqués: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyEchelonSettings");
     }
 
     /**
@@ -1463,6 +2137,43 @@ public class RefApplyService {
         state.appliedAt = LocalDateTime.now();
         state.persist();
         LOGGER.info("Exiting method recordApplied");
+    }
+
+    /**
+     * Records one INTEGRATION RESULT, where the shop traces them
+     * (BO-10-08-23).
+     *
+     * <p>Beside {@link #recordApplied}, which keeps the state, and never
+     * instead of it: the state says what the node holds, this says what
+     * happened. Its own transaction, like every other write here, because the
+     * pull loop runs on a scheduler thread with none.
+     *
+     * <p>A failure to TRACE must never fail an integration, and a failure to
+     * integrate must still be traced: the caller therefore records the outcome
+     * after the fact, and this method swallows nothing but its own trouble.
+     *
+     * @param domain the referential domain
+     * @param fingerprint the fingerprint the node was reaching, or null
+     * @param outcome how the attempt ended
+     * @param detail what went wrong, or null for a success
+     */
+    @Transactional
+    public void recordAudit(String domain, String fingerprint,
+            RefApplyAudit.Outcome outcome, String detail) {
+        LOGGER.info("Entering method recordAudit with domain: " + domain);
+        if (!posSettingsService.referentialUpdateAuditEnabled()) {
+            LOGGER.info("Exiting method recordAudit");
+            return;
+        }
+        RefApplyAudit audit = new RefApplyAudit();
+        audit.domain = domain;
+        audit.appliedAt = LocalDateTime.now();
+        audit.fingerprint = fingerprint;
+        audit.outcome = outcome;
+        audit.detail = detail == null || detail.length() <= 500
+                ? detail : detail.substring(0, 500);
+        audit.persist();
+        LOGGER.info("Exiting method recordAudit");
     }
 
     /**
@@ -1512,5 +2223,116 @@ public class RefApplyService {
      */
     private LocalDateTime parse(String value) {
         return value != null ? LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+    }
+
+    /**
+     * Returns the Dallas key a pulled employee or a distributed account may
+     * carry here (BO-01-02-07): its own, unless another account of this node
+     * already holds it — the key is then left off with a warning rather than
+     * the whole referential failing on the unique column.
+     *
+     * @param account the employee or account being written
+     * @param loginName its login, for the warning
+     * @param key the distributed key, possibly null
+     * @return the key to store, or null
+     */
+    String dallasKeyFor(Employee account, String loginName, String key) {
+        if (key == null) {
+            return null;
+        }
+        Employee holder = Employee.find("dallasKey", key).firstResult();
+        if (holder != null && (account.id == null || !holder.id.equals(account.id))) {
+            LOGGER.warnf("Clé Dallas de %s ignorée : déjà portée par %s", loginName, holder.loginName);
+            return null;
+        }
+        return key;
+    }
+
+    /**
+     * Applies the cash-menu snapshot (BO-03-10-16/17): upsert by code, a model
+     * the snapshot no longer names deactivated rather than deleted, so a
+     * register whose parameter still names it falls back on every key instead
+     * of failing on a missing row.
+     *
+     * @param dtos the full snapshot
+     */
+    @Transactional
+    public void applyCashMenus(List<RefPayloads.CashMenuDto> dtos) {
+        LOGGER.info("Entering method applyCashMenus with " + dtos.size() + " model(s)");
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.CashMenuDto dto : dtos) {
+            if (dto.code == null || dto.code.isBlank()) {
+                continue;
+            }
+            com.intermarche.pos.domain.store.CashMenu menu =
+                    com.intermarche.pos.domain.store.CashMenu.findByCode(dto.code);
+            if (menu == null) {
+                menu = new com.intermarche.pos.domain.store.CashMenu();
+                menu.code = dto.code.trim();
+            }
+            menu.label = dto.label == null || dto.label.isBlank() ? menu.code : dto.label;
+            menu.active = dto.active;
+            menu.menuKeys = dto.menuKeys;
+            menu.hiddenFunctions = dto.hiddenFunctions;
+            menu.keyColumns = dto.keyColumns;
+            menu.cashierScreen = dto.cashierScreen;
+            menu.customerScreen = dto.customerScreen;
+            menu.ticketModel = dto.ticketModel;
+            menu.persist();
+            seen.add(menu.code);
+        }
+        for (com.intermarche.pos.domain.store.CashMenu menu
+                : com.intermarche.pos.domain.store.CashMenu
+                        .<com.intermarche.pos.domain.store.CashMenu>listAll()) {
+            if (!seen.contains(menu.code) && menu.active) {
+                menu.active = false;
+                menu.persist();
+            }
+        }
+        LOGGER.info("Exiting method applyCashMenus");
+    }
+
+    /**
+     * Applies the store record (BO-03-10-19/20, BO-03-12-01): the descriptive
+     * fields of the node's store are copied onto this node's single store row,
+     * created when it has none, so the document headers print what the back
+     * office states. The node-local theme and the GPS coordinates are kept.
+     *
+     * @param dtos the snapshot, one row at most
+     */
+    @Transactional
+    public void applyStore(List<RefPayloads.StoreDto> dtos) {
+        LOGGER.info("Entering method applyStore with " + dtos.size() + " row(s)");
+        if (dtos.isEmpty() || dtos.get(0).name == null || dtos.get(0).name.isBlank()) {
+            LOGGER.info("Exiting method applyStore");
+            return;
+        }
+        RefPayloads.StoreDto dto = dtos.get(0);
+        com.intermarche.pos.domain.store.Store store =
+                com.intermarche.pos.domain.store.Store.<com.intermarche.pos.domain.store.Store>findAll()
+                        .firstResult();
+        if (store == null) {
+            store = new com.intermarche.pos.domain.store.Store();
+            store.code = dto.code;
+        }
+        store.name = dto.name;
+        if (store.address == null) {
+            store.address = new com.intermarche.pos.domain.store.Address();
+        }
+        store.address.streetLine1 = dto.streetLine1;
+        store.address.streetLine2 = dto.streetLine2;
+        store.address.postalCode = dto.postalCode;
+        store.address.city = dto.city;
+        store.address.country = dto.country;
+        store.vatNumber = dto.vatNumber;
+        store.siret = dto.siret;
+        store.phone = dto.phone;
+        store.bankAccountNumber = dto.bankAccountNumber;
+        store.legalName = dto.legalName;
+        store.rcs = dto.rcs;
+        store.shareCapital = dto.shareCapital == null ? null : new java.math.BigDecimal(dto.shareCapital);
+        store.fax = dto.fax;
+        store.persist();
+        LOGGER.info("Exiting method applyStore");
     }
 }

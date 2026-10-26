@@ -340,6 +340,8 @@ class DrawerOperationsResourceTest {
 
         /** The amount of the last apport bordereau, or null when none. */
         private BigDecimal depositAmount;
+        /** LC-12-04-04: the actual operator badge passed to the slip. */
+        private String depositOperatorNumber;
 
         /** The lines of the last apport bordereau. */
         private List<String[]> depositLines = new ArrayList<>();
@@ -347,8 +349,9 @@ class DrawerOperationsResourceTest {
         /** {@inheritDoc} */
         @Override
         public void printDepositTicket(BigDecimal amount, List<String[]> lines,
-                                       String operator, String terminalId) {
+                                       String operator, String operatorNumber, String terminalId) {
             depositAmount = amount;
+            depositOperatorNumber = operatorNumber;
             depositLines = lines;
         }
     }
@@ -415,6 +418,7 @@ class DrawerOperationsResourceTest {
         resource.ticketNumberService = new FakeNumbers();
         resource.cashCountService = new CashCountService();
         resource.cashCountService.i18n = TestMessages.french();
+        resource.cashChangerService = org.mockito.Mockito.mock(com.intermarche.pos.ui.hardware.CashChangerService.class);
         settingsList("CASH:Espèces;CHEQUE:Chèques", "");
     }
 
@@ -1304,6 +1308,7 @@ class DrawerOperationsResourceTest {
         assertEquals("{\"b50\":1,\"b20\":1}", movements.recorded.denominationDetail);
         assertEquals(0, new BigDecimal("70").compareTo(printer.depositAmount));
         assertFalse(printer.depositLines.isEmpty());
+        assertEquals(state.auth.operatorBadgeId, printer.depositOperatorNumber);
     }
 
     /**
@@ -1328,5 +1333,90 @@ class DrawerOperationsResourceTest {
         assertEquals("/apport?ok=1", target(response));
         assertEquals("22222222", movements.recorded.endorsedBy);
         assertEquals(CashMovement.MovementType.DEPOSIT, movements.recorded.type);
+    }
+
+    /** LC-12: missing denomination detail is parked as empty, a refused safe deposit is rejected, and printing follows its switch. */
+    @Test
+    void safeDepositsAndMissingDetailsKeepTheirIndependentOutcomes() {
+        assertEquals("/apport", target(resource.recordApport("150", null)));
+        assertEquals("", endorsements.parkedForm.get("detail"));
+        assertEquals("/withdrawal?method=CASH", target(resource.recordSafeDeposit("150", null)));
+        assertEquals("", endorsements.parkedForm.get("detail"));
+        movements.refuse = true;
+        assertEquals("/withdrawal?error=endorsement&method=CASH", target(resource.recordSafeDeposit("50", "{}")));
+        movements.refuse = false;
+        settings.withdrawalPrint = true;
+        resource.recordSafeDeposit("50", "{}");
+        assertEquals(new BigDecimal("50"), printer.withdrawalAmount);
+        assertEquals("Prélèvement coffre", printer.withdrawalLabel);
+        assertNull(resource.messageOf("unknown"));
+        assertEquals(resource.i18n.get("op.destinationObligatoire"), resource.messageOf("destination"));
+    }
+
+    // ------------------------------------------------------- BO-11-03-03
+
+    /**
+     * Where the cash changer carries the movements, a loan is fed into it and
+     * what it accepted is recorded; a machine that accepted nothing, or could
+     * not be asked, records nothing and says so.
+     */
+    @Test
+    void aLoanGoesThroughTheCashChanger() {
+        org.mockito.Mockito.when(resource.cashChangerService.movementsViaMachine()).thenReturn(true);
+        org.mockito.Mockito.when(resource.cashChangerService.replenish(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BigDecimal("40.00"), BigDecimal.ZERO, null);
+        assertEquals("/apport?ok=1", target(resource.recordApport("50", "{\"b50\":1}")));
+        assertEquals(new BigDecimal("40.00"), movements.recorded.amount);
+        movements.recorded = null;
+        assertEquals("/apport?error=changer", target(resource.recordApport("20", "{}")));
+        assertEquals("/apport?error=changer", target(resource.recordApport("30", "{}")));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * A cash withdrawal is dispensed by the cash changer and recorded at what it
+     * dispensed; a non-cash one never goes near it; a machine that dispensed
+     * nothing, or could not be asked, records nothing.
+     */
+    @Test
+    void aCashWithdrawalIsDispensedByTheCashChanger() {
+        org.mockito.Mockito.when(resource.cashChangerService.movementsViaMachine()).thenReturn(true);
+        org.mockito.Mockito.when(resource.cashChangerService.dispense(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BigDecimal("45.00"), BigDecimal.ZERO, null);
+        assertEquals("/withdrawal?ok=1",
+                target(resource.recordWithdrawal(CashMovement.CASH, "50", "{}", "Caisse centrale")));
+        assertEquals(new BigDecimal("45.00"), movements.recorded.amount);
+        resource.recordWithdrawal("CHEQUE", "80", null, "Caisse centrale");
+        org.mockito.Mockito.verify(resource.cashChangerService, org.mockito.Mockito.times(1))
+                .dispense(org.mockito.ArgumentMatchers.any());
+        movements.recorded = null;
+        assertEquals("/withdrawal?error=changer&method=CASH",
+                target(resource.recordWithdrawal(CashMovement.CASH, "20", "{}", "Caisse centrale")));
+        assertEquals("/withdrawal?error=changer&method=CASH",
+                target(resource.recordWithdrawal(CashMovement.CASH, "30", "{}", "Caisse centrale")));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * A withdrawal to the safe is dispensed by the cash changer too; a machine
+     * that dispensed nothing, or could not be asked, records nothing.
+     */
+    @Test
+    void aSafeDepositIsDispensedByTheCashChanger() {
+        org.mockito.Mockito.when(resource.cashChangerService.movementsViaMachine()).thenReturn(true);
+        org.mockito.Mockito.when(resource.cashChangerService.dispense(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BigDecimal("50.00"), BigDecimal.ZERO, null);
+        assertEquals("/withdrawal?ok=1", target(resource.recordSafeDeposit("50", "{}")));
+        assertEquals(new BigDecimal("50.00"), movements.recorded.amount);
+        movements.recorded = null;
+        assertEquals("/withdrawal?error=changer&method=CASH", target(resource.recordSafeDeposit("20", "{}")));
+        assertEquals("/withdrawal?error=changer&method=CASH", target(resource.recordSafeDeposit("30", "{}")));
+        assertNull(movements.recorded);
+    }
+
+    /** The changer refusal is worded for the operator. */
+    @Test
+    void theChangerRefusalIsWorded() {
+        assertEquals("MONNAYEUR : MOUVEMENT NON RÉALISÉ, RIEN N'A ÉTÉ ENREGISTRÉ", resource.messageOf("changer"));
     }
 }

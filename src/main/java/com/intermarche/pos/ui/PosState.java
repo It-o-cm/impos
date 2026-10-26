@@ -48,6 +48,38 @@ public class PosState implements Serializable {
     /** The ticket being built. */
     public TicketState ticket = new TicketState();
 
+    /** LC-13-02-05/-07: scan-test labels must never enter the selling flow. */
+    public boolean maintenanceScanMode = false;
+
+    /** LC-13-02-05/-07: no maintenance screen scan can register a sale item. */
+    public boolean maintenanceScreenOpen = false;
+
+    /** LC-13-02-09/-14: latest independently classified peripheral states. */
+    public java.util.Map<String, String> peripheralAvailability = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** LC-13-02-11/-12: administered scanner deactivation held at lane entry. */
+    public boolean scannerDisabled = false;
+
+
+    /** LC-13-02-05/-07: latest simulator or forwarded diagnostic label. */
+    public String maintenanceScanCode = "";
+
+    /** LC-13-03-03: bridge confirmation page independent of the register process. */
+    public String workstationControlUrl = "";
+
+
+    /** LC-02-03-04: identifies the principal while its companion is admitted. */
+    public String linkedArticleParentUid;
+
+    /**
+     * The EAN of the article just rung whose complementary articles are to be
+     * suggested once the entry has settled (BO-02-03-16), or null. Consumed by
+     * the post-mutation funnel of the ticket service.
+     */
+    public String complementaryPendingEan;
+    /** Prevents nested additions from re-entering synchronization or valuation. */
+    public boolean linkedArticlesUpdating;
+
     /** The payment in progress. */
     public PaymentState payment = new PaymentState();
 
@@ -62,6 +94,11 @@ public class PosState implements Serializable {
 
     /** The price-modification modal state. */
     public PriceModState priceModState = new PriceModState();
+
+    /** LC-02-03-11: refused article message awaiting explicit acknowledgement. */
+    public String blockingArticleMessage;
+    /** Identifies the displayed message so a stale acknowledgement cannot clear a later one. */
+    public String blockingArticleMessageId;
 
     /** The pending age-check prompt (server-rendered modal on the sale screen). */
     public AgeCheckState ageCheck = new AgeCheckState();
@@ -151,6 +188,12 @@ public class PosState implements Serializable {
         /** The EAN of the article the add was suspended on. */
         public String ean;
 
+        /** LC-05-02-02: weighed identity retained while confirming its return price. */
+        public String plu;
+
+        /** Net weighing's applied tare, retained without weighing again. */
+        public BigDecimal appliedTareKg;
+
         /** The article's display label. */
         public String label;
 
@@ -167,17 +210,26 @@ public class PosState implements Serializable {
         public BigDecimal price = null;
 
         /**
+         * Whether the quantity asked must be a WHOLE number (BO-02-03-22): the
+         * "quantité à saisir" mode, as opposed to the decimal one (BO-02-03-23).
+         */
+        public boolean wholeQuantity = false;
+
+        /**
          * Clears the prompt, so the next add starts from nothing.
          */
         public void clear() {
             active = false;
             kind = null;
             ean = null;
+            plu = null;
+            appliedTareKg = null;
             label = null;
             unitName = "";
             unitPriceFormatted = "";
             quantity = BigDecimal.ONE;
             price = null;
+            wholeQuantity = false;
         }
 
         /**
@@ -323,12 +375,80 @@ public class PosState implements Serializable {
     public String recalledOrderCode = null;
 
     /**
+     * The codes of EVERY document a recall loaded into the current sale
+     * (LC-06-02-12): several sale vouchers may be settled in one transaction, and
+     * the closing tells the store node each of them was settled. Reset with the
+     * ticket.
+     */
+    public java.util.List<String> recalledDocumentCodes = new java.util.ArrayList<>();
+
+    /**
+     * A document recalled at the till and waiting for the cashier's choice
+     * (LC-06-02-04, -08): a deposit on it, or its settlement in the sale. Null when
+     * no document waits.
+     */
+    public com.intermarche.pos.ui.recall.RecalledDocument pendingDocument = null;
+
+    /**
+     * One-shot request, raised by a SCAN of a document that waits for that
+     * choice, for the sale screen to open the document screen; read and cleared
+     * by the sale screen's poll.
+     */
+    public boolean documentChoiceRequested = false;
+
+    /**
+     * The control of a selfscanning basket recalled at the till (LC-06-05-03 to
+     * -06), until the basket is loaded into the sale or put aside; null when no
+     * basket waits.
+     */
+    public com.intermarche.pos.ui.recall.SelfScanControl selfScan = null;
+
+    /**
+     * One-shot request, raised by a SCAN of a selfscanning basket, for the sale
+     * screen to open the selfscanning screen; read and cleared by the sale
+     * screen's poll.
+     */
+    public boolean selfScanRequested = false;
+
+    /**
+     * One-shot request, raised by a SCAN of a register-function barcode
+     * (BO-03-06-59), for the sale screen to open the screen of that function;
+     * read and cleared by the sale screen's poll, null when none is asked for.
+     */
+    public String functionPath = null;
+
+    /**
      * The label of the administered return TYPE the operator chose (LC-05-04-01),
      * or null when they used one of the two base gestures. It names the kind of
      * return in progress — a container, a defective article — on the screen and in
      * the journal, and it is dropped with the gesture it belongs to.
      */
     public String returnTypeLabel = null;
+
+    /**
+     * Whether the code being processed was KEYED by the cashier rather than
+     * read by the scanner (BO-06-04-05), raised for the duration of one scan.
+     */
+    public volatile boolean keyedEntry;
+
+    /**
+     * When the cashier opened the cash screen of the operation under way, in
+     * epoch milliseconds, 0 when none is (BO-06-06-03, {@code CashOperationTimer}).
+     */
+    public volatile long cashOperationStartedAt;
+
+    /**
+     * The TRAINING cart put on hold (BO-06-06-01): school mode writes no draft,
+     * so the parked cart's lines wait here, empty when none waits.
+     */
+    public java.util.List<com.intermarche.pos.ui.ticket.TicketState.TicketItem> trainingParkedItems =
+            new java.util.ArrayList<>();
+
+    /** The training row recording the parked cart, or null when none waits. */
+    public Long trainingParkedId;
+
+    /** When the training cart was parked, or null. */
+    public java.time.LocalDateTime trainingParkedAt;
 
     /**
      * True while the register runs in training mode: nothing is persisted
@@ -349,6 +469,18 @@ public class PosState implements Serializable {
      * not greet the French-speaking one who takes the post after them.
      */
     public String language = null;
+
+    /**
+     * The language the CUSTOMER chose on the customer display for the current
+     * transaction, or null when they chose none (LC-13-06-08 / -13).
+     * <p>
+     * It governs only what faces the customer — the customer display and the
+     * receipt of the sale — never the cashier's screen, which stays in the
+     * operator's language. Dropped by {@link #clearTicket()}: the choice belongs
+     * to the customer at the till, and the next one is greeted in the store's
+     * languages again.
+     */
+    public String customerLanguage = null;
 
     /** Version counter used by the UI polling. */
     public long version = 0;
@@ -383,6 +515,9 @@ public class PosState implements Serializable {
 
     /** Database id of the last closed ticket, or null. */
     public Long lastClosedTicketId = null;
+
+    /** LC-08-02-05: last sale's offered address survives clearing the current loyalty card. */
+    public String lastClosedTicketEmail = null;
 
     /**
      * One-shot request raised when a CLOSED ticket number is scanned on the sale
@@ -692,6 +827,12 @@ public class PosState implements Serializable {
      * would be missing from the others.
      */
     public void clearTicket() {
+        // LC-02-03-11: an externally closed or discarded sale cannot retain its refusal prompt.
+        blockingArticleMessage = null;
+        blockingArticleMessageId = null;
+        linkedArticleParentUid = null;
+        linkedArticlesUpdating = false;
+        complementaryPendingEan = null;
         ticket.clear();
         menu = PosMenu.ARTICLES;
         fidelity.clear();
@@ -712,9 +853,17 @@ public class PosState implements Serializable {
         supervisorSessionBadge = null;
         cancelByScanArmed = false;
         recalledOrderCode = null;
+        recalledDocumentCodes.clear();
+        pendingDocument = null;
+        documentChoiceRequested = false;
+        selfScan = null;
+        selfScanRequested = false;
+        functionPath = null;
         // LC-03-07-01: the beginning-of-transaction survey is asked once per
         // TRANSACTION — the next customer's basket is a new one.
         surveyTransactionStartAsked = false;
+        // LC-13-06-08 / -13: the customer's language leaves with the customer.
+        customerLanguage = null;
     }
 
     /**
@@ -788,6 +937,34 @@ public class PosState implements Serializable {
     }
 
     /**
+     * When this register first saw the ADMINISTERED degraded mode switched on
+     * (BO-03-02-48), or null while it is off.
+     */
+    public java.time.LocalDateTime administeredDegradedSince = null;
+
+    /**
+     * Tells whether the degraded mode the back office switched on still holds
+     * on this register (BO-03-02-48): it lapses by itself once the
+     * administered delay has run since the register first saw it, and is
+     * armed again only once the back office has switched it off and on.
+     *
+     * @param administered whether the back office currently switches it on
+     * @param minutes the administered delay, at least one minute
+     * @return true while the administered degraded mode holds
+     */
+    public boolean administeredDegradedActive(boolean administered, int minutes) {
+        if (!administered) {
+            administeredDegradedSince = null;
+            return false;
+        }
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        if (administeredDegradedSince == null) {
+            administeredDegradedSince = now;
+        }
+        return !administeredDegradedSince.plusMinutes(Math.max(1, minutes)).isBefore(now);
+    }
+
+    /**
      * The legal cash-rounding step in cents, refreshed from the back office at
      * payment entry; zero or one means this shop does not round
      * ({@code LC-07-03-01}).
@@ -838,6 +1015,27 @@ public class PosState implements Serializable {
      */
     public String getCashRoundedRemainingNumpad() {
         return String.format("%.2f", getCashRoundedRemaining());
+    }
+
+    /**
+     * Supplies one to five cash amount keys, exact cash remainder first
+     * (LC-07-02-02 through LC-07-02-07, LC-07-03-04).
+     *
+     * @return distinct amounts including the rounded cash remainder
+     */
+    public java.util.List<BigDecimal> getCashAmountSuggestions() {
+        return com.intermarche.pos.ui.payment.CashAmountSuggestions.amounts(
+                getRemaining(), cashRoundingStepCents);
+    }
+
+    /**
+     * Supplies labelled coin and note keys allowed by the rounding rule
+     * (LC-07-02-09, LC-07-03-04).
+     *
+     * @return the tenderable euro denominations
+     */
+    public java.util.List<BigDecimal> getCashDenominations() {
+        return com.intermarche.pos.ui.payment.CashAmountSuggestions.denominations(cashRoundingStepCents);
     }
 
     /**

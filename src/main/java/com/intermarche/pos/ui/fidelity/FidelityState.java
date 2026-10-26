@@ -86,6 +86,23 @@ public class FidelityState implements Serializable {
      */
     public java.math.BigDecimal balanceAfter = null;
 
+    /**
+     * The balance of each pot of the attached card as the programme computed it
+     * with the current transaction (BO-10-02-33 — the FID Portugal cagnottes),
+     * read when the store administers it: on the fidelity screen and again at
+     * the fiscal moment, so the closing leaves the final figures here. Empty
+     * when not requested, without a card or with the programme unreachable.
+     */
+    public java.util.List<ImfidClient.PotBalance> potBalances = new java.util.ArrayList<>();
+
+    /**
+     * The programme's MESSAGES for the current transaction (BO-03-03-26,
+     * BO-03-03-27): the short advantage message and the commercial messages
+     * of the last projection, frozen on the ticket at closing. Empty when the
+     * programme sent none or could not be reached.
+     */
+    public ImfidClient.LoyaltyMessages messages = new ImfidClient.LoyaltyMessages();
+
     /** One displayed earn line: the rule label, its amount and its advantage grouping. */
     public static class EarnLine implements Serializable {
         private static final long serialVersionUID = 1L;
@@ -153,6 +170,7 @@ public class FidelityState implements Serializable {
         balanceAsOf = null;
         anonymousProjection = false;
         fidelityWarnings = new java.util.ArrayList<>();
+        messages = new ImfidClient.LoyaltyMessages();
     }
 
     /**
@@ -177,6 +195,12 @@ public class FidelityState implements Serializable {
 
     /** ACTIVE | PENDING_ACTIVATION | RESILIATED, read at attachment, or null. */
     public String accountStatus = null;
+
+    /**
+     * The language the loyalty base records for the holder, read at attachment
+     * (LC-13-06-09, -14), or null.
+     */
+    public String holderLanguage = null;
 
     /**
      * The AVAILABLE balance read at attachment (spec §4 — net of leases),
@@ -294,7 +318,9 @@ public class FidelityState implements Serializable {
             this.holderFirstName = null;
             this.holderEmail = null;
             this.accountStatus = null;
+            this.holderLanguage = null;
             this.availableBalance = null;
+            this.potBalances = new java.util.ArrayList<>();
             // A card never inherits the promotions of the one it replaces:
             // they are the former holder's personal rights.
             this.cardPromotions = new java.util.ArrayList<>();
@@ -324,8 +350,13 @@ public class FidelityState implements Serializable {
         holderFirstName = null;
         holderEmail = null;
         accountStatus = null;
+        holderLanguage = null;
         availableBalance = null;
         balanceAfter = null;
+        potBalances = new java.util.ArrayList<>();
+        // The holder's personal promotions leave with the card: the next
+        // customer's basket must not carry them to the engine.
+        cardPromotions = new java.util.ArrayList<>();
         pendingReplacementCard = null;
         clearLookup();
     }

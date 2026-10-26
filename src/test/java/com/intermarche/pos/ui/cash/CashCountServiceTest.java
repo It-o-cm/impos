@@ -95,4 +95,47 @@ class CashCountServiceTest {
         assertItem(items.get(4), "r010", "Rouleau 0.10€ (4€)", 4.0);
         assertItem(items.get(5), "r005", "Rouleau 0.05€ (2€)", 2.0);
     }
+
+    /** LC-12: malformed pairs, nonpositive quantities and unknown ids never become denomination slip lines. */
+    @org.junit.jupiter.api.Test
+    void coverageDenominationDetailLegs() {
+        org.junit.jupiter.api.Assertions.assertTrue(service.denominationLines(null, service.getBills()).isEmpty());
+        org.junit.jupiter.api.Assertions.assertTrue(service.denominationLines(" ", service.getBills()).isEmpty());
+        var lines = service.denominationLines("bad,b50:0,b20:-1,unknown:1,b10:2", service.getBills());
+        org.junit.jupiter.api.Assertions.assertEquals(1, lines.size());
+        org.junit.jupiter.api.Assertions.assertEquals("Billet 10 € x2", lines.getFirst()[0]);
+        org.junit.jupiter.api.Assertions.assertEquals("20,00 E", lines.getFirst()[1]);
+    }
+    /** LC-12: a corrupt quantity is omitted without dropping the subsequent valid denomination; covers the numeric failure path. */
+    @Test
+    void corruptDenominationQuantityDoesNotHideValidCash() {
+        var service = new CashCountService();
+        service.i18n = com.intermarche.pos.ui.TestMessages.french();
+        var lines = service.denominationLines("b50:invalid,b10:2", service.getBills());
+        assertEquals(1, lines.size());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new String[]{"Billet 10 € x2", "20,00 E"}, lines.getFirst());
+    }
+
+
+    /**
+     * BO-03-02-42: the rolls offered to the count are the ADMINISTERED
+     * composition — face value, coin count and amount — under the ids the
+     * count detail always used; an empty composition keeps the usual rolls.
+     */
+    @Test
+    void getRollsFollowsTheAdministeredComposition() {
+        CashCountService administered = new CashCountService();
+        administered.i18n = com.intermarche.pos.ui.TestMessages.french();
+        administered.posSettingsService = org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        org.mockito.Mockito.when(administered.posSettingsService.changeOrderRollValues())
+                .thenReturn("2:50.00:25;0.05:2.00:40");
+        List<CashItem> rolls = administered.getRolls();
+        assertEquals(2, rolls.size());
+        assertEquals("r2", rolls.get(0).id);
+        assertEquals("Rouleau 2€ × 25 (50.00€)", rolls.get(0).label);
+        assertEquals(50.0, rolls.get(0).value);
+        assertEquals("r005", rolls.get(1).id);
+        org.mockito.Mockito.when(administered.posSettingsService.changeOrderRollValues()).thenReturn("");
+        assertEquals(6, administered.getRolls().size());
+    }
 }

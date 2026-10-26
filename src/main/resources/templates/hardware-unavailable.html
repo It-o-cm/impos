@@ -14,7 +14,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{inject:i18n.get('hardwareunavailable.materielIndisponible')}</title>
+    <title>{#if allAvailable}{inject:i18n.get('hardwareunavailable.materielDisponible')}{#else}{inject:i18n.get('hardwareunavailable.materielIndisponible')}{/if}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -53,7 +53,7 @@
           <h2>{inject:i18n.get('hardwareunavailable.materielDisponible')}</h2>
           <p class="hint">{inject:i18n.get('hardwareunavailable.toutMaterielCaisseRepond')}</p>
         {#else}
-          <h2>Matériel indisponible</h2>
+          <h2>{inject:i18n.get('hardwareunavailable.materielIndisponible')}</h2>
           <p class="hint">{inject:i18n.get('hardwareunavailable.retablissezMaterielOuvrezCaisse')}</p>
         {/if}
         {#for device in devices}

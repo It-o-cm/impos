@@ -166,6 +166,16 @@ public class InvoiceRepository {
     }
 
     /**
+     * Returns the documents the back office created and activated for the
+     * registers ({@code BO-03-04-06}, {@code -09}), in administered order.
+     *
+     * @return the active documents, empty when the shop created none
+     */
+    public List<com.intermarche.pos.domain.setting.PrintableDocument> activePrintableDocuments() {
+        return com.intermarche.pos.domain.setting.PrintableDocument.listActiveOrdered();
+    }
+
+    /**
      * Writes a customer.
      *
      * @param customer the customer to write

@@ -37,6 +37,9 @@ public class PaymentState implements Serializable {
     /** True once the remaining due reaches zero. */
     public boolean transactionComplete = false;
 
+    /** LC-07-16-01: prevents duplicate drawer orders for a completed sale. */
+    public boolean settlementDrawerOpened = false;
+
     /** The database id of the draft ticket, or null before creation. */
     public Long ticketDbId = null;
 
@@ -45,6 +48,82 @@ public class PaymentState implements Serializable {
      * no card request is pending (phase 6: the simulator accepts or refuses).
      */
     public BigDecimal pendingCardAmount = null;
+
+    /**
+     * The terminal callback of the card transaction pending, or null: the
+     * only callback whose decision may settle it, consumed by the decision —
+     * a decision arriving for a transaction already settled, cancelled or
+     * replaced is ignored. Never serialized: it lives with the exchange.
+     */
+    public transient com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback pendingCardCallback = null;
+
+    /**
+     * The gift card whose balance the payment hub just stated, waiting for the
+     * operator to choose the amount it pays (LC-07-11-01), or null.
+     */
+    public PendingGiftCard pendingGiftCard = null;
+
+    /**
+     * A gift card read on the payment hub, its balance shown to the operator
+     * before any payment is asked for (LC-07-11-01).
+     */
+    public static class PendingGiftCard implements Serializable {
+
+        /** The card's unique code. */
+        public final String cardNumber;
+
+        /** What the card carries, as the hub stated it. */
+        public final BigDecimal balance;
+
+        /** The provider of the card, as the hub named it, or null. */
+        public final String provider;
+
+        /** The amount proposed: the balance, or what is left to pay when less. */
+        public final BigDecimal suggested;
+
+        /**
+         * Holds a card read on the hub.
+         *
+         * @param cardNumber the card's unique code
+         * @param balance what the card carries
+         * @param provider the provider, or null
+         * @param suggested the amount proposed
+         */
+        public PendingGiftCard(String cardNumber, BigDecimal balance, String provider,
+                               BigDecimal suggested) {
+            this.cardNumber = cardNumber;
+            this.balance = balance;
+            this.provider = provider;
+            this.suggested = suggested;
+        }
+
+        /**
+         * The card's code as the screen shows it, last four characters only.
+         *
+         * @return the masked code
+         */
+        public String getMasked() {
+            return cardNumber.length() <= 4 ? cardNumber : "****" + cardNumber.substring(cardNumber.length() - 4);
+        }
+
+        /**
+         * The balance as the screen writes it.
+         *
+         * @return the balance, two decimals
+         */
+        public String getBalanceFormatted() {
+            return String.format("%.2f", balance);
+        }
+
+        /**
+         * The proposed amount as the keypad takes it.
+         *
+         * @return the amount, two decimals
+         */
+        public String getSuggestedNumpad() {
+            return String.format("%.2f", suggested);
+        }
+    }
 
     /**
      * Authorization number returned by the terminal for the card payment being
@@ -68,6 +147,20 @@ public class PaymentState implements Serializable {
      * ephemeral, cleared once the entry is built.
      */
     public String pendingCardEntryMode = null;
+
+    /** LC-07-08-01: live vendor display, never a generated offline approval. */
+    public volatile String terminalLine1 = "";
+    /** LC-07-08-01: second live terminal display line. */
+    public volatile String terminalLine2 = "";
+
+    /** LC-07-05-06: front printing owns the cheque path until it completes. */
+    public boolean chequeFrontPrinting;
+
+    /** LC-07-06-02: remembers which terminal flow a supervisor is authorizing before it starts. */
+    public boolean tenderHeldCombined;
+
+    /** LC-07-07-03: selected server waiting for the payment persistence boundary. */
+    public String pendingMoneticServer;
 
     /**
      * True when a card payment of this transaction asked for the customer's
@@ -100,6 +193,58 @@ public class PaymentState implements Serializable {
      */
     public BigDecimal pendingChequeAmount = null;
 
+    /** LC-07-10-05: reserved loyalty amount awaiting a handwritten signature. */
+    public BigDecimal pendingFidelitySignatureAmount = null;
+
+    /**
+     * The amount due on the cash changer while a deposit runs, or null when none
+     * does (LC-07-15-01). Like the card, the deposit is registered only once the
+     * machine has closed it: coins in the machine are not yet a settlement.
+     */
+    public BigDecimal cashChangerDue = null;
+
+    /** What the customer has fed into the cash changer so far (LC-07-15-02). */
+    public BigDecimal cashChangerInserted = null;
+
+    /**
+     * The outcome of a deposit the machine closed, deposited by the following
+     * thread for the next request to register, or null.
+     */
+    public com.intermarche.pos.ui.hardware.CashChangerService.Deposit cashChangerOutcome = null;
+
+    /** The failure of a deposit, deposited by the following thread, or null. */
+    public String cashChangerFailure = null;
+
+    /**
+     * The amount due on the cash changer, French comma (LC-07-15-02).
+     *
+     * @return the formatted amount, empty when no deposit runs
+     */
+    public String getCashChangerDueFormatted() {
+        return formatAmount(cashChangerDue);
+    }
+
+    /**
+     * What the customer has fed into the cash changer, French comma
+     * (LC-07-15-02).
+     *
+     * @return the formatted amount, empty when no deposit runs
+     */
+    public String getCashChangerInsertedFormatted() {
+        return formatAmount(cashChangerInserted);
+    }
+
+    /**
+     * Formats an amount with two decimals and a French comma.
+     *
+     * @param amount the amount, possibly null
+     * @return the formatted amount, empty when null
+     */
+    private static String formatAmount(BigDecimal amount) {
+        return amount == null ? ""
+                : amount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().replace('.', ',');
+    }
+
     /**
      * The magnetic line of the cheque being registered, or null when none was read.
      * <p>
@@ -107,6 +252,36 @@ public class PaymentState implements Serializable {
      * the persisted {@code ChequePayment} carries no column for it yet.
      */
     public String pendingChequeLine = null;
+
+    /**
+     * The administered tender the next settlement of its nature is taken as
+     * (BO-03-02-01), or null: set by the key of a tender the store added, and
+     * consumed by the settlement it names.
+     */
+    public String selectedTenderCode = null;
+
+    /**
+     * True while the held settlement is a cheque waiting for its AUTHORIZATION
+     * before it is read (BO-03-02-24): the supervisor's answer then starts the
+     * reading instead of registering a cheque nobody read.
+     */
+    public boolean chequeHeldBeforeReading = false;
+
+    /** The account number keyed for the cheque being taken (BO-03-02-24), or null. */
+    public String pendingChequeAccount = null;
+
+    /** The cheque-guarantee authorization of the cheque being taken (BO-03-02-24), or null. */
+    public String pendingChequeGuarantee = null;
+
+    /** The cheque-guarantee provider that authorized the cheque being taken (BO-03-02-24), or null. */
+    public String pendingChequeGuaranteeProvider = null;
+
+    /**
+     * The change of the last foreign-currency settlement, given back IN that
+     * currency (BO-03-02-39), formatted with its unit, or null when the change
+     * was given in euros.
+     */
+    public String lastChangeForeign = null;
 
     /**
      * Outcome of the remote valuation at payment entry (phase 7): LOCAL
@@ -173,6 +348,19 @@ public class PaymentState implements Serializable {
      */
     public boolean paymentInProgress = false;
 
+    /**
+     * True while the RESTO FLASH zone of the payment screen is open (EXP-67):
+     * the next code the scanner reads is the customer's mobile token, delivered
+     * to the Resto Flash confirmation instead of the sale's scan chain. Armed by
+     * the screen when the zone opens, consumed by one reading, and dropped at
+     * every page navigation ({@link RestoFlashScanFilter}): a page drawn afresh
+     * has every input zone closed.
+     */
+    public boolean restoFlashScanArmed = false;
+
+    /** LC-07-01-02/-05: the operator requested a return with settlements present. */
+    public boolean returnCancellationOffered = false;
+
     /** Current page of the payment history (previous / next). */
     public int currentPage = 0;
 
@@ -199,6 +387,12 @@ public class PaymentState implements Serializable {
 
     /** True when the cashier must type the voucher amount. */
     public boolean pendingVoucherNeedsAmount = false;
+
+    /**
+     * True while the voucher being applied was read as a GS1 payload, so its
+     * reading is journalled as such (BO-11-01-18).
+     */
+    public boolean pendingVoucherGs1 = false;
 
     /** The current voucher entry error, or null. */
     public String voucherError = null;
@@ -266,6 +460,8 @@ public class PaymentState implements Serializable {
         tenderHeldAmount = null;
         tenderHeldMessage = null;
         tenderOverride = null;
+        tenderHeldCombined = false;
+        chequeHeldBeforeReading = false;
     }
 
     /**
@@ -619,6 +815,9 @@ public class PaymentState implements Serializable {
 
     public void clearPayments() {
         payments.clear();
+        settlementDrawerOpened = false;
+        pendingFidelitySignatureAmount = null;
+        returnCancellationOffered = false;
         paidAmount = BigDecimal.ZERO;
         currentPage = 0;
         clearTemporaryInputs();
@@ -653,14 +852,27 @@ public class PaymentState implements Serializable {
         transactionComplete = false;
         ticketDbId = null;
         paymentInProgress = false;
+        restoFlashScanArmed = false;
         pendingCardAmount = null;
+        pendingCardCallback = null;
+        pendingGiftCard = null;
         pendingChequeAmount = null;
+        cashChangerDue = null;
+        cashChangerInserted = null;
+        cashChangerOutcome = null;
+        cashChangerFailure = null;
         pendingChequeLine = null;
+        selectedTenderCode = null;
+        pendingChequeAccount = null;
+        pendingChequeGuarantee = null;
+        pendingChequeGuaranteeProvider = null;
+        lastChangeForeign = null;
         chequeReadLine = null;
         chequeReadFailure = null;
         pendingCardAuthNumber = null;
         pendingCardDegraded = false;
         pendingCardEntryMode = null;
+        pendingMoneticServer = null;
         cardSignatureRequired = false;
         printChoice = null;
         printApplied = false;
@@ -686,6 +898,7 @@ public class PaymentState implements Serializable {
         pendingVoucherLabel = null;
         pendingVoucherNumber = null;
         pendingVoucherNeedsAmount = false;
+        pendingVoucherGs1 = false;
         voucherError = null;
     }
 
@@ -807,14 +1020,65 @@ public class PaymentState implements Serializable {
         /** The card authorization number (BO-04-01-08), or null. */
         public String authorizationNumber;
 
+        /**
+         * The payment hub's identifier of a gift-card payment (LC-07-11-01), or
+         * null on any other settlement: the reference its reversal gives back.
+         */
+        public String hubReference;
+
+        /** The gift card a hub settlement was paid with (LC-07-11-01), or null. */
+        public String hubCardNumber;
+
+        /** The provider of that card, as the hub named it (LC-07-11-03), or null. */
+        public String hubProvider;
+
+        /** The provider's own code for the payment (LC-07-11-03), or null. */
+        public String hubApproval;
+
+        /** What the card carried before the payment (LC-07-11-03), or null. */
+        public BigDecimal hubBalanceBefore;
+
+        /** What the card carries after the payment (LC-07-11-03), or null. */
+        public BigDecimal hubBalanceAfter;
+
+        /** Set once the hub gave the payment back (LC-07-11-01); never persisted. */
+        public transient boolean hubReversed;
+
         /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
         public boolean degradedMode;
 
         /** The real card entry mode (EXP-54): SANS_CONTACT, CODE, or null. */
         public String cardEntryMode;
 
+        /** LC-07-07-03: server returned for this precise settlement. */
+        public String moneticServer;
+
+        /** LC-07-04-10/-11: ephemeral WCL customer frame, never sent to store synchronization. */
+        public transient String customerReceiptFrame;
+
+        /** LC-07-04-11: merchant frame is printed only and must never be archived. */
+        public transient String merchantReceiptFrame;
+
+        /** LC-07-17-05: additional terminal receipts live only until this sale clears. */
+        public transient java.util.List<String> additionalReceiptFrames;
+
         /** The CMC7 magnetic line read off the cheque, or null. */
         public String magneticLine;
+
+        /** The account number keyed for the cheque (BO-03-02-24), or null. */
+        public String chequeAccountNumber;
+
+        /** The cheque-guarantee authorization number (BO-03-02-24), or null. */
+        public String chequeGuaranteeAuthorization;
+
+        /** The cheque-guarantee provider that authorized the cheque (BO-03-02-24), or null. */
+        public String chequeGuaranteeProvider;
+
+        /**
+         * The administered tender this settlement was taken as (BO-03-02-01/-44),
+         * or null when it was taken as its nature itself.
+         */
+        public String tenderCode;
 
         /** The scheme a backup-monetics settlement reported (LC-07-07-08), or null. */
         public String backupMethodLabel;
@@ -824,6 +1088,21 @@ public class PaymentState implements Serializable {
 
         /** True when a backup-monetics outcome was keyed in rather than scanned. */
         public boolean backupManual;
+
+        /**
+         * True on the cash given back by a card CASHBACK (LC-07-04-07/08): a
+         * negative cash settlement, so the drawer accounts for the notes that
+         * left it, named as a cashback wherever it is shown.
+         */
+        public boolean cashback;
+
+        /**
+         * True on cash taken by the cash changer (LC-07-15-03): registered as
+         * cash like any other, but the notes are in the machine, not in the
+         * drawer — the drawer stays shut and the amount is transferred to the
+         * safe when the sale closes (LC-07-15-04).
+         */
+        public boolean cashChanger;
 
         /** The ISO code of the currency handed over (LC-07-14), or null. */
         public String currencyCode;

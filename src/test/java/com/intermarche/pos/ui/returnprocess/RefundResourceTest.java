@@ -62,16 +62,19 @@ class RefundResourceTest {
     /**
      * Stubs the {@code return-search} template to return a recognizable view for
      * the given resource's state, through the two-step render the search page now
-     * uses: the state, then the administered return types (LC-05-04-01).
+     * uses: the state, the administered return types (LC-05-04-01), then whether
+     * the original ticket must be identified (BO-03-13-04).
      *
      * @param resource the resource whose {@code returnSearchPage} template is stubbed
      * @return the view the search render returns
      */
     private TemplateInstance stubSearch(RefundResource resource) {
         TemplateInstance withState = mock(TemplateInstance.class);
+        TemplateInstance withTypes = mock(TemplateInstance.class);
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.returnSearchPage.data("state", resource.state)).thenReturn(withState);
-        when(withState.data(eq("returnTypes"), any())).thenReturn(view);
+        when(withState.data(eq("returnTypes"), any())).thenReturn(withTypes);
+        when(withTypes.data(eq("identificationForced"), any())).thenReturn(view);
         return view;
     }
 
@@ -445,4 +448,49 @@ class RefundResourceTest {
         verify(resource.state.refund).clear();
         verify(resource.state).touch();
     }
+
+    /** LC-04-05-02: each rendered search result identifies its date, ticket, checkout and amount, even on a legacy row without checkout identity. */
+    @Test
+    void searchResultsRenderAllTicketIdentifiers() throws Exception {
+        String source = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/templates/return-search.html"));
+        var engine = io.quarkus.qute.Engine.builder().addDefaults()
+                .addValueResolver(new io.quarkus.qute.ReflectionValueResolver())
+                .addValueResolver(io.quarkus.qute.ValueResolver.builder()
+                        .applyToBaseClass(java.time.LocalDateTime.class).applyToName("format").applyToParameters(1)
+                        .resolveAsync(context -> context.evaluate(context.getParams().getFirst()).thenApply(pattern ->
+                                ((java.time.LocalDateTime) context.getBase()).format(java.time.format.DateTimeFormatter.ofPattern(pattern.toString())))).build())
+                .addNamespaceResolver(io.quarkus.qute.NamespaceResolver.builder("inject")
+                        .resolve(context -> com.intermarche.pos.ui.TestMessages.french()).build()).build();
+        engine.parse(source);
+        int start = source.indexOf("{#for t in state.refund.foundTickets}");
+        int end = source.indexOf("{/for}", start) + "{/for}".length();
+        var view = engine.parse(source.substring(start, end));
+        var ticket = new com.intermarche.pos.domain.sale.Ticket();
+        ticket.id = 7L;
+        ticket.ticketNumber = "TICKET-7";
+        ticket.terminalId = "C04";
+        ticket.creationDate = java.time.LocalDateTime.of(2026, 10, 20, 12, 34);
+        ticket.totalIncludingTax = new java.math.BigDecimal("12.50");
+        var state = new com.intermarche.pos.ui.PosState();
+        state.refund.foundTickets = java.util.List.of(ticket);
+        String html = view.data("state", state).render();
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("TICKET-7"));
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("20/10"));
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("12:34"));
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("CAISSE C04"));
+        org.junit.jupiter.api.Assertions.assertTrue(html.contains("12,50"));
+        ticket.terminalId = null;
+        org.junit.jupiter.api.Assertions.assertTrue(view.data("state", state).render().contains("CAISSE —"));
+    }
+
+    /** LC-04-05-01: combined return filters use the same PRG route as the ordinary search. */
+    @Test
+    void combinedSearchDelegatesAndReturnsToTheSearchScreen() {
+        var resource = newResource();
+        var criteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
+        criteria.loyaltyCard = "12345";
+        assertEquals("/return", resource.searchCriteria(criteria).getLocation().toString());
+        verify(resource.refundService).searchCriteria(resource.state, criteria);
+    }
+
 }

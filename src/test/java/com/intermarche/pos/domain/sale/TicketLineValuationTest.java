@@ -83,6 +83,24 @@ class TicketLineValuationTest {
     }
 
     /**
+     * The default constructor leaves the correction label unset (null).
+     */
+    @Test
+    void defaultConstructorLeavesCorrectionLabelNull() {
+        TicketLineValuation valuation = new TicketLineValuation();
+        Assertions.assertNull(valuation.correctionLabel);
+    }
+
+    /**
+     * The default constructor leaves the correction amount unset (null).
+     */
+    @Test
+    void defaultConstructorLeavesCorrectionAmountNull() {
+        TicketLineValuation valuation = new TicketLineValuation();
+        Assertions.assertNull(valuation.correctionAmount);
+    }
+
+    /**
      * The valued ticket field round-trips the reference assigned to it.
      */
     @Test
@@ -154,5 +172,26 @@ class TicketLineValuationTest {
         BigDecimal advantageAmount = new BigDecimal("1.10");
         valuation.advantageAmount = advantageAmount;
         Assertions.assertSame(advantageAmount, valuation.advantageAmount);
+    }
+
+    /**
+     * The correction label field round-trips the value assigned to it.
+     */
+    @Test
+    void correctionLabelFieldRoundTripsAssignedValue() {
+        TicketLineValuation valuation = new TicketLineValuation();
+        valuation.correctionLabel = "CORR-1";
+        Assertions.assertEquals("CORR-1", valuation.correctionLabel);
+    }
+
+    /**
+     * The correction amount field round-trips the value assigned to it.
+     */
+    @Test
+    void correctionAmountFieldRoundTripsAssignedValue() {
+        TicketLineValuation valuation = new TicketLineValuation();
+        BigDecimal correctionAmount = new BigDecimal("2.20");
+        valuation.correctionAmount = correctionAmount;
+        Assertions.assertSame(correctionAmount, valuation.correctionAmount);
     }
 }

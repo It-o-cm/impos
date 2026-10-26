@@ -39,6 +39,9 @@ public class ThemeService {
     /** The built-in default theme name (the historical dark look). */
     public static final String DEFAULT_THEME = "sombre";
 
+    /** The virtual keyboard layout drawn when none can be read (LC-09-01-09). */
+    public static final String DEFAULT_KEYBOARD_LAYOUT = "AZERTY";
+
     /**
      * The selectable theme names, in display order — every entry must have
      * its token block in theme.html (the default needs none: it is :root).
@@ -193,6 +196,27 @@ public class ThemeService {
                 return handle.isAvailable() && handle.get().enterAsTotal();
             } catch (Exception e) {
                 return false;
+            }
+        }
+
+        /**
+         * The letter layout of the virtual keyboards (LC-09-01-09), available
+         * in every template as {@code {posKeyboardLayout}} — the keyboard
+         * library reads it to draw its letter rows.
+         *
+         * <p>Resolved through Arc like {@code posTheme()}, and AZERTY whenever
+         * the parameters cannot be read: a register that cannot say which
+         * layout the shop wants keeps the one it has always drawn.
+         *
+         * @return the layout name, AZERTY on any resolution trouble
+         */
+        public static String posKeyboardLayout() {
+            try {
+                InstanceHandle<com.intermarche.pos.service.PosSettingsService> handle =
+                        Arc.container().instance(com.intermarche.pos.service.PosSettingsService.class);
+                return handle.isAvailable() ? handle.get().keyboardLayout() : DEFAULT_KEYBOARD_LAYOUT;
+            } catch (Exception e) {
+                return DEFAULT_KEYBOARD_LAYOUT;
             }
         }
 

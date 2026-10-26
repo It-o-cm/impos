@@ -584,4 +584,16 @@ class BackupPaymentServiceTest {
                 .thenReturn("NOEQUALS,=NOKEY,CB=Carte Bleue");
         assertEquals("Carte Bleue", service.methodLabel("CB"));
     }
+
+    /** LC-07-08: a blank card receipt is ignored without printing or cutting paper. */
+    @Test
+    void blankCardReceiptDoesNotTouchThePrinter() throws Exception {
+        var service = newService();
+        var method = BackupPaymentService.class.getDeclaredMethod("printCardReceipt", String.class);
+        method.setAccessible(true);
+        method.invoke(service, " ");
+        method.invoke(service, (Object) null);
+        verifyNoInteractions(service.hardwareService);
+    }
+
 }

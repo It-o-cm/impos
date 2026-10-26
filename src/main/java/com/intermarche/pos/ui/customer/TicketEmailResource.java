@@ -78,6 +78,7 @@ public class TicketEmailResource {
      */
     @GET
     @Produces(MediaType.TEXT_HTML)
+    @com.intermarche.pos.ui.DrawerMayBeOpen
     public Object showEmailScreen() {
         LOGGER.info("Entering method showEmailScreen");
         // NO TICKET, NO SCREEN — through the same gate as RÉIMPRIMER, CODE-BARRES
@@ -91,7 +92,7 @@ public class TicketEmailResource {
             return Response.seeOther(URI.create("/")).build();
         }
         LOGGER.info("Exiting method showEmailScreen");
-        return page(state.fidelity.holderEmail == null ? "" : state.fidelity.holderEmail,
+        return page(offeredAddress(),
                 "", false);
     }
 
@@ -167,8 +168,7 @@ public class TicketEmailResource {
      */
     private TemplateInstance page(String address, String phone, String error, boolean sent,
             boolean smsSent) {
-        boolean known = state.fidelity.holderEmail != null
-                && !state.fidelity.holderEmail.isBlank();
+        boolean known = !offeredAddress().isBlank();
         boolean editable = !known || posSettingsService.ticketEmailEditable();
         return ticketEmailPage
                 .data("state", state)
@@ -199,7 +199,7 @@ public class TicketEmailResource {
     public TemplateInstance sendSms(@FormParam("phone") String phone) {
         LOGGER.info("Entering method sendSms with phone: " + phone);
         String number = phone == null ? "" : phone.trim();
-        String address = state.fidelity.holderEmail == null ? "" : state.fidelity.holderEmail;
+        String address = offeredAddress();
         if (state.trainingMode) {
             LOGGER.info("Exiting method sendSms");
             return page(address, number, i18n.get(PosState.TRAINING_FORBIDDEN_KEY), false, false);
@@ -220,5 +220,14 @@ public class TicketEmailResource {
         ticketSmsService.send(ticket, number);
         LOGGER.info("Exiting method sendSms");
         return page(address, number, "", false, true);
+    }
+
+    /** LC-08-02-05: preserves the previous holder's address after sale finalization clears loyalty state.
+     * @return the last sale's address, or the current referential address for the existing manual flow
+     */
+    private String offeredAddress() {
+        String address = state.lastClosedTicketEmail != null
+                ? state.lastClosedTicketEmail : state.fidelity.holderEmail;
+        return address == null ? "" : address;
     }
 }

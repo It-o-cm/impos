@@ -1,13 +1,16 @@
 package com.intermarche.pos.domain.barcode;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import java.math.BigDecimal;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
 /**
@@ -362,7 +365,7 @@ class ArticleBarcodeRangeTest {
     }
 
     /**
-     * The four destinations are named, so the enum body is fully covered.
+     * The five destinations are named, so the enum body is fully covered.
      */
     @Test
     void thePurposesAreNamed() {
@@ -374,7 +377,35 @@ class ArticleBarcodeRangeTest {
                 ArticleBarcodeRange.Purpose.valueOf("EXTERNAL_LOOKUP"));
         assertEquals(ArticleBarcodeRange.Purpose.CUSTOMER_ORDER,
                 ArticleBarcodeRange.Purpose.valueOf("CUSTOMER_ORDER"));
-        assertEquals(7, ArticleBarcodeRange.Purpose.values().length);
+        assertEquals(ArticleBarcodeRange.Purpose.FUNCTION,
+                ArticleBarcodeRange.Purpose.valueOf("FUNCTION"));
+        assertEquals(ArticleBarcodeRange.Purpose.PROMOTION_ENGINE,
+                ArticleBarcodeRange.Purpose.valueOf("PROMOTION_ENGINE"));
+        assertEquals(9, ArticleBarcodeRange.Purpose.values().length);
+    }
+
+    /**
+     * {@code definesPromotion} is true only for a promotion range that names its
+     * promotion AND states a known type: a range that triggers nothing, a null
+     * type and an unknown type say no, PERCENT and AMOUNT say yes (BO-03-06-43,
+     * each leg of the compound condition).
+     */
+    @Test
+    void definesPromotionNeedsATriggeringRangeAndAKnownType() {
+        ArticleBarcodeRange range = priceRange();
+        range.purpose = ArticleBarcodeRange.Purpose.ARTICLE;
+        range.promotionType = ArticleBarcodeRange.PROMOTION_PERCENT;
+        assertFalse(range.definesPromotion());
+        range.purpose = ArticleBarcodeRange.Purpose.PROMOTION;
+        range.promotionCode = "COUPON_NUTELLA";
+        range.promotionType = null;
+        assertFalse(range.definesPromotion());
+        range.promotionType = "GIFT";
+        assertFalse(range.definesPromotion());
+        range.promotionType = ArticleBarcodeRange.PROMOTION_PERCENT;
+        assertTrue(range.definesPromotion());
+        range.promotionType = ArticleBarcodeRange.PROMOTION_AMOUNT;
+        assertTrue(range.definesPromotion());
     }
 
     /**

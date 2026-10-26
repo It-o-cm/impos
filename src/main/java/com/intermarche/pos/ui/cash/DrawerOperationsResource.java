@@ -122,6 +122,9 @@ public class DrawerOperationsResource {
     /** The screen state, for the operator and the training mode. */
     @Inject PosState state;
 
+    /** The cash changer that counts the loans and dispenses the withdrawals (BO-11-03-03). */
+    @Inject com.intermarche.pos.ui.hardware.CashChangerService cashChangerService;
+
     /**
      * Shows the withdrawal screen: the tender list when none is chosen, then either the
      * denomination count of cash or the read-only theoretical of another tender.
@@ -226,11 +229,21 @@ public class DrawerOperationsResource {
         if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
             java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
             form.put("op", "apport");
-            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("amount", amountStr);
             form.put("detail", detail == null ? "" : detail);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/apport");
             LOGGER.info("Exiting method recordApport: aval demande");
             return redirect("/apport");
+        }
+        // BO-11-03-03: the float goes into the cash changer, and what the
+        // machine accepted is what the drawer received.
+        if (cashChangerService.movementsViaMachine()) {
+            BigDecimal accepted = cashChangerService.replenish(amount);
+            if (accepted == null || accepted.signum() <= 0) {
+                LOGGER.info("Exiting method recordApport: monnayeur");
+                return redirect("/apport?error=changer");
+            }
+            amount = accepted;
         }
         CashMovement recorded = cashMovementService.record(session, cashierOf(),
                 CashMovement.MovementType.DEPOSIT, amount, "Apport de monnaie", endorsedBy,
@@ -241,7 +254,7 @@ public class DrawerOperationsResource {
             return redirect("/apport?error=endorsement");
         }
         ticketPrinterService.printDepositTicket(amount, denominationLines(detail),
-                state.getOperatorName(), ticketNumberService.getTerminalId());
+                state.getOperatorName(), state.auth.operatorBadgeId, ticketNumberService.getTerminalId());
         LOGGER.info("Exiting method recordApport");
         return redirect("/apport?ok=1");
     }
@@ -370,7 +383,7 @@ public class DrawerOperationsResource {
         if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
             java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
             form.put("op", "withdrawal");
-            form.put("method", method == null ? "" : method);
+            form.put("method", method);
             form.put("amount", amountStr == null ? "" : amountStr);
             form.put("detail", detail == null ? "" : detail);
             form.put("destination", destination);
@@ -378,6 +391,16 @@ public class DrawerOperationsResource {
                     "/withdrawal?method=" + method);
             LOGGER.info("Exiting method recordWithdrawal: aval demande");
             return redirect("/withdrawal?method=" + method);
+        }
+        // BO-11-03-03: cash is dispensed by the cash changer, and what the
+        // machine handed out is what left the drawer.
+        if (cash && cashChangerService.movementsViaMachine()) {
+            BigDecimal dispensed = cashChangerService.dispense(amount);
+            if (dispensed == null || dispensed.signum() <= 0) {
+                LOGGER.info("Exiting method recordWithdrawal: monnayeur");
+                return redirect("/withdrawal?error=changer&method=" + method);
+            }
+            amount = dispensed;
         }
         String label = drawerMethodService.labelOf(method);
         CashMovement recorded = cashMovementService.record(session, cashierOf(),
@@ -434,12 +457,22 @@ public class DrawerOperationsResource {
         if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
             java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
             form.put("op", "safe-deposit");
-            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("amount", amountStr);
             form.put("detail", detail == null ? "" : detail);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form,
                     "/withdrawal?method=" + CashMovement.CASH);
             LOGGER.info("Exiting method recordSafeDeposit: aval demande");
             return redirect("/withdrawal?method=" + CashMovement.CASH);
+        }
+        // BO-11-03-03: the cash heading to the safe is dispensed by the cash
+        // changer too, and what it handed out is what left the drawer.
+        if (cashChangerService.movementsViaMachine()) {
+            BigDecimal dispensed = cashChangerService.dispense(amount);
+            if (dispensed == null || dispensed.signum() <= 0) {
+                LOGGER.info("Exiting method recordSafeDeposit: monnayeur");
+                return redirect("/withdrawal?error=changer&method=" + CashMovement.CASH);
+            }
+            amount = dispensed;
         }
         CashMovement recorded = cashMovementService.recordSafeDeposit(
                 session, cashierOf(), amount, detail, endorsedBy);
@@ -524,12 +557,10 @@ public class DrawerOperationsResource {
         if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
             java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
             form.put("op", "transfer");
-            // No null guard on the source: from.equals(to) above would have
-            // thrown on a null source, so reaching here proves it was given.
-            // The destination keeps its guard — nothing above dereferences it.
+            // BO-05-02-17: both keys passed the administered source/destination lists.
             form.put("from", from);
-            form.put("to", to == null ? "" : to);
-            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("to", to);
+            form.put("amount", amountStr);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/transfer");
             LOGGER.info("Exiting method recordTransfer: aval demande");
             return redirect("/transfer");
@@ -695,6 +726,7 @@ public class DrawerOperationsResource {
             case "destination" -> i18n.get("op.destinationObligatoire");
             case "endorsement" -> i18n.get("op.avalManagerRefuseManquant");
             case "training" -> i18n.get("op.indisponibleFormation");
+            case "changer" -> i18n.get("op.t21MonnayeurMouvementImpossible");
             default -> null;
         };
     }

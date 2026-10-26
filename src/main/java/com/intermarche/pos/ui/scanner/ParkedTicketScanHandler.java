@@ -32,6 +32,10 @@ public class ParkedTicketScanHandler implements ScanContext.ScanHandler {
     @Inject
     RefundService refundService;
 
+    /** The prefix the printed ticket barcode carries (BO-03-06-55, BO-03-13-04). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /**
      * Handles a scan by resuming the parked ticket it names, or routing a closed
      * sale ticket to the return.
@@ -42,7 +46,7 @@ public class ParkedTicketScanHandler implements ScanContext.ScanHandler {
     public void handle(ScanContext ctx) {
         if (ctx.handled) return;
         if (ctx.state.isLocked()) return;
-        String code = ctx.code;
+        String code = withoutTicketPrefix(ctx.code);
         if (code == null || !code.matches("[A-Za-z0-9]+-\\d{8}")) return;
 
         // EXP-37: a CLOSED sale ticket number scanned on the sale screen starts a
@@ -51,6 +55,11 @@ public class ParkedTicketScanHandler implements ScanContext.ScanHandler {
         if (refundService.isReturnableTicket(code)) {
             ctx.state.refund.searchPattern = code;
             refundService.searchTickets(ctx.state);
+            // BO-03-13-04: the scanned original ticket IS the one returned —
+            // it is selected, and the return screen opens on its detail.
+            if (ctx.state.refund.foundTickets.size() == 1) {
+                refundService.selectTicket(ctx.state, ctx.state.refund.foundTickets.get(0).id);
+            }
             ctx.state.returnByScanRequested = true;
             ctx.state.touch();
             ctx.handled = true;
@@ -63,5 +72,21 @@ public class ParkedTicketScanHandler implements ScanContext.ScanHandler {
         }
         ctx.state.touch();
         ctx.handled = true;
+    }
+
+    /**
+     * Strips the administered prefix the printed ticket barcode carries
+     * (BO-03-06-55), so the code read off a receipt is its ticket number
+     * (BO-03-13-04).
+     *
+     * @param code the scanned code, possibly null
+     * @return the code without the prefix, or the code itself when it does not carry it
+     */
+    private String withoutTicketPrefix(String code) {
+        String prefix = posSettingsService == null ? null : posSettingsService.ticketBarcodePrefix();
+        if (code == null || prefix == null || prefix.isBlank() || !code.startsWith(prefix.trim())) {
+            return code;
+        }
+        return code.substring(prefix.trim().length());
     }
 }

@@ -65,6 +65,8 @@ class AuthServiceTest {
         // can no longer be left null. Cases that drive a parameter replace this
         // mock with their own.
         service.posSettingsService = mock(PosSettingsService.class);
+        // BO-10-02-23: the PIN length at its catalog default.
+        when(service.posSettingsService.pinLength()).thenReturn(4);
         service.maxAttempts = 3;
         service.lockoutMinutes = 5;
         return service;
@@ -394,7 +396,7 @@ class AuthServiceTest {
         state.auth.operatorBadgeId = "12341234";
         service.logout(state);
         verify(service.technicalEventService)
-                .log(TechnicalEvent.EventType.REGISTER_LOCKED, null, "12341234");
+                .log(TechnicalEvent.EventType.REGISTER_LOCKED, TechnicalEvent.LOCK_MANUAL, "12341234");
         verify(state.auth).logout();
     }
 
@@ -509,6 +511,40 @@ class AuthServiceTest {
             pe.when(() -> Employee.findById(7L)).thenReturn(employee);
             assertEquals("Les nouveaux codes ne correspondent pas", service.changePin(state, "1111", "1234", "5678"));
         }
+    }
+
+    /**
+     * BO-10-02-23: a shop administering six digits refuses a four-digit PIN
+     * with the administered count, and accepts six digits.
+     */
+    @Test
+    void changePinFollowsTheAdministeredLength() {
+        AuthService service = newService();
+        when(service.posSettingsService.pinLength()).thenReturn(6);
+        PosState state = newState();
+        state.auth.operatorId = 7L;
+        Employee employee = mock(Employee.class);
+        employee.badgeId = "12341234";
+        when(employee.verifyPassword("1111")).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> pe = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            pe.when(() -> Employee.findById(7L)).thenReturn(employee);
+            emp.when(() -> Employee.hashPassword("123456")).thenReturn("HASH6");
+            assertEquals("Le nouveau code doit comporter 6 chiffres", service.changePin(state, "1111", "1234", "1234"));
+            assertNull(service.changePin(state, "1111", "123456", "123456"));
+            assertEquals("HASH6", employee.password);
+        }
+    }
+
+    /**
+     * BO-10-02-23: a service built without its parameters keeps four digits.
+     */
+    @Test
+    void pinLengthDefaultsToFourWithoutSettings() {
+        AuthService service = newService();
+        assertEquals(4, service.pinLength());
+        service.posSettingsService = null;
+        assertEquals(4, service.pinLength());
     }
 
     /**
@@ -648,7 +684,7 @@ class AuthServiceTest {
         state.auth.operatorBadgeId = "12341234";
         service.pause(state);
         verify(service.technicalEventService)
-                .log(TechnicalEvent.EventType.REGISTER_LOCKED, null, "12341234");
+                .log(TechnicalEvent.EventType.REGISTER_LOCKED, TechnicalEvent.LOCK_MANUAL, "12341234");
         verify(state.auth).pause();
     }
 
@@ -865,5 +901,158 @@ class AuthServiceTest {
             assertEquals(AuthService.LoginResult.INVALID, result);
             verify(state.auth, never()).login(any(), any(), any());
         }
+    }
+    /** BO-01-02-12: password expiry is evaluated only with both collaborators and forces renewal when expired. */
+    @Test
+    void passwordExpiryCoversMissingCollaboratorsAndExpiredSecret() throws Exception {
+        AuthService service = newService();
+        PosState state = newState();
+        var employee = mock(com.intermarche.pos.domain.people.Employee.class);
+        var method = AuthService.class.getDeclaredMethod("applyPasswordExpiry", PosState.class, com.intermarche.pos.domain.people.Employee.class);
+        method.setAccessible(true);
+        var settings = service.posSettingsService;
+        service.posSettingsService = null;
+        method.invoke(service, state, employee);
+        service.posSettingsService = settings;
+        method.invoke(service, state, null);
+        when(settings.passwordExpiryDays()).thenReturn(30);
+        when(employee.secretExpired(30)).thenReturn(true);
+        method.invoke(service, state, employee);
+        assertTrue(state.auth.passwordChangeRequired);
+    }
+
+    // --- dallasLogin (BO-01-02-07) ---
+
+    /**
+     * Builds an active holder of the Dallas key {@code 01A2B3C4D5E6F708}.
+     *
+     * @return the holder
+     */
+    private Employee dallasHolder() {
+        Employee holder = new Employee();
+        holder.id = 9L;
+        holder.firstName = "Ines";
+        holder.lastName = "Sco";
+        holder.badgeId = "77777777";
+        holder.dallasKey = "01A2B3C4D5E6F708";
+        holder.active = true;
+        return holder;
+    }
+
+    /**
+     * Runs a Dallas sign-in with the given holder found for the key.
+     *
+     * @param service the service
+     * @param state the register state
+     * @param holder the account holding the key, possibly null
+     * @param loginInfo the presented identifier
+     * @param rawPassword the keyed password
+     * @return the outcome
+     */
+    @SuppressWarnings("unchecked")
+    private AuthService.LoginResult dallas(AuthService service, PosState state, Employee holder,
+                                           String loginInfo, String rawPassword) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<Employee> query = mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(query.firstResult()).thenReturn(holder);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> PanacheEntityBase.find("dallasKey = ?1 and active = true", "01A2B3C4D5E6F708")).thenReturn(query);
+            return service.login(state, loginInfo, rawPassword);
+        }
+    }
+
+    /**
+     * The key read by this register opens it alone when the back office allows
+     * it: the holder is signed in and the opening journalled.
+     */
+    @Test
+    void aReadDallasKeyOpensTheRegisterAlone() {
+        AuthService service = newService();
+        when(service.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(true);
+        PosState state = newState();
+        when(state.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals(AuthService.LoginResult.SUCCESS, dallas(service, state, dallasHolder(), "DALLAS:01a2b3c4d5e6f708", null));
+        verify(state.auth).login(9L, "Ines Sco", "77777777");
+        assertTrue(state.returnMode);
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.REGISTER_UNLOCKED, null, "77777777");
+    }
+
+    /**
+     * A blank keyed password is no password: the key still opens.
+     */
+    @Test
+    void aBlankPasswordDoesNotStopTheDallasKey() {
+        AuthService service = newService();
+        when(service.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        PosState state = newState();
+        when(state.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals(AuthService.LoginResult.SUCCESS, dallas(service, state, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", "  "));
+    }
+
+    /**
+     * Every missing condition refuses the key: the parameter off, a PIN keyed,
+     * no key read, another key read, nobody holding the key.
+     */
+    @Test
+    void aDallasKeyIsRefusedWhenAConditionIsMissing() {
+        AuthService off = newService();
+        PosState state = newState();
+        when(state.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals(AuthService.LoginResult.INVALID, dallas(off, state, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", null));
+        AuthService on = newService();
+        when(on.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        assertEquals(AuthService.LoginResult.INVALID, dallas(on, state, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", "1234"));
+        PosState unread = newState();
+        assertEquals(AuthService.LoginResult.INVALID, dallas(on, unread, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", null));
+        PosState other = newState();
+        when(other.auth.takePresentedDallasKey()).thenReturn("FFFFFFFFFFFFFFFF");
+        assertEquals(AuthService.LoginResult.INVALID, dallas(on, other, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", null));
+        PosState orphan = newState();
+        when(orphan.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals(AuthService.LoginResult.INVALID, dallas(on, orphan, null, "DALLAS:01A2B3C4D5E6F708", null));
+        verify(orphan.auth, never()).login(any(), any(), any());
+    }
+
+    /**
+     * An account locked out after PIN failures stays locked for its key too.
+     */
+    @Test
+    void aLockedAccountIsNotOpenedByItsDallasKey() {
+        AuthService service = newService();
+        when(service.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        PosState state = newState();
+        when(state.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        Employee holder = dallasHolder();
+        holder.lockedUntil = LocalDateTime.now().plusMinutes(5);
+        assertEquals(AuthService.LoginResult.LOCKED, dallas(service, state, holder, "DALLAS:01A2B3C4D5E6F708", null));
+    }
+
+    /**
+     * A paused register reopens for the key of the operator who paused it
+     * only, without the dedicated-return switch of a new sign-in.
+     */
+    @Test
+    void aPausedRegisterReopensOnlyForItsOperatorsKey() {
+        AuthService service = newService();
+        when(service.posSettingsService.dallasKeyOpens()).thenReturn(true);
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(true);
+        PosState mine = newState();
+        when(mine.auth.isPaused()).thenReturn(true);
+        mine.auth.lockedOperatorBadgeId = "77777777";
+        when(mine.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals(AuthService.LoginResult.SUCCESS, dallas(service, mine, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", null));
+        assertFalse(mine.returnMode);
+        PosState theirs = newState();
+        when(theirs.auth.isPaused()).thenReturn(true);
+        theirs.auth.lockedOperatorBadgeId = "12341234";
+        when(theirs.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        assertEquals(AuthService.LoginResult.INVALID, dallas(service, theirs, dallasHolder(), "DALLAS:01A2B3C4D5E6F708", null));
+        PosState badgeless = newState();
+        when(badgeless.auth.isPaused()).thenReturn(true);
+        badgeless.auth.lockedOperatorBadgeId = "77777777";
+        when(badgeless.auth.takePresentedDallasKey()).thenReturn("01A2B3C4D5E6F708");
+        Employee noBadge = dallasHolder();
+        noBadge.badgeId = null;
+        assertEquals(AuthService.LoginResult.INVALID, dallas(service, badgeless, noBadge, "DALLAS:01A2B3C4D5E6F708", null));
     }
 }

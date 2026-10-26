@@ -231,6 +231,22 @@ class InvoiceRepositoryTest {
     }
 
     /**
+     * activePrintableDocuments: delegates to the administered active documents
+     * (BO-03-04-06).
+     */
+    @Test
+    void activePrintableDocumentsDelegatesToTheReferential() {
+        com.intermarche.pos.domain.setting.PrintableDocument document =
+                mock(com.intermarche.pos.domain.setting.PrintableDocument.class);
+        try (MockedStatic<com.intermarche.pos.domain.setting.PrintableDocument> documents =
+                     mockStatic(com.intermarche.pos.domain.setting.PrintableDocument.class)) {
+            documents.when(com.intermarche.pos.domain.setting.PrintableDocument::listActiveOrdered)
+                    .thenReturn(java.util.List.of(document));
+            org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of(document), repository.activePrintableDocuments());
+        }
+    }
+
+    /**
      * findTicket(id): delegates to Ticket.findById and returns whatever it yields.
      */
     @Test
@@ -296,4 +312,16 @@ class InvoiceRepositoryTest {
         repository.save(invoice);
         verify(invoice).persist();
     }
+    /** LC-04-05 and BO-10-04/02: the lookup preserves its business identifier and returns the exact matching entity. */
+    @org.junit.jupiter.api.Test
+    void findCustomerByTaxIdUsesTheExactBusinessIdentifier() {
+        var row = new com.intermarche.pos.domain.payment.AccountCustomer();
+        var query = org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        org.mockito.Mockito.when(query.firstResult()).thenReturn(row);
+        try (var panache = org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> io.quarkus.hibernate.orm.panache.PanacheEntityBase.find("taxId", "PT123456789")).thenReturn(query);
+            org.junit.jupiter.api.Assertions.assertSame(row, new InvoiceRepository().findCustomerByTaxId("PT123456789"));
+        }
+    }
+
 }

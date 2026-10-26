@@ -71,6 +71,17 @@ public record EntryField(String name, String label, String keyboard, boolean upp
     }
 
     /**
+     * Returns the key of the field's label in the register's bundles, so the
+     * screen names the field in the language of the register rather than in
+     * the French of this catalog.
+     *
+     * @return {@code entryfield.} followed by the field's name
+     */
+    public String getLabelKey() {
+        return "entryfield." + name;
+    }
+
+    /**
      * Returns the label as the screen shows it, the mandatory mark appended.
      *
      * @return the label, followed by a star when the field is mandatory

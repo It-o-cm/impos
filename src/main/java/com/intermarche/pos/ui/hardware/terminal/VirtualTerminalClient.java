@@ -135,10 +135,32 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
      *         nothing was pending (the caller answers 409)
      */
     public boolean accept() {
+        return accept(null);
+    }
+
+    /**
+     * Applies the simulator's ACCEPT decision with the receipt a real
+     * integrated monetique would return (LC-07-04-10, LC-08-05-07): the
+     * customer copy, then the merchant copy after the WCL separator
+     * {@code --/--}. A blank receipt is no receipt, exactly like
+     * {@link #accept()}.
+     *
+     * @param receipt the terminal receipt to return, or null
+     * @return true when a pending transaction was accepted, false when
+     *         nothing was pending (the caller answers 409)
+     */
+    public boolean accept(String receipt) {
         Pending taken = takePending();
         if (taken == null) return false;
         TerminalOutcome outcome = TerminalOutcome.ofAmount(taken.amount());
         outcome.authorizationNumber = generateAuthorizationNumber();
+        // BO-04-01-48: like the real monetique, the decision names its server.
+        outcome.server = VerifoneTags.PRIMARY_SERVER;
+        if (receipt != null && !receipt.isBlank()) {
+            int separator = receipt.indexOf("--/--");
+            outcome.customerReceiptFrame = separator < 0 ? receipt : receipt.substring(0, separator);
+            outcome.merchantReceiptFrame = separator < 0 ? null : receipt.substring(separator + 5);
+        }
         taken.callback().onAccepted(outcome);
         return true;
     }
@@ -163,7 +185,9 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
     public boolean refuse() {
         Pending taken = takePending();
         if (taken == null) return false;
-        taken.callback().onRefused(TerminalOutcome.ofAmount(taken.amount()));
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(taken.amount());
+        outcome.server = VerifoneTags.PRIMARY_SERVER;
+        taken.callback().onRefused(outcome);
         return true;
     }
 

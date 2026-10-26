@@ -34,8 +34,12 @@ public class StoredValue extends PanacheEntity {
     /** The gift-card number prefix. */
     public static final String GIFT_CARD_PREFIX = "296";
 
-    /** The scannable identifier (prefix + 12 digits), unique. */
-    @Column(name = "number", length = 20, unique = true, nullable = false)
+    /**
+     * The scannable identifier, unique: the prefix and 12 digits, or the code
+     * composed from the range administered for issuing this kind, up to 38
+     * characters (BO-03-06-30 to -38).
+     */
+    @Column(name = "number", length = 40, unique = true, nullable = false)
     public String number;
 
     /** The instrument kind. */
@@ -67,6 +71,20 @@ public class StoredValue extends PanacheEntity {
     /** The sale that issued this gift card, or null (credit notes). */
     @Column(name = "issuing_ticket_id")
     public Long issuingTicketId;
+
+    /**
+     * The register that issued the instrument (BO-03-06-62): the one whose
+     * printer produced the barcode, kept on a copy another register adopted.
+     */
+    @Column(name = "issuing_terminal_id", length = 20)
+    public String issuingTerminalId;
+
+    /**
+     * The number of the sale or refund that issued the instrument
+     * (BO-03-06-62), as printed on its ticket.
+     */
+    @Column(name = "issuing_document_number", length = 40)
+    public String issuingDocumentNumber;
 
     /** The last sale that redeemed against this balance, or null. */
     @Column(name = "last_redeemed_ticket_id")

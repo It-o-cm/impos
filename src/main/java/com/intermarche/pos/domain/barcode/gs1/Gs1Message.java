@@ -53,6 +53,16 @@ public final class Gs1Message {
 
 
     /**
+     * Returns the decoded elements, in the order the payload encoded them — the
+     * known identifiers and the unknown ones alike (BO-10-09-04).
+     *
+     * @return the elements, unmodifiable
+     */
+    public List<Gs1Element> getElements() {
+        return elements;
+    }
+
+    /**
      * Tells whether the payload decoded to nothing, which is how a non-GS1 code reads.
      *
      * @return true when no element was decoded
@@ -160,9 +170,7 @@ public final class Gs1Message {
                 continue;
             }
             String padded = "0".repeat(length - significant.length()) + significant;
-            if (!candidates.contains(padded)) {
-                candidates.add(padded);
-            }
+            candidates.add(padded);
         }
         // Shortest first: an EAN-8 the standard padded is an EAN-8, and offering the
         // thirteen-digit form of it before would only find an article that does not

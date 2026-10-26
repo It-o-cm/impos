@@ -237,7 +237,9 @@ public class ValuationService {
     public boolean isEnabled() {
         LOGGER.info("Entering method isEnabled");
         LOGGER.info("Exiting method isEnabled");
-        return valuationClient.isEnabled();
+        // BO-03-06-42: the call is ACTIVATED in the back office; the address
+        // stays the node's configuration, the decision to call is the shop's.
+        return valuationClient.isEnabled() && !posSettingsService.valuationLocalOnly();
     }
 
     /**
@@ -258,6 +260,20 @@ public class ValuationService {
         if (state.trainingMode || state.payment.paymentInProgress) { LOGGER.info("Exiting method revalue"); return; }
         doRevalue(state);
         LOGGER.info("Exiting method revalue");
+    }
+
+    /** LC-03-04-05: revalues a newly attached card only before any settlement is committed or pending.
+     * @param state current register state after card attachment and draft synchronization
+     */
+    public void revalueAfterCard(PosState state) {
+        var payment = state.payment;
+        if (!payment.paymentInProgress || state.trainingMode || payment.transactionComplete
+                || !payment.payments.isEmpty() || payment.paidAmount.signum() != 0
+                || payment.pendingCardAmount != null || payment.pendingChequeAmount != null
+                || payment.pendingFidelitySignatureAmount != null || payment.chequeFrontPrinting
+                || payment.tenderHeldMethod != null || payment.creditPendingAmount != null
+                || payment.backupRequest != null) return;
+        doRevalue(state);
     }
 
     /**
@@ -496,8 +512,8 @@ public class ValuationService {
         // already granted, and switching the setting off must not silently
         // withdraw them. Absent promotions leave BOTH fields null, so the
         // request is the one the engine used to receive, to the byte.
+        List<ValuationPayloads.CardPromotionDto> promotions = new ArrayList<>();
         if (cardPromotions != null && !cardPromotions.isEmpty()) {
-            List<ValuationPayloads.CardPromotionDto> promotions = new ArrayList<>();
             for (ImfidClient.CardPromotion promotion : cardPromotions) {
                 ValuationPayloads.CardPromotionDto dto = new ValuationPayloads.CardPromotionDto();
                 dto.ean = promotion.ean;
@@ -509,6 +525,23 @@ public class ValuationService {
             basket.cardPromotions = promotions;
             basket.cardNumber = fidelityCard;
         }
+        // BO-03-06-43: a promotion a barcode DEFINED travels in the shape of a
+        // card-borne immediate discount, which the engine already turns into
+        // an offer: the targeted article and what it is worth.
+        for (TicketState.ScannedOffer offer : ticket.scannedOffers) {
+            ValuationPayloads.CardPromotionDto dto = new ValuationPayloads.CardPromotionDto();
+            dto.ean = offer.ean();
+            dto.promotionType = offer.type();
+            dto.value = offer.value();
+            dto.benefit = "IMMEDIATE_DISCOUNT";
+            promotions.add(dto);
+            basket.cardPromotions = promotions;
+        }
+        // BO-03-06-42: the codes scanned for the engine, verbatim; absent, the
+        // field stays null and the request is unchanged.
+        if (!ticket.engineBarcodes.isEmpty()) {
+            basket.scannedBarcodes = new ArrayList<>(ticket.engineBarcodes);
+        }
         // BO-03-06-43: the promotions a barcode ARMED on this ticket. The
         // register carries their names and nothing else — what they are worth
         // is the engine's, exactly as a card-borne promotion's is. Absent, the
@@ -516,6 +549,9 @@ public class ValuationService {
         if (ticket.scannedPromotions != null && !ticket.scannedPromotions.isEmpty()) {
             basket.scannedPromotions = new ArrayList<>(ticket.scannedPromotions);
         }
+        // BO-10-01-13 / -22 / -28 / -31 / -34: the channel of the external basket
+        // loaded on the ticket, null (absent) when none is administered.
+        basket.promotionChannel = ticket.promotionChannel;
         Store store = Store.findAll().firstResult();
         basket.storeCode = store != null ? store.code : "0000";
         String isoDate = (creationDate != null ? creationDate : LocalDateTime.now())
@@ -551,6 +587,8 @@ public class ValuationService {
             // sub-family level. Read from the referential and not from the line,
             // which does not carry it before the sale is persisted.
             fillNomenclature(dto, item);
+            // BO-02-03-09: the loyalty programme must exclude a discount-banned line.
+            dto.discountForbidden = item.discountForbidden ? Boolean.TRUE : null;
             if (item.priceEmbedded) {
                 // PRICE-EMBEDDED sticker (EAN 2x, prefixes 21-22): the price
                 // lives on the paper, not in any catalog. The contract's
@@ -565,7 +603,29 @@ public class ValuationService {
             applyGesture(dto, item);
             basket.items.add(dto);
         }
+        fillOrderDate(basket, ticket);
         return basket;
+    }
+
+    /**
+     * Carries the date of the order the ticket takes over into the basket, where
+     * the store administers it (BO-10-03-17): the promotion engine — and the
+     * loyalty programme, which receives the basket verbatim — then triggers the
+     * advantages acquired on the day of the order, expired campaigns included.
+     * A ticket that takes over no order, or a store that does not send the
+     * date, leaves the field null and the request unchanged.
+     *
+     * <p>Package-visible so its legs are exercised directly rather than through
+     * a whole revaluation.
+     *
+     * @param basket the basket being built
+     * @param ticket the cart it states
+     */
+    void fillOrderDate(ValuationPayloads.BasketDto basket, TicketState ticket) {
+        if (ticket.orderDate == null || !posSettingsService.fidelityOrderDateEnabled()) {
+            return;
+        }
+        basket.orderDate = ticket.orderDate;
     }
 
     /**

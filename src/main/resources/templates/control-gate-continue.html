@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><title>{inject:i18n.get('ctl.titre')}</title></head>
+<body><form id="gateForm" method="post" action="{target}">
+{#for field in fields.entrySet}{#for value in field.value}<input type="hidden" name="{field.key}" value="{value}">{/for}{/for}
+<input type="hidden" name="_posGate" value="{token}">
+<button type="submit">{inject:i18n.get('common.validate')}</button>
+</form><script>document.getElementById('gateForm').requestSubmit();</script></body></html>

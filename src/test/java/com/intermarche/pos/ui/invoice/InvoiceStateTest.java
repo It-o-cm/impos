@@ -240,4 +240,24 @@ class InvoiceStateTest {
         state.documentType = com.intermarche.pos.domain.sale.DocumentType.FACTURE;
         assertEquals("FACTURE", state.getDocumentTitle());
     }
+
+    /**
+     * BO-03-04-09: an administered document chosen names itself by its own
+     * name, and the clearing forgets it with the order number.
+     */
+    @Test
+    void getDocumentTitleFromTheAdministeredDocument() {
+        InvoiceState state = new InvoiceState();
+        state.documentType = com.intermarche.pos.domain.sale.DocumentType.FACTURE;
+        state.document = new com.intermarche.pos.domain.setting.PrintableDocument();
+        state.document.label = "FACTURE PRO";
+        state.orderNumber = "CMD-1";
+        state.enteringOrderNumber = true;
+        assertEquals("FACTURE PRO", state.getDocumentTitle());
+        state.clear();
+        assertNull(state.document);
+        assertEquals("", state.orderNumber);
+        assertEquals(false, state.enteringOrderNumber);
+        assertEquals(java.util.List.of(), state.documents);
+    }
 }

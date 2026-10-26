@@ -63,6 +63,8 @@ class FidelityScanHandlerTest {
         handler.i18n = TestMessages.french();
         handler.fidelityPattern = FIDELITY_PATTERN;
         handler.fidelityService = fidelityService;
+        // BO-03-06-54: the key control passes unless a case says otherwise.
+        when(fidelityService.cardKeyValid(any())).thenReturn(true);
         PosSettingsService settings = mock(PosSettingsService.class);
         when(settings.fidelityAllowMultipleScan()).thenReturn(allowMultiple);
         // BO-03-06-54: no card range administered by default, so every case
@@ -329,5 +331,23 @@ class FidelityScanHandlerTest {
         ScanContext ctx = new ScanContext(FIDELITY_CODE, newState(false));
         missing.handle(ctx);
         assertTrue(ctx.handled);
+    }
+
+    /**
+     * A card of the range whose Luhn key is wrong is refused before it is
+     * attached or proposed (BO-03-06-54).
+     */
+    @Test
+    void aCardWithAWrongKeyIsRefused() {
+        FidelityService service = mock(FidelityService.class);
+        FidelityScanHandler handler = newHandler(service);
+        when(service.cardKeyValid(FIDELITY_CODE)).thenReturn(false);
+        PosState state = newState(false);
+        state.ticket = new TicketState();
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        assertEquals("CARTE FIDÉLITÉ REFUSÉE : CLÉ DE CONTRÔLE INVALIDE", state.ticket.transientError);
+        verify(service, never()).validateCard(any(), any());
     }
 }

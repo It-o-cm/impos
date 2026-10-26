@@ -55,7 +55,7 @@
 <div class="pos-terminal">
     <div class="top-bar">
         <span class="store-name">{inject:i18n.get('common.store')}</span>
-        <span id="opInfo">{inject:i18n.get('fidelity.caisse04OperateurMarie')}</span>
+        <span id="opInfo">{inject:i18n.get('menu.caisse')} {inject:terminal.id} | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
     <div class="main-area"></div>
@@ -105,6 +105,7 @@
                     <div id="fidDisplayFirstName" class="fid-display pad-display" onclick="showKeyboardFirstName()" style="margin-top:4px;"></div>
                 </div>
                 <div id="fidHint" style="text-align:center; color: var(--text-muted); font-size: var(--fs-label); min-height: 1.2em;"></div>
+                <span id="fidTexts" hidden data-validate="{inject:i18n.get('common.validate')}" data-search="{inject:i18n.get('search.rechercher')}" data-card="{inject:i18n.get('fidelity.indiceCarte')}" data-tel="{inject:i18n.get('fidelity.indiceTelephone')}" data-email="{inject:i18n.get('fidelity.indiceEmail')}" data-name="{inject:i18n.get('fidelity.indiceNom')}" data-ville="{inject:i18n.get('fidelity.indiceVille')}"></span>
 
                 <div class="fid-keyboard-area pos-kb-compact" id="fidKeyboardArea"></div>
 
@@ -181,9 +182,19 @@
                 {#if consultation.hasAccount}
                 <div style="display:flex; gap:18px; justify-content:center; font-size:var(--fs-body); margin-bottom:10px;">
                     <div>{inject:i18n.get('fidelity.statutNbsp')} <b>{consultation.status}</b></div>
-                    <div>{inject:i18n.get('fidelity.soldeNbsp')} <b>{consultation.balance} €</b></div>
-                    <div>{inject:i18n.get('fidelity.disponibleNbsp')} <b style="color: var(--accent);">{consultation.available} €</b></div>
+                    <div>{inject:i18n.get('fidelity.soldeNbsp')} <b>{consultation.balanceFormatted}</b></div>
+                    <div>{inject:i18n.get('fidelity.disponibleNbsp')} <b style="color: var(--accent);">{consultation.availableFormatted}</b></div>
                 </div>
+                {! BO-10-02-33: the balance of each pot, computed by the programme
+                 ! with the current transaction (advantages earned, loyalty payment). !}
+                {#if consultation.pots}
+                <div id="fidPots" style="display:flex; flex-wrap:wrap; gap:6px 18px; justify-content:center; font-size:var(--fs-body); margin-bottom:10px;">
+                    <span style="color: var(--text-muted);">{inject:i18n.get('fidelity.soldesCagnottes')}</span>
+                    {#for pot in consultation.pots}
+                    <span>{pot.displayLabel}&nbsp;: <b>{pot.balanceFormatted}</b></span>
+                    {/for}
+                </div>
+                {/if}
                 {#if consultation.rows}
                 <table style="width:100%; border-collapse:collapse; font-size:var(--fs-body);">
                     <tr style="color: var(--text-muted); text-align:left;">
@@ -268,15 +279,10 @@
         form.action = (mode === 'card') ? '/action/fidelity' : '/action/fidelity-lookup';
         document.getElementById('fidHiddenInput').name = (mode === 'card') ? 'card' : 'value';
         document.getElementById('fidMode').value = mode;
-        document.getElementById('fidSubmit').innerText = (mode === 'card') ? 'VALIDER' : 'RECHERCHER';
-        var hints = {
-            card: 'Numéro complet de la carte (299…)',
-            tel: 'Numéro complet, format libre : 06 12 34 56 78, +33…',
-            email: 'Adresse complète, la casse est ignorée',
-            name: 'Le NOM dans le premier champ, le PRÉNOM dans le second — quelques lettres suffisent',
-            ville: 'Nom de la ville, quelques lettres suffisent'
-        };
-        document.getElementById('fidHint').textContent = hints[mode];
+        // The words of the modes come translated from the bundles (fr/nl/pt).
+        var texts = document.getElementById('fidTexts').dataset;
+        document.getElementById('fidSubmit').innerText = (mode === 'card') ? texts.validate : texts.search;
+        document.getElementById('fidHint').textContent = texts[mode] || '';
 
         fidKb = { kb: 'numpad', im: 'integer', max: 15, upper: false };
         if (mode === 'name')  { fidKb.kb = 'alpha'; fidKb.im = 'text'; fidKb.max = 40; fidKb.upper = true; }

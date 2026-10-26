@@ -176,4 +176,29 @@ class ChangeOrderCalculatorTest {
         BigDecimal computed = ChangeOrderCalculator.amountForRolls(rollValue, startRolls);
         assertEquals(startRolls, ChangeOrderCalculator.rollsForAmount(rollValue, computed));
     }
+
+    /** LC-12-05: the decimal parser distinguishes absent and blank values from malformed numeric text. */
+    @org.junit.jupiter.api.Test
+    void coverageNullAndBlankDecimal() throws Exception {
+        var method = ChangeOrderCalculator.class.getDeclaredMethod("toDecimal", String.class);
+        method.setAccessible(true);
+        org.junit.jupiter.api.Assertions.assertNull(method.invoke(null, (Object) null));
+        org.junit.jupiter.api.Assertions.assertNull(method.invoke(null, " "));
+    }
+
+    /**
+     * BO-03-02-42: a composition may carry its number of coins; it is kept
+     * when the three figures agree, dropped when they disagree or when the
+     * count is unreadable or not positive; a pair keeps a derived count, and a
+     * row of four fields is dropped.
+     */
+    @Test
+    void parseRollValuesReadsTheCoinCount() {
+        List<RollValue> values = ChangeOrderCalculator.parseRollValues(
+                "0.20:8.00:40;0.10:4.00:41;0.05:2.00:x;0.02:1.00:0;0.01:0.50;1:25:25:9");
+        assertEquals(2, values.size());
+        assertEquals(40, values.get(0).coinCount());
+        assertEquals(new BigDecimal("0.01"), values.get(1).faceValue());
+        assertEquals(50, values.get(1).coinCount());
+    }
 }

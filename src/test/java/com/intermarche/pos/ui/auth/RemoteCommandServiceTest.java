@@ -83,6 +83,7 @@ class RemoteCommandServiceTest {
         when(service.syncEndpoints.hasStoreUrl()).thenReturn(true);
         when(service.syncEndpoints.storeUrl()).thenReturn("http://node:8070");
         service.sessionCloseService = mock(SessionCloseService.class);
+        when(service.sessionCloseService.closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(true);
         service.state = mock(PosState.class);
         service.state.auth = new AuthState();
         service.state.ticket = new TicketState();
@@ -94,6 +95,8 @@ class RemoteCommandServiceTest {
         service.pollSeconds = 20L;
         service.i18n = com.intermarche.pos.ui.TestMessages.french();
         service.httpClient = mock(HttpClient.class);
+        service.parkedTicketPurgeService = mock(com.intermarche.pos.service.ParkedTicketPurgeService.class);
+        service.periodSyncCheckService = mock(com.intermarche.pos.service.sync.register.PeriodSyncCheckService.class);
         return service;
     }
 
@@ -157,7 +160,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         when(service.httpClient.send(any(), any())).thenThrow(new IOException("node down"));
         service.collectSafely();
-        verify(service.sessionCloseService, never()).close(any(), any());
+        verify(service.sessionCloseService, never()).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     /**
@@ -168,7 +171,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectSafely();
-        verify(service.sessionCloseService).close(service.state, "back-office");
+        verify(service.sessionCloseService).closeRemotely(service.state, "back-office", false);
     }
 
     /**
@@ -180,7 +183,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\",\"issuedBy\":\"Marie\"}]");
         service.collectOnce();
-        verify(service.sessionCloseService).close(service.state, "back-office");
+        verify(service.sessionCloseService).closeRemotely(service.state, "back-office", false);
         List<HttpRequest> requests = sent(service);
         assertEquals("http://node:8070/api/commands/POS07", requests.get(0).uri().toString());
         assertEquals("GET", requests.get(0).method());
@@ -198,7 +201,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService(null);
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectOnce();
-        verify(service.sessionCloseService, never()).close(any(), any());
+        verify(service.sessionCloseService).closeRemotely(service.state, "back-office", false);
         List<HttpRequest> requests = sent(service);
         assertEquals(2, requests.size());
         assertEquals("http://node:8070/api/commands/u-1/ack", requests.get(1).uri().toString());
@@ -213,7 +216,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION_IF_IDLE\"}]");
         service.collectOnce();
-        verify(service.sessionCloseService).close(service.state, "fin de période");
+        verify(service.sessionCloseService).closeRemotely(service.state, "fin de période", false);
         List<HttpRequest> requests = sent(service);
         assertEquals(2, requests.size());
         assertEquals("http://node:8070/api/commands/u-1/ack", requests.get(1).uri().toString());
@@ -231,7 +234,7 @@ class RemoteCommandServiceTest {
         service.state.ticket.items.add(new TicketState.TicketItem());
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION_IF_IDLE\"}]");
         service.collectOnce();
-        verify(service.sessionCloseService, never()).close(any(), any());
+        verify(service.sessionCloseService, never()).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         List<HttpRequest> requests = sent(service);
         assertEquals(1, requests.size());
         assertEquals("GET", requests.get(0).method());
@@ -248,7 +251,7 @@ class RemoteCommandServiceTest {
         service.state.ticket.items.add(new TicketState.TicketItem());
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
         service.collectOnce();
-        verify(service.sessionCloseService).close(service.state, "back-office");
+        verify(service.sessionCloseService).closeRemotely(service.state, "back-office", false);
         assertEquals(2, sent(service).size());
     }
 
@@ -261,7 +264,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"REBOOT\"}]");
         service.collectOnce();
-        verify(service.sessionCloseService, never()).close(any(), any());
+        verify(service.sessionCloseService, never()).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         List<HttpRequest> requests = sent(service);
         assertEquals(1, requests.size());
         assertEquals("GET", requests.get(0).method());
@@ -290,7 +293,7 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         route(service, 200, "[]");
         service.collectOnce();
-        verify(service.sessionCloseService, never()).close(any(), any());
+        verify(service.sessionCloseService, never()).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         assertEquals(1, sent(service).size());
     }
 
@@ -447,7 +450,7 @@ class RemoteCommandServiceTest {
                 + "\"issuedBy\":\"Alice\",\"reason\":\"Geste non autorise\"}]");
         service.collectOnce();
         assertEquals("Geste non autorise", service.state.ticket.transientError);
-        verify(service.sessionCloseService, never()).close(any(), any());
+        verify(service.sessionCloseService, never()).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         assertTrue(sent(service).stream()
                 .anyMatch(request -> request.uri().getPath().endsWith("/api/commands/u-9/ack")));
     }
@@ -468,6 +471,31 @@ class RemoteCommandServiceTest {
         service.state.ticket.transientError = null;
         service.refuse("u-8", "   ");
         assertEquals("Demande refusée par le back-office", service.state.ticket.transientError);
+    }
+
+    /**
+     * LC-01-05-08: a refusal cancels the gesture whose authorisation request went
+     * to the back office; a request kept local, an inactive one or a lane without
+     * any is left alone.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void aRefusalCancelsOnlyTheGestureThatAskedTheBackOffice() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "{}");
+        service.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        service.state.endorsement = null;
+        service.refuse("u-1", "Non");
+        service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
+        service.refuse("u-2", "Non");
+        service.state.endorsement.request("CANCEL_TICKET");
+        service.refuse("u-3", "Non");
+        verify(service.endorsementService, never()).clearRequest(any());
+        service.state.endorsement.remoteRequested = true;
+        service.refuse("u-4", "Geste refuse");
+        verify(service.endorsementService).clearRequest(service.state);
+        assertEquals("Geste refuse", service.state.ticket.transientError);
     }
 
     /**
@@ -555,14 +583,21 @@ class RemoteCommandServiceTest {
     }
 
     /**
-     * The reason reader tolerates an order object that is never closed and
-     * one that carries no reason at all.
+     * The reader skips an order that does not name both its uid and its type
+     * (each leg apart), tolerates a truncated answer, and reads an order whose
+     * fields come in another order or carry a line break.
      */
     @Test
-    void theReasonReaderToleratesATruncatedAnswer() {
+    void theReaderSkipsIncompleteOrdersAndToleratesATruncatedAnswer() {
         RemoteCommandService service = newService(null);
-        assertNull(service.reasonOf("{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}", 0));
-        assertEquals("tronque", service.reasonOf("\"reason\":\"tronque\"", 0));
+        assertTrue(service.orders("[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"").isEmpty());
+        assertTrue(service.orders("[{\"type\":\"CLOSE_SESSION\"}]").isEmpty());
+        assertTrue(service.orders("[{\"uid\":\"u-1\",\"type\":3}]").isEmpty());
+        List<String[]> found = service.orders(
+                "[{\"reason\":\"ligne\\nsuivante\",\"type\":\"SUPERVISOR_REFUSED\",\"uid\":\"u-9\"}]");
+        assertEquals(1, found.size());
+        assertEquals("u-9", found.get(0)[0]);
+        assertEquals("ligne\nsuivante", found.get(0)[2]);
     }
 
     /**
@@ -619,5 +654,87 @@ class RemoteCommandServiceTest {
         route(service, 200, "[]");
         service.grant("u-7", "   ");
         assertEquals("le back-office", service.state.endorsement.remoteGrant);
+    }
+    /** BO-04-02: blank acknowledgement reasons and a missing endorsement mailbox still acknowledge the node order. */
+    @Test
+    void remoteNoticesTolerateBlankReasonAndNoEndorsementMailbox() throws Exception {
+        RemoteCommandService service = newService("OP");
+        HttpResponse<String> response = resp(200, "OK");
+        when(service.httpClient.send(any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(response);
+        service.acknowledgeRequest("u1", " ");
+        service.state.endorsement = null;
+        service.grant("u2", "MANAGER");
+        verify(service.httpClient, org.mockito.Mockito.times(2)).send(any(), any());
+    }
+
+
+    /** LC-01-02-07: a paused operator reaches persistence and is acknowledged only on success. */
+    @Test
+    void pausedRegisterClosesAndAFailedCloseIsNeverAcknowledged() throws Exception {
+        RemoteCommandService service = newService("007");
+        service.state.auth.pause();
+        when(service.sessionCloseService.closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenAnswer(call -> {
+            assertTrue(Thread.holdsLock(service.state));
+            return true;
+        });
+        route(service, 200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]");
+        service.collectOnce();
+        verify(service.sessionCloseService).closeRemotely(service.state, "back-office", false);
+        assertEquals(2, sent(service).size());
+        org.mockito.Mockito.clearInvocations(service.httpClient);
+        org.mockito.Mockito.doReturn(false).when(service.sessionCloseService).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        service.collectOnce();
+        assertEquals(1, sent(service).size());
+        org.mockito.Mockito.clearInvocations(service.httpClient);
+        org.mockito.Mockito.doThrow(new IllegalStateException("database")).when(service.sessionCloseService).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        assertThrows(IllegalStateException.class, service::collectOnce);
+        assertEquals(1, sent(service).size());
+    }
+
+    /**
+     * BO-09-03-01: the end-of-period close declaring a self-service host
+     * closes an idle register with the automatic declaration, and stands down
+     * mid-sale like the close-if-idle order.
+     */
+    @Test
+    void anAutoDeclareOrderClosesWithTheDeclaration() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "[{\"uid\":\"u-9\",\"type\":\"CLOSE_SESSION_AUTO_DECLARE\"}]");
+        service.collectOnce();
+        verify(service.sessionCloseService).closeRemotely(service.state, "fin de période", true);
+        assertEquals(2, sent(service).size());
+        RemoteCommandService busy = newService("007");
+        busy.state.ticket.items.add(new com.intermarche.pos.ui.ticket.TicketState.TicketItem());
+        route(busy, 200, "[{\"uid\":\"u-9\",\"type\":\"CLOSE_SESSION_AUTO_DECLARE\"}]");
+        busy.collectOnce();
+        verify(busy.sessionCloseService, never()).closeRemotely(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    /**
+     * BO-09-01-08: the reset order resets the tickets on hold with the
+     * reason the node gave and is acknowledged.
+     */
+    @Test
+    void aResetOrderPurgesTheTicketsOnHold() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "[{\"uid\":\"u-5\",\"type\":\"PURGE_PARKED_TICKETS\",\"issuedBy\":\"Marie\","
+                + "\"reason\":\"Remise à zéro des tickets en attente\"}]");
+        service.collectOnce();
+        verify(service.parkedTicketPurgeService).purge("Remise à zéro des tickets en attente");
+        assertEquals("http://node:8070/api/commands/u-5/ack", sent(service).get(1).uri().toString());
+    }
+
+    /**
+     * BO-09-03-05: the check order hands the server's figures to the check
+     * and is acknowledged.
+     */
+    @Test
+    void aCheckOrderChecksTheRegisterAgainstTheServer() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "[{\"uid\":\"u-6\",\"type\":\"VERIFY_SYNC\",\"issuedBy\":\"Fin\","
+                + "\"reason\":\"2026-10-24;2;12.50\"}]");
+        service.collectOnce();
+        verify(service.periodSyncCheckService).check("2026-10-24;2;12.50");
+        assertEquals("http://node:8070/api/commands/u-6/ack", sent(service).get(1).uri().toString());
     }
 }

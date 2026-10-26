@@ -1,0 +1,39 @@
+{! The metrology information of the weighing system (LC-14-03-01), reached from the
+ ! maintenance screen and, like it, on a locked register. Read-only. !}
+<!DOCTYPE html>
+<html lang="{inject:i18n.lang}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('metrology.title')}</title>
+    <style>
+        {#include theme /}
+        body { background:var(--bg-page); color:var(--text-main); }
+        .pos-terminal { grid-template-rows:3.75rem minmax(0, 1fr) 5rem; }
+        .top-bar, .bottom-nav { display:flex; align-items:center; justify-content:space-between; padding:0 20px; border-bottom:1px solid var(--border-color); }
+        .top-bar { font-size:var(--fs-title); font-weight:bold; }
+        .bottom-nav { border-top:1px solid var(--border-color); border-bottom:none; }
+        .main-area { padding:16px 20px; overflow-y:auto; min-height:0; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { text-align:left; padding:.8rem .6rem; border-bottom:1px solid var(--border-color); font-size:var(--fs-row); overflow-wrap:anywhere; }
+        th { color:var(--text-muted); font-weight:normal; width:45%; }
+        td { font-weight:bold; font-family:var(--font-doc); }
+        td.not-set { color:var(--text-muted); font-family:var(--font-ui); font-weight:normal; font-style:italic; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+    <header class="top-bar">{inject:i18n.get('metrology.title')}</header>
+    <main class="main-area">
+        <table>
+            {#for row in rows}
+            <tr><th scope="row">{row.label}</th><td{#if !row.set} class="not-set"{/if}>{row.value}</td></tr>
+            {/for}
+        </table>
+    </main>
+    <footer class="bottom-nav">
+        <a href="/maintenance" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+    </footer>
+</div>
+</body>
+</html>

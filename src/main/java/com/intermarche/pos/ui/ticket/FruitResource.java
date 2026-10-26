@@ -47,6 +47,7 @@ public class FruitResource {
         List<Product> products = fruitService.getPluProducts();
         LOGGER.info("Exiting method fruitsPage");
         return fruits.data("state", state).data("products", products)
-                .data("tareContainers", tareService.containers());
+                .data("tareContainers", tareService.containers())
+                .data("tareImages", tareService.containerImages());
     }
 }

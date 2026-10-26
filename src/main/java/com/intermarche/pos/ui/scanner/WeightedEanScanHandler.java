@@ -52,6 +52,14 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
     @jakarta.inject.Inject
     com.intermarche.pos.ui.ticket.ArticleScopeService articleScopeService;
 
+    /** The shop's default message of a forbidden or recalled article (BO-10-07-20). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The administered alerts on articles (BO-04-03-08). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.control.ControlGateService controlGateService;
+
     /**
      * The localised operator messages: every sentence this class stamps on the
      * register's message band is a bundle key, never a French literal (LC-13-06).
@@ -88,6 +96,13 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
     BigDecimal defaultVatRate;
 
     /**
+     * The active deposit-voucher types (BO-03-13-11), read from the
+     * referential; a field so a plain unit test can answer without a database.
+     */
+    java.util.function.Supplier<java.util.List<com.intermarche.pos.domain.barcode.CouponType>> depositTypes =
+            com.intermarche.pos.domain.barcode.CouponType::listActiveDepositTypes;
+
+    /**
      * Handles a 2x-prefixed in-store EAN13 by decoding its embedded price or
      * weight and adding the matching line to the ticket.
      *
@@ -111,15 +126,17 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         // is administered as price- or weight-embedded — not only 2x codes, so a
         // 02-prefixed price label (excluded by the old 2\d{12} filter) is decoded.
         if (range == null && !fallbackApplies(code)) return;
+        // BO-03-13-11: a deposit voucher (298...) wears the 29 weight shape. It
+        // is DepositVoucherScanHandler's, which sits at the same priority: the
+        // fallback leaves it alone whatever order the container hands over.
+        if (range == null && isDepositVoucher(code)) return;
 
         boolean priceEmbedded;
-        boolean weightEmbedded;
         String articleCode;
         BigDecimal embeddedAmount;
         BigDecimal embeddedWeight;
         if (range != null) {
             priceEmbedded = range.isPriceEmbedded();
-            weightEmbedded = !priceEmbedded;
             if (range.checkDigit && !hasValidChecksum(code)) return;
             articleCode = range.articleCode(code);
             BigDecimal value = range.rawValue(code);
@@ -142,8 +159,6 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         } else {
             String prefix = code.substring(0, 2);
             priceEmbedded = pricePrefixes.contains(prefix);
-            weightEmbedded = weightPrefixes.contains(prefix);
-            if (!priceEmbedded && !weightEmbedded) return;
 
             if (!hasValidChecksum(code)) return; // let the generic EAN handler try
 
@@ -166,25 +181,35 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             ctx.handled = true;
             return;
         }
+        if (com.intermarche.pos.ui.ticket.ArticleMessageService.refuse(ctx.state, product)) {
+            ctx.handled = true;
+            return;
+        }
         if (product.forbiddenToSale) {
-            ctx.state.ticket.setError(i18n.get("op.produitInterditVente"));
+            ctx.state.ticket.setError(com.intermarche.pos.ui.ticket.ForbiddenSaleMessage.forbidden(i18n, posSettingsService, product));
             ctx.handled = true;
             return;
         }
         // BO-02-03-11: a recalled article is refused at scan, no line.
         if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.recall(product)) {
-            ctx.state.ticket.setError(i18n.get("op.articleRetraitRappel"));
+            ctx.state.ticket.setError(com.intermarche.pos.ui.ticket.ForbiddenSaleMessage.recall(i18n, posSettingsService, product));
+            ctx.handled = true;
+            return;
+        }
+        // BO-04-03-08: an administered alert on the article decides before the
+        // sticker is consumed; its replay reads the same label again.
+        if (controlGateService.onArticle(product, null,
+                com.intermarche.pos.ui.control.ControlGateService.Kind.SCAN, ctx.code)
+                == com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP) {
             ctx.handled = true;
             return;
         }
 
         Price price = Price.findCurrentPrice(product.id);
-        BigDecimal vatRate = (price != null && price.vatRate() != null)
-                ? price.vatRate() : defaultVatRate;
-        // BO-02-03-26/27: VAT-exempt article ventilated at rate 0.
-        if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.vatExempt(product)) {
-            vatRate = BigDecimal.ZERO;
-        }
+        // BO-02-03-26/27: VAT-exempt article ventilated at rate 0, under its own heading.
+        com.intermarche.pos.domain.catalog.ArticleVat.Resolution vat =
+                com.intermarche.pos.domain.catalog.ArticleVat.resolve(product, price, defaultVatRate);
+        BigDecimal vatRate = vat.rate();
 
         if (priceEmbedded) {
             // One physical sticker = one line: refuse the accidental double scan
@@ -250,8 +275,17 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             added.discountForbidden = true;
         }
         // LC-09-01-11 to -18: and what the article may be paid with.
+        ctx.state.ticket.snapshotMealVoucherEligibility(product.ean,
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.mealVoucherEligible(product));
+        com.intermarche.pos.ui.ticket.LinkedArticleService.snapshot(ctx.state.ticket, product);
         added.restrictedTenders =
                 com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(product);
+        ctx.state.ticket.snapshotArticleTraits(product.ean, vat.exempt(),
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.thirdPartySale(product),
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.service(product),
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.bulky(product),
+                product.referenceWeight,
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributes.priceCallOnly(product));
         // LC-02-03-13: an in-store weighed label names no lot, so the recalled lots are
         // listed and the cashier reads the one printed on the pack.
         String recalledLots = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
@@ -286,6 +320,42 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         return currency.toEuro(value);
     }
 
+    /** A read-only scale label: exactly one of total or weight is populated (LC-02-14-17).
+     * @param articleCode the referenced PLU
+     * @param total the embedded total in euros
+     * @param weight the embedded net weight in kilograms
+     */
+    public record PriceCheckLabel(String articleCode, BigDecimal total, BigDecimal weight) { }
+
+    /** Decodes an article label without claiming a sticker or touching a ticket (LC-02-14-17).
+     * @param code the scanned label
+     * @return the decoded label, or null for an invalid or unrelated code
+     */
+    public PriceCheckLabel priceCheckLabel(String code) {
+        ArticleBarcodeRange range = ArticleBarcodeRange.findMatching(code);
+        if (range != null) {
+            if (!range.isArticlePurpose()) return null;
+            if (range.checkDigit && (!code.matches("\\d{13}") || !hasValidChecksum(code))) return null;
+            String article = range.articleCode(code);
+            BigDecimal value = range.rawValue(code);
+            if (article == null || value == null) return null;
+            if (!range.isPriceEmbedded()) return new PriceCheckLabel(article, null, value);
+            if (!range.isEuro()) {
+                var currency = com.intermarche.pos.domain.payment.Currency.findActiveByCode(range.currency.name());
+                if (currency == null) return null;
+                value = currency.toEuro(value);
+            }
+            return new PriceCheckLabel(article, value, null);
+        }
+        if (!fallbackApplies(code)) return null;
+        if (!hasValidChecksum(code)) return null;
+        String article = stripLeadingZeros(code.substring(2, 7));
+        long value = Long.parseLong(code.substring(7, 12));
+        return pricePrefixes.contains(code.substring(0, 2))
+                ? new PriceCheckLabel(article, BigDecimal.valueOf(value, 2), null)
+                : new PriceCheckLabel(article, null, BigDecimal.valueOf(value, 3));
+    }
+
     /**
      * Whether the fallback layout applies to a code no administered range
      * matched: a 13-digit code whose 2-digit prefix is administered as
@@ -300,6 +370,22 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         }
         String prefix = code.substring(0, 2);
         return pricePrefixes.contains(prefix) || weightPrefixes.contains(prefix);
+    }
+
+    /**
+     * Whether an active deposit-voucher type recognizes the code
+     * (BO-03-13-11): such a code is a voucher, never a weighed article.
+     *
+     * @param code the scanned code
+     * @return true when a deposit-voucher type matches it
+     */
+    private boolean isDepositVoucher(String code) {
+        for (com.intermarche.pos.domain.barcode.CouponType type : depositTypes.get()) {
+            if (type.matches(code)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

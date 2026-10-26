@@ -190,13 +190,18 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
             return;
         }
         abortRequested.set(false);
+        // BO-03-09-30: the request is built on the CALLER's thread. The VIC
+        // codes of the tenders are a database read, and the exchange thread
+        // has neither a transaction nor a request context: read there, the
+        // codes were never found and never sent.
+        String request = buildRequest(operation, amount);
         exchanges.submit(() -> {
             try {
                 if (!transport.isReachable()) {
                     callback.onError(i18n.get(MSG_UNREACHABLE_KEY));
                     return;
                 }
-                String response = transport.exchange(buildRequest(operation, amount));
+                String response = transport.exchange(request);
                 handleResponse(response, amount, callback);
             } catch (UnsupportedOperationException e) {
                 LOGGER.warnf("Verifone exchange not implemented: %s", e.getMessage());
@@ -253,6 +258,12 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     private void appendAdministeredTags(Map<String, String> tags) {
         for (String code : administeredVicProductCodes()) {
             tags.putAll(VerifoneFrameCodec.decode(code));
+        }
+        // BO-03-09-29: the label of the island the register belongs to, under
+        // the tag the requirement names, posed on the island by the back office.
+        String islandLabel = posSettingsService == null ? "" : posSettingsService.islandPaymentLabel();
+        if (islandLabel != null && !islandLabel.isBlank()) {
+            tags.put(VerifoneTags.ISLAND_LABEL, islandLabel.trim());
         }
         if (posSettingsService == null || !posSettingsService.terminalPdvLabelEnabled()) {
             return;

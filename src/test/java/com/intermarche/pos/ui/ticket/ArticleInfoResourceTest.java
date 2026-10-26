@@ -64,6 +64,8 @@ class ArticleInfoResourceTest {
         ArticleInfoResource resource = new ArticleInfoResource();
         resource.articleInfo = mock(Template.class);
         resource.ticketService = mock(TicketService.class);
+        resource.scans = mock(ArticleInfoScanState.class);
+        resource.priceChecks = mock(ArticlePriceCheckService.class);
         resource.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
         // BO-04-01-38: every lookup is journalised, so the journal is a
         // collaborator of this screen and not an optional one.
@@ -185,6 +187,26 @@ class ArticleInfoResourceTest {
             resource.infoPage("999");
             verify(view).data(eq("info"), isNullArg());
             verify(view).data("notFound", true);
+        }
+    }
+
+    /** A price-check label resolves its PLU and passes its value and typed quantity only to the read-only service. */
+    @Test void labelAndQuantityAreRenderedWithoutSaleAdmission() {
+        var resource = newResource();
+        var label = new com.intermarche.pos.ui.scanner.WeightedEanScanHandler.PriceCheckLabel("42", new BigDecimal("1.50"), null);
+        var product = product("POMME", CODE, "42");
+        var price = price("3.00", "0.055");
+        var check = new ArticlePriceCheckService.Check("0,5", "1,50", true, false, null);
+        when(resource.priceChecks.decode("label")).thenReturn(label);
+        when(resource.priceChecks.calculate(product, price, "0,5", label)).thenReturn(check);
+        try (var products = mockStatic(Product.class); var prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu("42")).thenReturn(product);
+            prices.when(() -> Price.findCurrentPrice(7L)).thenReturn(price);
+            resource.infoPage("label", "0,5");
+            var captured = ArgumentCaptor.forClass(Object.class);
+            verify(view).data(eq("info"), captured.capture());
+            assertSame(check, ((ArticleInfoResource.ArticleInfo)captured.getValue()).check);
+            verifyNoInteractions(resource.ticketService);
         }
     }
 
@@ -339,4 +361,61 @@ class ArticleInfoResourceTest {
                 eq(com.intermarche.pos.domain.session.TechnicalEvent.EventType.PRICE_CHECKED),
                 eq("999 (inconnu)"), any());
     }
+
+    /** LC-02-14-12: blank and named brands remain distinct, and an existing price without an amount is unpriced. */
+    @Test
+    void optionalArticleDetailsKeepTheirOwnFallbacks() {
+        var product = new com.intermarche.pos.domain.catalog.Product();
+        product.name = "ARTICLE";
+        product.brand = " ";
+        var price = new com.intermarche.pos.domain.catalog.Price();
+        price.priceIncludingTax = null;
+        var blank = new ArticleInfoResource.ArticleInfo(product, price);
+        assertEquals("—", blank.brand);
+        assertEquals("—", blank.priceFormatted);
+        product.brand = null;
+        assertEquals("—", new ArticleInfoResource.ArticleInfo(product, null).brand);
+        product.brand = "MARQUE";
+        assertEquals("MARQUE", new ArticleInfoResource.ArticleInfo(product, null).brand);
+    }
+
+    /** LC-02-14-12: scanner poll and page exit delegate only to the consultation mailbox, never to ticket admission. */
+    @Test
+    void scannerMailboxPollAndExitLeaveTheTicketUntouched() {
+        var resource = newResource();
+        when(resource.scans.poll("page")).thenReturn("12345670");
+        assertEquals(java.util.Map.of("code", "12345670"), resource.scannedCode("page"));
+        assertEquals(204, resource.leaveLookup("page").getStatus());
+        verify(resource.scans).leave("page");
+        org.mockito.Mockito.verifyNoInteractions(resource.ticketService);
+    }
+
+    /** LC-02-14-12: the actual consultation template renders its page lease, keypad and read-only price without exposing a take action while closed. */
+    @Test
+    void consultationTemplateRendersItsScannerLeaseAndReadOnlyPrice() throws Exception {
+        var engine = io.quarkus.qute.Engine.builder().addDefaults()
+                .addValueResolver(new io.quarkus.qute.ReflectionValueResolver())
+                .addNamespaceResolver(io.quarkus.qute.NamespaceResolver.builder("inject")
+                        .resolve(context -> com.intermarche.pos.ui.TestMessages.french()).build()).build();
+        engine.putTemplate("theme", engine.parse(""));
+        engine.putTemplate("keyboard-lib", engine.parse(""));
+        var template = engine.parse(java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/templates/article-info.html")));
+        var info = new ArticleInfoResource.ArticleInfo(product("MILK", "12345670", null), price("2.35", "0.20"));
+        String html = template.data("code", "12345670").data("info", info).data("notFound", false)
+                .data("canTake", false).data("scanToken", "page-lease").data("posTheme", "dark").render();
+        assertTrue(html.contains("const scanToken = 'page-lease'"));
+        assertTrue(html.contains("2,35"));
+        assertTrue(html.contains("12345670"));
+        assertFalse(html.contains("href=\"/action/article-info/take"));
+    }
+    /** LC-02-14-12: explicit take ends consultation routing before replaying the code through sale admission, even without HTML navigation. */
+    @Test
+    void explicitTakeReleasesTheScannerBeforeAddingTheArticle() {
+        var resource = newResource();
+        resource.takeArticle("12345670");
+        var order = org.mockito.Mockito.inOrder(resource.scans, resource.ticketService);
+        order.verify(resource.scans).clear();
+        order.verify(resource.ticketService).processScan("12345670");
+    }
+
 }

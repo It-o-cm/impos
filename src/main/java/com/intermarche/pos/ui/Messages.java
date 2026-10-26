@@ -56,6 +56,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * customer display and the ticket stay monolingual, which is every store but the
  * Belgian bilingual ones.
  *
+ * <p>THE CUSTOMER'S OWN CHOICE (LC-13-06-08 / -13). Where the store lets the
+ * customer pick a language on the customer display ({@link PosState#customerLanguage}),
+ * what faces the customer — the customer display and the receipt of the sale —
+ * is rendered through {@link #forCustomer(java.util.function.Supplier)}: inside
+ * it, that language outranks the whole chain above and the second language is
+ * dropped, the choice being the alternative to the bilingual display. Outside
+ * it nothing changes, so the cashier keeps the screen in their own language.
+ *
  * <p>A MISSING KEY IS NEVER FATAL: the value falls back to the French bundle,
  * then to the key itself. A till must show a wrong label rather than a broken
  * screen, and the exhaustiveness test keeps the bundles aligned so the fallback
@@ -105,6 +113,24 @@ public class Messages {
 
     /** Loaded bundles, keyed by language; a bundle is read once. */
     private static final Map<String, Map<String, String>> BUNDLES = new ConcurrentHashMap<>();
+
+    /**
+     * The customer's language while customer-facing output is rendered on this
+     * thread, or null outside {@link #forCustomer(java.util.function.Supplier)}.
+     *
+     * <p>A thread-local and not a field: the resolver is application-scoped and
+     * the cashier's screen is rendered by other requests at the same moment,
+     * which must keep the operator's language.
+     */
+    private static final ThreadLocal<String> CUSTOMER_LANGUAGE = new ThreadLocal<>();
+
+    /**
+     * The administered first language of the customer display while the
+     * display is rendered on this thread (BO-10-07-17), or null outside
+     * {@link #forCustomerDisplay(java.util.function.Supplier)}. Unlike the
+     * customer's own choice it keeps the second language beside it.
+     */
+    private static final ThreadLocal<String> DISPLAY_LANGUAGE = new ThreadLocal<>();
 
     /** The key by which a bundle names ITS OWN language, in that language. */
     private static final String SELF_NAME_KEY = "language.self";
@@ -321,6 +347,26 @@ public class Messages {
     }
 
     /**
+     * Reads the label of a CODE — a payment method, a state — in the rendered
+     * language: the key is the prefix followed by the code, e.g.
+     * {@code i18n.code('ticketsearch.payment.', 'CASH')} reads
+     * {@code ticketsearch.payment.CASH}. A code the bundles do not label shows
+     * itself, as data would.
+     *
+     * @param prefix the key prefix of the code family
+     * @param code the code, possibly null
+     * @return the label, the code itself when unlabelled, empty for null
+     */
+    public String code(String prefix, Object code) {
+        if (code == null) {
+            return "";
+        }
+        String key = prefix + code;
+        String label = get(key);
+        return label.equals(key) ? code.toString() : label;
+    }
+
+    /**
      * Returns a label in BOTH languages of a bilingual store, second language
      * first and separated by a slash — the shape the requirement spells out,
      * {@code "Terug te geven / A rendre"} (LC-13-06-06 / -11).
@@ -344,6 +390,115 @@ public class Messages {
             return primary;
         }
         return other + " / " + primary;
+    }
+
+    /**
+     * Renders customer-facing output — the customer display, the receipt of the
+     * sale — in the language the customer chose on the customer display
+     * (LC-13-06-08 / -13), monolingual.
+     *
+     * <p>Without a choice, or with a language no bundle ships, the work runs as
+     * it always did: operator's chain and, where administered, bilingual. The
+     * previous scope is restored afterwards, so a nested call cannot leak the
+     * customer's language into the cashier's next label.
+     *
+     * @param work the rendering to run
+     * @param <T> the type of what the rendering produces
+     * @return what the rendering produced
+     */
+    public <T> T forCustomer(java.util.function.Supplier<T> work) {
+        return forLanguage(state.customerLanguage, work);
+    }
+
+    /**
+     * Renders the CUSTOMER DISPLAY in its two administered languages
+     * (BO-10-07-17).
+     *
+     * <p>The customer's own choice, when they made one, wins and the display
+     * is monolingual, exactly as {@link #forCustomer(java.util.function.Supplier)}
+     * renders it. Otherwise the display's administered first language replaces
+     * the cashier's for the duration of the rendering, and the second language
+     * stays beside it. Neither administered: the work runs as it always did.
+     *
+     * @param work the rendering to run
+     * @param <T> the type of what the rendering produces
+     * @return what the rendering produced
+     */
+    public <T> T forCustomerDisplay(java.util.function.Supplier<T> work) {
+        if (hasBundle(normalize(state.customerLanguage))) {
+            return forCustomer(work);
+        }
+        String display = normalize(posSettingsService.customerDisplayLanguage());
+        if (!hasBundle(display)) {
+            return work.get();
+        }
+        String previous = DISPLAY_LANGUAGE.get();
+        DISPLAY_LANGUAGE.set(display);
+        try {
+            return work.get();
+        } finally {
+            DISPLAY_LANGUAGE.set(previous);
+        }
+    }
+
+    /**
+     * Runs a rendering in a given customer language — the language a ticket
+     * was sold in, when it is rendered again later (LC-13-06-14) — exactly as
+     * {@link #forCustomer(java.util.function.Supplier)} runs it in the language of
+     * the sale in progress.
+     *
+     * @param language the language tag, possibly null or one no bundle ships
+     * @param work the rendering to run
+     * @param <T> the type of what the rendering produces
+     * @return what the rendering produced
+     */
+    public <T> T forLanguage(String language, java.util.function.Supplier<T> work) {
+        String chosen = normalize(language);
+        if (!hasBundle(chosen)) {
+            return work.get();
+        }
+        String previous = CUSTOMER_LANGUAGE.get();
+        CUSTOMER_LANGUAGE.set(chosen);
+        try {
+            return work.get();
+        } finally {
+            CUSTOMER_LANGUAGE.set(previous);
+        }
+    }
+
+    /**
+     * The customer language of the sale in progress, as the register renders it:
+     * the primary subtag of the language chosen or retrieved, when a bundle ships
+     * it (LC-13-06-09, -14).
+     *
+     * @return the language tag, or null when the sale runs in the operator's language
+     */
+    public String customerLanguageTag() {
+        return supportedLanguage(state.customerLanguage);
+    }
+
+    /**
+     * Reduces a language tag to the one the register can render it in.
+     *
+     * @param language a language tag, possibly null, regional or unknown
+     * @return the primary subtag when a bundle ships it, null otherwise
+     */
+    public String supportedLanguage(String language) {
+        String tag = normalize(language);
+        return hasBundle(tag) ? tag : null;
+    }
+
+    /**
+     * Runs customer-facing printing that produces nothing in the customer's
+     * language, as {@link #forCustomer(java.util.function.Supplier)} does.
+     *
+     * @param work the printing to run
+     */
+    public void runForCustomer(Runnable work) {
+        forCustomer(() -> {
+            work.run();
+            return null;
+        });
     }
 
     /**
@@ -414,7 +569,9 @@ public class Messages {
     }
 
     /**
-     * Resolves the language to render: the operator's own choice, then the
+     * Resolves the language to render: the customer's own choice while
+     * customer-facing output is rendered (LC-13-06-08 / -13), then the
+     * operator's own choice, then the
      * signed-in operator's administered language, then the store's system
      * language, then French. A language no bundle ships is ignored at every step
      * rather than shown as raw keys.
@@ -426,6 +583,14 @@ public class Messages {
      * @return the language tag to render
      */
     private String language() {
+        String customer = CUSTOMER_LANGUAGE.get();
+        if (customer != null) {
+            return customer;
+        }
+        String display = DISPLAY_LANGUAGE.get();
+        if (display != null) {
+            return display;
+        }
         String chosen = normalize(state.language);
         if (hasBundle(chosen)) {
             return chosen;
@@ -501,11 +666,15 @@ public class Messages {
 
     /**
      * Returns the administered second language, normalized and checked against
-     * the shipped bundles, or null when there is none to show.
+     * the shipped bundles, or null when there is none to show — nor while the
+     * customer's own choice is rendered, which replaces the bilingual display.
      *
      * @return the second language tag, or null
      */
     private String secondLanguage() {
+        if (CUSTOMER_LANGUAGE.get() != null) {
+            return null;
+        }
         String second = normalize(posSettingsService.customerSecondLanguage());
         if (!hasBundle(second) || second.equals(language())) {
             return null;
@@ -557,12 +726,12 @@ public class Messages {
     private static Map<String, String> load(String language) {
         Map<String, String> map = new HashMap<>();
         String path = "messages/msg_" + language + ".properties";
-        try (InputStream in = Thread.currentThread().getContextClassLoader()
-                .getResourceAsStream(path)) {
-            if (in == null) {
-                LOGGER.warnf("Bundle de messages absent : %s", path);
-                return map;
-            }
+        InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(path);
+        if (in == null) {
+            LOGGER.warnf("Bundle de messages absent : %s", path);
+            return map;
+        }
+        try (in) {
             Properties properties = new Properties();
             properties.load(new InputStreamReader(in, StandardCharsets.UTF_8));
             for (String name : properties.stringPropertyNames()) {

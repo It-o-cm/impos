@@ -46,6 +46,23 @@ public class TicketLine extends BaseEntity {
     @Column(name = "line_uid", length = 36)
     public String lineUid;
 
+    /** LC-02-03-04: principal line owning an automatic companion. */
+    @Column(name = "linked_parent_uid", length = 36)
+    public String linkedParentUid;
+    /** Configured companion captured when this line was registered. */
+    @Column(name = "linked_article_ean", length = 38)
+    public String linkedArticleEan;
+    /** Last quantity successfully paired with its companion chain. */
+    @Column(name = "linked_recorded_quantity", precision = 19, scale = 3)
+    public BigDecimal linkedRecordedQuantity;
+    /**
+     * How many companions accompany one unit of this principal (BO-02-03-15),
+     * captured with the companion EAN; null on lines recorded before it
+     * existed, which read as one.
+     */
+    @Column(name = "linked_article_multiplier", precision = 19, scale = 3)
+    public BigDecimal linkedArticleMultiplier;
+
     /**
      * The catalog product, or null for unknown-item and deposit-return lines.
      */
@@ -54,7 +71,7 @@ public class TicketLine extends BaseEntity {
     public Product product;
 
     /** The EAN code as entered at sale time, or null. */
-    @Column(name = "ean", length = 13)
+    @Column(name = "ean", length = 38)
     public String ean;
 
     /** The PLU code as entered at sale time (weighed sale), or null. */
@@ -80,6 +97,17 @@ public class TicketLine extends BaseEntity {
     @Column(name = "vat_rate", nullable = false, precision = 5, scale = 4)
     @NotNull
     public BigDecimal vatRate;
+
+    /**
+     * The NUMBER of the VAT regime the line was taxed under (BO-02-02-01), or
+     * null on a line written before the number was kept or under no regime.
+     *
+     * <p>Kept beside the rate because two regimes may share a percentage: the
+     * rate alone cannot tell a Portuguese exemption under article 9 from one
+     * under article 53, and the documents of the sale must name the right one.
+     */
+    @Column(name = "vat_number")
+    public Integer vatNumber;
 
     /** The price-modification label ("REMISE -10%"...), or null when untouched. */
     @Column(name = "modifier_label", length = 50)
@@ -164,6 +192,32 @@ public class TicketLine extends BaseEntity {
     public boolean discountForbidden;
 
     /**
+     * Whether the line is EXEMPT of VAT (BO-02-03-26/27), a statement distinct
+     * from a rate of zero: the ticket prints it under its own heading and the
+     * ventilations keep it apart. Snapshotted at the sale like the rate, and
+     * carried by the store push so the consolidated VAT reads it.
+     */
+    @Column(name = "vat_exempt")
+    public boolean vatExempt;
+
+    /**
+     * Whether the article was sold on behalf of a THIRD PARTY, the "TVA vente
+     * prestation" (BO-02-03-41 to -43): its VAT is the third party's, printed
+     * with its own rate on the ticket, and left out of the store's VAT report
+     * and of its turnover. Snapshotted at the sale and carried by the push.
+     */
+    @Column(name = "third_party_sale")
+    public boolean thirdPartySale;
+
+    /**
+     * Whether the article sold is a SERVICE (prestation de services) and not
+     * goods (BO-05-01-03): its collected amount belongs to the payment data of
+     * the e-reporting. Snapshotted at the sale and carried by the push.
+     */
+    @Column(name = "service_line")
+    public boolean service;
+
+    /**
      * Code of the product's nomenclature (family) as it was at sale time
      * (campaign lot C3, BO-04-01-11). Snapshotted from the product when the
      * persistent line is created, exactly as the label, EAN, PLU and price
@@ -197,6 +251,33 @@ public class TicketLine extends BaseEntity {
     public boolean toCollect;
 
     /**
+     * True when the article was rung by a SCAN rather than keyed
+     * (BO-04-01-14, event « article scanné »). A line that is not scanned —
+     * typed, searched, picked on a screen — is a keyed one: the store sales
+     * state counts the scanned and the keyed articles apart (BO-06-04-05).
+     */
+    @Column(name = "scanned", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean scanned;
+
+    /**
+     * True when the price of the line was KEYED by the operator — an article
+     * whose price is to be entered, an unknown article or a family sale
+     * (BO-04-01-14, event « prix saisi »).
+     */
+    @Column(name = "price_entered", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean priceEntered;
+
+    /**
+     * True when the article is a bulky one the customer carries out without
+     * putting it on the belt (BO-04-01-14, event « article emporté »).
+     */
+    @Column(name = "carried_out", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    public boolean carriedOut;
+
+    /**
      * True when a SOUS-TOTAL is drawn AFTER this line (EXP-43). Persisted because
      * the subtotal is part of the fiscal document: the printed ticket, its
      * duplicata and the dematerialized ticket all render it from the CLOSED ticket,
@@ -224,6 +305,14 @@ public class TicketLine extends BaseEntity {
      */
     @Column(name = "restricted_tenders", length = 200)
     public String restrictedTenders;
+
+    /**
+     * The quantity ORDERED on the document the line was recalled from, when the
+     * document also stated the delivered quantity the line sells (LC-06-02-02,
+     * -12); null for any other line.
+     */
+    @Column(name = "ordered_quantity", precision = 12, scale = 3)
+    public BigDecimal orderedQuantity;
 
     /**
      * The article's unit of measure ({@code LC-02-03-02}), or null for an article sold
@@ -305,6 +394,25 @@ public class TicketLine extends BaseEntity {
     public String activationProvider;
 
     /**
+     * The payment hub's identifier of the activation of the line (LC-02-09-01),
+     * or null on a line the hub never activated.
+     */
+    @Column(name = "activation_reference", length = 64)
+    public String activationReference;
+
+    /** The provider's own code for the activation (LC-02-09-03), or null. */
+    @Column(name = "activation_approval", length = 64)
+    public String activationApproval;
+
+    /** What the article carried before its activation (LC-02-09-03), or null. */
+    @Column(name = "activation_balance_before", precision = 10, scale = 2)
+    public java.math.BigDecimal activationBalanceBefore;
+
+    /** What the article carries after its activation (LC-02-09-03), or null. */
+    @Column(name = "activation_balance_after", precision = 10, scale = 2)
+    public java.math.BigDecimal activationBalanceAfter;
+
+    /**
      * True when the line was cancelled by the cashier during the sale and KEPT
      * as a witness rather than dropped (campaign lot C4, BO-04-01-16). The
      * register historically modelled the cart as a state — a cancelled line
@@ -377,6 +485,21 @@ public class TicketLine extends BaseEntity {
     public String cancellationReasonLabel;
 
     /**
+     * Code of the administered RETURN TYPE a return line taken back inside the
+     * sale was rung under ({@code BO-03-13-12}), or null for a sale line or a
+     * return made under no type. Frozen with its label, like the cancellation
+     * reason: a report edited later shows the type the cashier chose.
+     */
+    @Column(name = "return_type_code", length = 40)
+    public String returnTypeCode;
+
+    /**
+     * Label of the return type of a return line ({@code BO-03-13-12}), or null.
+     */
+    @Column(name = "return_type_label", length = 80)
+    public String returnTypeLabel;
+
+    /**
      * Returns the unit price the customer ACTUALLY PAID on this line, tax
      * included (LC-05-02-12): the line total shared out over the quantity, so
      * the advantages the line carries are part of it — a valuation-engine
@@ -435,7 +558,7 @@ public class TicketLine extends BaseEntity {
             if (this.quantity.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) == 0) {
                 return String.format("x%.0f", this.quantity);
             }
-            return "x" + this.quantity.stripTrailingZeros().toPlainString();
+            return "x" + this.quantity.stripTrailingZeros().toPlainString().replace('.', ',');
         }
     }
 

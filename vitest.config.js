@@ -15,7 +15,7 @@ import { defineConfig } from 'vitest/config';
  * boots or returns early. The disk file is never touched.
  */
 function exposeUiIife() {
-  const UI_FILE = /META-INF[/\\]resources[/\\]supervisor[/\\][^/\\]+\.js(\?|$)/;
+  const UI_FILE = /META-INF[/\\]resources[/\\](?:supervisor|pos)[/\\][^/\\]+\.js(\?|$)/;
   // A top-level IIFE: `(function () { <body> })();`. The body never itself contains the
   // `})();` terminator, so the non-greedy capture stops at this IIFE's own close.
   const IIFE = /\(function\s*\(\s*\)\s*\{([\s\S]*?)\}\)\(\s*\)\s*;/g;
@@ -58,7 +58,7 @@ export default defineConfig({
     include: ['src/test/js/**/*.spec.js'],
     coverage: {
       provider: 'istanbul',
-      include: ['src/main/resources/META-INF/resources/supervisor/*.js'],
+      include: ['src/main/resources/META-INF/resources/supervisor/*.js', 'src/main/resources/META-INF/resources/pos/*.js'],
       reporter: ['text', 'json', 'html'],
       reportsDirectory: 'target/js-coverage',
       all: false,

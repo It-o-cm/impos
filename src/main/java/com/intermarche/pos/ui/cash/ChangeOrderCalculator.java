@@ -27,21 +27,36 @@ public final class ChangeOrderCalculator {
     }
 
     /**
-     * One administered correspondence: the euro value of a full roll of coins
-     * of a given face value.
+     * One administered roll COMPOSITION (BO-03-02-42): the face value, the
+     * euro value of a full roll and the number of coins it holds.
      *
      * @param faceValue the coin/note face value, in euros
      * @param rollValue the euro value of one full roll of that denomination
+     * @param coinCount the number of coins of one roll
      */
-    public record RollValue(BigDecimal faceValue, BigDecimal rollValue) {
+    public record RollValue(BigDecimal faceValue, BigDecimal rollValue, int coinCount) {
+
+        /**
+         * Builds a composition whose coin count is derived from the two
+         * amounts — the form the administered list had before it carried the
+         * count.
+         *
+         * @param faceValue the face value, strictly positive
+         * @param rollValue the euro value of one full roll
+         */
+        public RollValue(BigDecimal faceValue, BigDecimal rollValue) {
+            this(faceValue, rollValue, rollValue.divide(faceValue, 0, RoundingMode.HALF_UP).intValue());
+        }
     }
 
     /**
-     * Parses the administered {@code FACIALE:VALEUR_ROULEAU} list, dropping
-     * malformed rows, non-positive values and duplicate face values; never null.
+     * Parses the administered {@code FACIALE:MONTANT[:NOMBRE_DE_PIECES]} list
+     * (LC-12-05-06/07, BO-03-02-42), dropping malformed rows, non-positive
+     * values, compositions whose three figures disagree and duplicate face
+     * values; never null.
      *
      * @param administered the raw semicolon list, or null
-     * @return the parsed correspondences, in administered order
+     * @return the parsed compositions, in administered order
      */
     public static List<RollValue> parseRollValues(String administered) {
         List<RollValue> values = new ArrayList<>();
@@ -50,7 +65,7 @@ public final class ChangeOrderCalculator {
         }
         for (String entry : administered.split(";")) {
             String[] parts = entry.split(":");
-            if (parts.length != 2) {
+            if (parts.length != 2 && parts.length != 3) {
                 continue;
             }
             BigDecimal face = toDecimal(parts[0]);
@@ -61,7 +76,18 @@ public final class ChangeOrderCalculator {
             if (rollValueOf(values, face) != null) {
                 continue;
             }
-            values.add(new RollValue(face, roll));
+            if (parts.length == 2) {
+                values.add(new RollValue(face, roll));
+                continue;
+            }
+            BigDecimal count = toDecimal(parts[2]);
+            // The three figures say the same thing twice; a list where they
+            // disagree is a typo, and the roll is not offered rather than guessed.
+            if (count == null || count.signum() <= 0
+                    || face.multiply(count).compareTo(roll) != 0) {
+                continue;
+            }
+            values.add(new RollValue(face, roll, count.intValue()));
         }
         return values;
     }

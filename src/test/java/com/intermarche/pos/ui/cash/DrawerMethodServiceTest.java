@@ -475,7 +475,8 @@ class DrawerMethodServiceTest {
 
     /**
      * With a session open, {@code theoreticalByMethod} returns the report's
-     * totals by tender — the non-null-session arm.
+     * per-tender THEORETICAL, never its bare settlements — the non-null-session
+     * arm (BO-05-02-08: the drawer holds the float and the cash-ins too).
      */
     @Test
     void theoreticalByMethodReadsTheSessionReport() {
@@ -483,7 +484,8 @@ class DrawerMethodServiceTest {
         CashSession session = new CashSession();
         when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(session);
         CashSessionService.SessionReport report = new CashSessionService.SessionReport();
-        report.totalsByMethod.put("CASH", new BigDecimal("50.00"));
+        report.totalsByMethod.put("CASH", new BigDecimal("20.00"));
+        report.theoreticalByMethod.put("CASH", new BigDecimal("50.00"));
         when(drawerMethodService.cashSessionService.buildReport(session)).thenReturn(report);
         Map<String, BigDecimal> totals = drawerMethodService.theoreticalByMethod();
         assertEquals(new BigDecimal("50.00"), totals.get("CASH"));

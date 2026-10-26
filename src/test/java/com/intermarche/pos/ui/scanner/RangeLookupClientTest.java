@@ -220,4 +220,41 @@ class RangeLookupClientTest {
         RangeLookupClient client = newClient();
         assertNull(client.lookup("pas une url du tout :: {code}", CODE));
     }
+
+    /**
+     * BO-03-06-41: with no field administered the answer is plain text and is
+     * used whole, a null and a blank field alike.
+     */
+    @Test
+    void withoutAFieldTheAnswerIsUsedWhole() {
+        assertEquals("3560070000000", RangeLookupClient.extract("3560070000000", null));
+        assertEquals("Bon accepté", RangeLookupClient.extract("Bon accepté", "  "));
+    }
+
+    /**
+     * BO-03-06-41: an administered field is read out of a JSON answer, dotted
+     * for a nested one, a text or a number as its text and anything else as
+     * its JSON.
+     */
+    @Test
+    void anAdministeredFieldIsReadOutOfTheJsonAnswer() {
+        assertEquals("3560070000000",
+                RangeLookupClient.extract("{\"article\":{\"ean\":\" 3560070000000 \"}}", "article.ean"));
+        assertEquals("1234", RangeLookupClient.extract("{\"plu\":1234}", " plu "));
+        assertEquals("[\"a\"]", RangeLookupClient.extract("{\"list\":[\"a\"]}", "list"));
+    }
+
+    /**
+     * BO-03-06-41: an answer that does not carry the field says nothing usable
+     * — a missing field, a path through a value, a JSON null, an empty text
+     * and an answer that is not JSON at all.
+     */
+    @Test
+    void anAnswerNotCarryingTheFieldSaysNothing() {
+        assertNull(RangeLookupClient.extract("{\"ean\":\"1\"}", "plu"));
+        assertNull(RangeLookupClient.extract("{\"ean\":\"1\"}", "ean.value.deeper"));
+        assertNull(RangeLookupClient.extract("{\"ean\":null}", "ean"));
+        assertNull(RangeLookupClient.extract("{\"ean\":\"  \"}", "ean"));
+        assertNull(RangeLookupClient.extract("Bon accepté", "ean"));
+    }
 }

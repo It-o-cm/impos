@@ -97,18 +97,18 @@ public class OrderResource {
         LOGGER.info("Entering method createOrder");
         OrderCreationService.Result result =
                 orderCreationService.create(state, parseAmount(amountStr));
-        if (result.created()) {
-            LOGGER.info("Exiting method createOrder (order created)");
-            return Response.seeOther(URI.create("/")).build();
-        }
         String error = switch (result.outcome()) {
             case NO_SESSION -> "no-session";
             case EMPTY_TICKET -> "empty";
             case TRAINING -> "training";
             case BAD_AMOUNT -> "amount";
             case OVER_TOTAL -> "total";
-            default -> "amount";
+            case CREATED -> null;
         };
+        if (error == null) {
+            LOGGER.info("Exiting method createOrder (order created)");
+            return Response.seeOther(URI.create("/")).build();
+        }
         LOGGER.info("Exiting method createOrder (refused: " + error + ")");
         return Response.seeOther(URI.create("/order?error=" + error)).build();
     }

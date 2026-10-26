@@ -71,11 +71,18 @@ public class EmployeeBootstrap {
      * push. That combination is reported as an error at startup, naming the
      * variable to set, so the cause is in the boot log rather than in a
      * guess.
+     * <p>
+     * Observed AFTER the default observers of the startup event: on a dev or
+     * demo build, the seed ({@code DataInitializer}, default priority) fills
+     * the employee table at the same event, and a bootstrap run before it
+     * reported an empty table nobody could sign in to, on a register whose
+     * seeded cashiers sign in a second later.
      *
      * @param event the application startup event
      */
     @Transactional
-    void onStart(@Observes StartupEvent event) {
+    void onStart(@Observes @jakarta.annotation.Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION + 1000)
+            StartupEvent event) {
         if (bootstrapPassword.isEmpty() || bootstrapPassword.get().isBlank()) {
             if (Employee.count() == 0) {
                 LOGGER.error("No employee in the database and no bootstrap password configured:"

@@ -1,9 +1,8 @@
 package com.intermarche.pos.domain.session;
 
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.time.LocalDateTime;
 
 /**
  * Unit tests for {@link TechnicalEvent}, targeting 100% branch coverage.
@@ -53,16 +52,31 @@ class TechnicalEventTest {
     }
 
     /**
-     * The nested EventType enum exposes exactly its thirty-two declared
-     * constants (the NF525 types, the operator-security events, the
-     * sync-supervision relaunch events, the GS1 decoding trace, the
-     * paid-ticket cancellation of EXP-49, the SOGEC compensation of EXP-58,
-     * the administered return type of LC-05-04-01, the ticket reassignment
-     * of LC-03-06-01..06 and the price check).
+     * The nested EventType enum exposes exactly its fifty-three declared constants
+     * (the NF525 types, the operator-security events, the sync-supervision
+     * relaunch events, the GS1 decoding trace, the paid-ticket cancellation of
+     * EXP-49, the SOGEC compensation of EXP-58, the ticket reassignment of
+     * LC-03-06-01..06 and the price check): the register vocabulary, the two
+     * expert-caisse events impos appended — PAID_TICKET_CANCELLED (EXP-49) and
+     * SOGEC_COMPENSATION (EXP-58) — the register's own TICKET_REASSIGNED of the
+     * reprint lane (impos reassigns a ticket to another register) and its
+     * administered return type, RETURN_TYPE_SELECTED (LC-05-04-01), the node's
+     * own forced at-the-flow delivery pass, STREAM_DELIVERY_FORCED
+     * (BO-11-02-05), the node's own X/Z financial states —
+     * FINANCIAL_STATE_EMITTED and FINANCIAL_STATE_READ — the node's own
+     * accepted back-office sign-in, BACK_OFFICE_SIGNED_IN (BO-04-03-04), and
+     * its own automatic end-of-period editions, SCHEDULED_REPORTS_EDITED
+     * (BO-09-01-10), the cashier's declaration of the vignettes she
+     * handed out, VIGNETTES_DECLARED (BO-11-01-20), the eleven journal and
+     * control events of BO-04 (self-scanning controls, unknown codes,
+     * cancelled payments, drawer pulses, price modifications, line
+     * cancellations, control alerts, justifications, watched menus and
+     * handled supervisions) and the register's timed cash operations,
+     * CASH_OPERATION_TIMED (BO-06-06-03).
      */
     @Test
-    void eventTypeEnumHasThirtyTwoConstants() {
-        Assertions.assertEquals(32, TechnicalEvent.EventType.values().length);
+    void eventTypeEnumHasFiftyThreeConstants() {
+        Assertions.assertEquals(53, TechnicalEvent.EventType.values().length);
     }
 
     /**
@@ -97,7 +111,6 @@ class TechnicalEventTest {
                 TechnicalEvent.EventType.TICKET_PARKED,
                 TechnicalEvent.EventType.TICKET_RESUMED,
                 TechnicalEvent.EventType.REFUND_CREATED,
-                TechnicalEvent.EventType.RETURN_TYPE_SELECTED,
                 TechnicalEvent.EventType.TICKET_REASSIGNED,
                 TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
                 TechnicalEvent.EventType.SUPERVISOR_CALLED,
@@ -110,9 +123,31 @@ class TechnicalEventTest {
                 TechnicalEvent.EventType.PASSWORD_FAILED,
                 TechnicalEvent.EventType.REFERENTIAL_PULL_FORCED,
                 TechnicalEvent.EventType.ENGINE_FEED_DELIVERY_FORCED,
+                TechnicalEvent.EventType.STREAM_DELIVERY_FORCED,
                 TechnicalEvent.EventType.GS1_DECODED,
                 TechnicalEvent.EventType.PAID_TICKET_CANCELLED,
-                TechnicalEvent.EventType.SOGEC_COMPENSATION
+                TechnicalEvent.EventType.SOGEC_COMPENSATION,
+                TechnicalEvent.EventType.FINANCIAL_STATE_EMITTED,
+                TechnicalEvent.EventType.FINANCIAL_STATE_READ,
+                TechnicalEvent.EventType.BACK_OFFICE_SIGNED_IN,
+                TechnicalEvent.EventType.SCHEDULED_REPORTS_EDITED,
+                TechnicalEvent.EventType.WORKSTATION_REQUEST,
+                TechnicalEvent.EventType.TOUCH_USED,
+                TechnicalEvent.EventType.DRAWER_FORCED_OPEN,
+                TechnicalEvent.EventType.RETURN_TYPE_SELECTED,
+                TechnicalEvent.EventType.VIGNETTES_DECLARED,
+                TechnicalEvent.EventType.SELF_SCAN_CONTROLLED,
+                TechnicalEvent.EventType.SELF_SCAN_VERIFIED,
+                TechnicalEvent.EventType.UNKNOWN_ARTICLE_SCANNED,
+                TechnicalEvent.EventType.PAYMENT_CANCELLED,
+                TechnicalEvent.EventType.DRAWER_OPENED,
+                TechnicalEvent.EventType.PRICE_MODIFIED,
+                TechnicalEvent.EventType.LINE_CANCELLED,
+                TechnicalEvent.EventType.CONTROL_ALERT,
+                TechnicalEvent.EventType.JUSTIFICATION_CHOSEN,
+                TechnicalEvent.EventType.BACK_OFFICE_MENU_OPENED,
+                TechnicalEvent.EventType.SUPERVISION_HANDLED,
+                TechnicalEvent.EventType.CASH_OPERATION_TIMED
         };
         Assertions.assertArrayEquals(expected, TechnicalEvent.EventType.values());
     }

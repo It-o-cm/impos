@@ -183,11 +183,8 @@ public class TicketSearchService {
         if (!value.matches("\\d+[.,]\\d{1,2}")) {
             return null;
         }
-        try {
-            return new BigDecimal(value.replace(',', '.'));
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        // LC-04-05-01: the ASCII digit-and-separator pattern above guarantees a valid plain decimal.
+        return new BigDecimal(value.replace(',', '.'));
     }
 
     /**
@@ -207,4 +204,85 @@ public class TicketSearchService {
             return null;
         }
     }
+    /** Searches all nonblank criteria together with AND, preserving the retention and reassignment boundaries (LC-04-05-01).
+     * @param criteria the independent fields submitted from either screen
+     * @param unassignedOnly whether attached loyalty customers must be excluded
+     * @return matching closed tickets, newest first; invalid input returns none with an explicit error key
+     */
+    public List<Ticket> searchCriteria(TicketSearchCriteria criteria, boolean unassignedOnly) {
+        criteria.errorKey = null;
+        criteria.submitted = true;
+        StringBuilder query = new StringBuilder("select t from Ticket t where t.status = ?1 and t.creationDate > ?2");
+        java.util.List<Object> parameters = new java.util.ArrayList<>(List.of(Ticket.TicketStatus.CLOSED,
+                LocalDateTime.now().minusDays(searchDays())));
+        addCriterion(query, parameters, "locate(lower(?%d), lower(t.ticketNumber)) > 0", criteria.number);
+        addCriterion(query, parameters, "t.fidelityCard = ?%d", criteria.loyaltyCard);
+        addCriterion(query, parameters, "exists (select l.id from Ticket articleTicket join articleTicket.lines l where articleTicket.id = t.id and l.ean = ?%d)", criteria.articleCode);
+        addCriterion(query, parameters, "lower(t.terminalId) = lower(?%d)", criteria.terminalId);
+        String date = text(criteria.date);
+        if (!date.isEmpty()) {
+            LocalDate day;
+            try {
+                day = LocalDate.parse(date, java.time.format.DateTimeFormatter.ofPattern("dd/MM/uuuu")
+                        .withResolverStyle(java.time.format.ResolverStyle.STRICT));
+            } catch (java.time.format.DateTimeParseException invalid) {
+                criteria.errorKey = "ticketsearch.invalidDate";
+                return List.of();
+            }
+            query.append(" and t.creationDate >= ?").append(parameters.size() + 1);
+            parameters.add(day.atStartOfDay());
+            query.append(" and t.creationDate < ?").append(parameters.size() + 1);
+            parameters.add(day.plusDays(1).atStartOfDay());
+        }
+        String amount = text(criteria.amount);
+        if (!amount.isEmpty()) {
+            if (!amount.matches("\\d+(?:[.,]\\d{1,2})?")) {
+                criteria.errorKey = "ticketsearch.invalidAmount";
+                return List.of();
+            }
+            query.append(" and t.totalIncludingTax = ?").append(parameters.size() + 1);
+            parameters.add(new BigDecimal(amount.replace(',', '.')));
+        }
+        String method = text(criteria.paymentMethod).toUpperCase(java.util.Locale.ROOT);
+        if (!method.isEmpty()) {
+            Class<?> paymentType = com.intermarche.pos.domain.payment.PaymentTypes.forKey(method);
+            if (paymentType == null) {
+                criteria.errorKey = "ticketsearch.invalidPayment";
+                return List.of();
+            }
+            query.append(" and exists (select p.id from Ticket paymentTicket join paymentTicket.payments p where paymentTicket.id = t.id and type(p) = ?").append(parameters.size() + 1).append(")");
+            parameters.add(paymentType);
+        }
+        if (unassignedOnly) {
+            query.append(" and t.fidelityCard is null");
+        }
+        if (parameters.size() == 2 && !unassignedOnly) {
+            return List.of();
+        }
+        query.append(" order by t.creationDate desc, t.id desc");
+        return Ticket.find(query.toString(), parameters.toArray()).list();
+    }
+
+    /** Adds an optional parameter without interpolating operator input into JPQL (LC-04-05-01).
+     * @param query the query under construction
+     * @param parameters its ordered values
+     * @param expression the trusted expression with a parameter-position placeholder
+     * @param raw the entered identifier
+     */
+    private void addCriterion(StringBuilder query, java.util.List<Object> parameters, String expression, String raw) {
+        String value = text(raw);
+        if (!value.isEmpty()) {
+            query.append(" and ").append(String.format(expression, parameters.size() + 1));
+            parameters.add(value);
+        }
+    }
+
+    /** Normalizes optional form values without interpreting their contents (LC-04-05-01).
+     * @param value the posted field
+     * @return a trimmed non-null string
+     */
+    private String text(String value) {
+        return value == null ? "" : value.trim();
+    }
+
 }

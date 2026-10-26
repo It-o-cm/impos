@@ -300,4 +300,17 @@ class ValuationPayloadsTest {
         assertTrue(java.io.Serializable.class.isAssignableFrom(ValuationPayloads.AdvantageDto.class));
         assertTrue(java.io.Serializable.class.isAssignableFrom(ValuationPayloads.ValuationResponseDto.class));
     }
+    /** GB-01: EGAlim explanations deserialize exact decimal values while tolerating future engine fields. */
+    @Test
+    void egalimLinePayloadRetainsItsFinancialExplanation() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var dto = mapper.readValue("{\"lineId\":\"L1\",\"ean\":\"12345678\",\"regime\":\"FOOD_34\",\"nominalPrice\":10.00,\"finalPrice\":6.60,\"correction\":0.40,\"futureField\":true}", ValuationPayloads.EgalimLineDto.class);
+        assertEquals("L1", dto.lineId);
+        assertEquals("12345678", dto.ean);
+        assertEquals("FOOD_34", dto.regime);
+        assertEquals(new BigDecimal("10.00"), dto.nominalPrice);
+        assertEquals(new BigDecimal("6.60"), dto.finalPrice);
+        assertEquals(new BigDecimal("0.40"), dto.correction);
+    }
+
 }

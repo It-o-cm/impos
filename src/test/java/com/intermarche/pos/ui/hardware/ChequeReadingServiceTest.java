@@ -357,4 +357,40 @@ class ChequeReadingServiceTest {
         verifyNoInteractions(onRead);
         verifyNoInteractions(onError);
     }
+    /** LC-07-05-06: front printing succeeds without a magnetic line, for absent and blank failures. */
+    @Test
+    void frontPrintingDoesNotRequireMicr() {
+        for (String report : new String[] {"state=DONE", "state=DONE\nfailure="}) {
+            HardwareClient client = mock(HardwareClient.class);
+            when(client.getChequeStatus()).thenReturn(report);
+            @SuppressWarnings("unchecked")
+            Consumer<String> success = mock(Consumer.class);
+            @SuppressWarnings("unchecked")
+            Consumer<String> error = mock(Consumer.class);
+            serviceWith(client).printFront("FRONT", success, error);
+            verify(client).printChequeFront("FRONT");
+            verify(success, timeout(2000)).accept("");
+            verifyNoInteractions(error);
+        }
+    }
+
+    /** LC-07-05-06: a rejected start or vendor print failure never reports a successful document. */
+    @Test
+    void frontFailuresAreVisible() {
+        HardwareClient client = mock(HardwareClient.class);
+        doThrow(new IllegalStateException("offline")).when(client).printChequeFront("FRONT");
+        @SuppressWarnings("unchecked")
+        Consumer<String> success = mock(Consumer.class);
+        @SuppressWarnings("unchecked")
+        Consumer<String> error = mock(Consumer.class);
+        serviceWith(client).printFront("FRONT", success, error);
+        verify(error).accept("LECTEUR DE CHEQUES INJOIGNABLE");
+        verifyNoInteractions(success);
+        HardwareClient failed = mock(HardwareClient.class);
+        when(failed.getChequeStatus()).thenReturn("state=DONE\nfailure=jam");
+        serviceWith(failed).printFront("FRONT", success, error);
+        verify(error, timeout(2000)).accept("IMPRESSION DU CHÈQUE IMPOSSIBLE");
+        verifyNoInteractions(success);
+    }
+
 }

@@ -45,6 +45,7 @@ class MoneticsDegradedServiceTest {
         service.endorsementService = mock(EndorsementService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         when(service.posSettingsService.moneticsDegradedForcedEndorsement()).thenReturn(true);
+        when(service.posSettingsService.moneticsDegradedReleaseEndorsement()).thenReturn(true);
         when(service.posSettingsService.moneticsDegradedForcedMinutes()).thenReturn(60);
         when(service.endorsementService.operatorIsSupervisor(any())).thenReturn(false);
         return service;
@@ -238,11 +239,27 @@ class MoneticsDegradedServiceTest {
     @Test
     void withoutEndorsementTheOperatorReleasesItAlone() {
         MoneticsDegradedService service = newService();
-        when(service.posSettingsService.moneticsDegradedForcedEndorsement()).thenReturn(false);
+        when(service.posSettingsService.moneticsDegradedReleaseEndorsement()).thenReturn(false);
         PosState state = newState();
         state.moneticsDegradedUntil = LocalDateTime.now().plusMinutes(30);
         assertTrue(service.deactivate(state, null, null));
         assertFalse(state.isMoneticsDegradedForced());
+    }
+
+    /**
+     * BO-03-02-49/-50: activation and release are administered APART — a shop
+     * may let the operator force the degraded mode alone and still want a
+     * supervisor to lift it.
+     */
+    @Test
+    void activationAndReleaseAreAdministeredApart() {
+        MoneticsDegradedService service = newService();
+        when(service.posSettingsService.moneticsDegradedForcedEndorsement()).thenReturn(false);
+        PosState state = newState();
+        assertTrue(service.activate(state, null, null));
+        assertFalse(service.deactivate(state, "stagiaire", "mdp"));
+        assertTrue(state.isMoneticsDegradedForced());
+        verify(service.endorsementService).authorize("stagiaire", "mdp", "MONETICS_DEGRADED_OFF");
     }
 
     /**

@@ -44,6 +44,9 @@ public class EndorsementResource {
 
 
     @Inject EndorsementService endorsementService;
+    @Inject FunctionApprovalService functionApprovals;
+    /** The register alerts a supervisor validates (BO-04-03-09). */
+    @Inject com.intermarche.pos.ui.control.ControlGateService controlGateService;
     @Inject TicketService ticketService;
     @Inject RefundService refundService;
     @Inject com.intermarche.pos.ui.home.HomeService homeService;
@@ -59,6 +62,9 @@ public class EndorsementResource {
 
     @Inject com.intermarche.pos.ui.cash.FinancialMovementResource financialMovementResource;
 
+    /** Replays a forced drawer opening once authorised (LC-12-01-01). */
+    @Inject com.intermarche.pos.ui.cash.DrawerOpenResource drawerOpenResource;
+
     @Inject PosState state;
 
     /** The back-office parameters, for the administered cumulation rule. */
@@ -72,7 +78,7 @@ public class EndorsementResource {
     /**
      * Returns the endorsement modal state for the UI polling.
      *
-     * @return a JSON map with the modal state (active, action, scanned badge, error)
+     * @return a JSON map with the modal state (active, action, scanned badge, error, back-office grant)
      */
     @GET
     @Path("/endorsement-data")
@@ -81,12 +87,21 @@ public class EndorsementResource {
         LOGGER.info("Entering method getEndorsementData");
         String badge = state.endorsement.scannedBadge;
         if (badge != null) state.endorsement.clearScannedBadge();
+        SupervisorValidationMode mode = endorsementService.validationMode();
         LOGGER.info("Exiting method getEndorsementData");
         return Map.of(
                 "active", state.endorsement.active,
-                "action", state.endorsement.requestedAction != null ? state.endorsement.requestedAction : "",
+                "action", FunctionApprovalService.ACTION.equals(state.endorsement.requestedAction)
+                        ? i18n.get("op.avalFonction") : ("CANCEL_GROUP_ARTICLE".equals(state.endorsement.requestedAction)
+                        ? i18n.get("op.annulationArticleGroupe") : (state.endorsement.requestedAction != null ? state.endorsement.requestedAction : "")),
                 "scannedBadge", badge != null ? badge : "",
-                "error", state.endorsement.error != null ? state.endorsement.error : ""
+                // BO-10-02-31: what the panel must ask, and whether the reader
+                // delivered the supervisor's Dallas key.
+                "mode", (mode == null ? SupervisorValidationMode.CODE_PASSWORD : mode).name(),
+                "dallas", state.endorsement.presentedDallasKey != null,
+                "error", state.endorsement.error != null ? state.endorsement.error : "",
+                // LC-01-05-08: who authorised the gesture at the back office, empty until someone did.
+                "granted", state.endorsement.remoteGrant != null ? state.endorsement.remoteGrant : ""
         );
     }
 
@@ -100,10 +115,25 @@ public class EndorsementResource {
      *         reload never replays the POST); any refusal message travels
      *         through the shared state
      */
+    public Response validateEndorsement(String login, String password) {
+        return validateEndorsement(login, null, password);
+    }
+
+    /**
+     * Validates the pending endorsement under the shop's supervisor validation
+     * mode (BO-10-02-31) and, on success, executes the endorsed action.
+     *
+     * @param login the badge id or login name presented for the endorsement
+     * @param code the supervisor code typed after a read barcode, or null
+     * @param password the raw PIN presented for the endorsement
+     * @return a 303 redirect to the main page (PRG pattern); any refusal
+     *         message travels through the shared state
+     */
     @POST
     @Path("/action/endorse-validate")
     @Consumes("application/x-www-form-urlencoded")
-    public Response validateEndorsement(@FormParam("login") String login, @FormParam("password") String password) {
+    public Response validateEndorsement(@FormParam("login") String login, @FormParam("code") String code,
+                                        @FormParam("password") String password) {
         LOGGER.info("Entering method validateEndorsement with login: " + login + ", password: ***");
         String actionToExecute = state.endorsement.requestedAction;
 
@@ -118,7 +148,7 @@ public class EndorsementResource {
         // cashier still pressed the key; what the back office supplied is
         // the endorsement, not the gesture.
         String remote = endorsementService.remotelyGranted(state);
-        if (remote != null || endorsementService.authorize(login, password, actionToExecute)) {
+        if (remote != null || granted(login, code, password, actionToExecute)) {
             // EXP-33: in PER_TICKET scope the endorsement stays open on the sale so
             // the following guarded gestures do not re-ask, until FIN SUPERVISEUR.
             endorsementService.openSupervisorSessionIfPerTicket(state,
@@ -139,6 +169,25 @@ public class EndorsementResource {
     }
 
     /**
+     * Checks the panel's credentials under the shop's validation mode
+     * (BO-10-02-31): code and password through the historical check, any
+     * barcode or Dallas mode through the proofs the register read.
+     *
+     * @param login the badge id or login name presented
+     * @param code the supervisor code typed after a read barcode, or null
+     * @param password the raw PIN presented
+     * @param actionCode the action code requiring authorization
+     * @return true when the endorsement is granted
+     */
+    private boolean granted(String login, String code, String password, String actionCode) {
+        SupervisorValidationMode mode = endorsementService.validationMode();
+        if (mode == null || mode == SupervisorValidationMode.CODE_PASSWORD) {
+            return endorsementService.authorize(login, password, actionCode);
+        }
+        return endorsementService.authorizePanel(state, mode, code, password, actionCode);
+    }
+
+    /**
      * Executes an APPROVED endorsed action — the registry of every guarded
      * gesture. Called only after a manager credential passed, or through the
      * connected-supervisor shortcut below (LC-01-05-07): the approval always
@@ -149,7 +198,9 @@ public class EndorsementResource {
      * @return the landing the gesture wants, or null to land on the sale screen
      */
     private Response executeApprovedAction(String actionToExecute, String endorserBadge) {
-            if (actionToExecute.equals("CANCEL_TICKET")) {
+            if (actionToExecute.equals(FunctionApprovalService.ACTION)) {
+                return functionApprovals.approve();
+            } else if (actionToExecute.equals("CANCEL_TICKET")) {
                 // LC-04-04-07/09: a settlement already taken is undone with the
                 // ticket — the lease released, the valuation reverted, the entries
                 // dropped. The abandon screen named them before the operator
@@ -164,6 +215,8 @@ public class EndorsementResource {
                 // settlements already taken; the gesture resumes exactly where
                 // the payment screen left it.
                 paymentService.cancelPayments(state);
+            } else if (actionToExecute.equals("CANCEL_GROUP_ARTICLE")) {
+                homeService.performGroupArticleCancellation(state.endorsement.pendingForm.get("uid"));
             } else if (actionToExecute.startsWith("CANCEL_LINE_")) {
                 String uid = actionToExecute.substring("CANCEL_LINE_".length());
                 ticketService.cancelItemById(state, uid);
@@ -204,6 +257,19 @@ public class EndorsementResource {
                         }
                     }
                 }
+            }
+            else if (actionToExecute.equals(
+                    com.intermarche.pos.ui.scanner.Gs1ScanHandler.FORCE_EXPIRY_ACTION)) {
+                // BO-03-06-64: a supervisor forced the article past its date; the
+                // code is read again, and that reading registers it.
+                String code = state.endorsement.pendingForm.get("code");
+                state.ticket.gs1ForcedCode = code;
+                ticketService.processScan(code);
+            }
+            else if (actionToExecute.equals(com.intermarche.pos.ui.control.ControlGateService.ACTION)) {
+                // BO-04-03-09: a supervisor validated the scan or the article a
+                // register alert held; it is read again, and passes once.
+                controlGateService.resumeAfterEndorsement();
             }
             else if (actionToExecute.equals("TRAINING_TOGGLE")) {
                 homeService.performTrainingToggle();
@@ -261,6 +327,11 @@ public class EndorsementResource {
                     return drawerOperationsResource.performEndorsedSafeDeposit(form, endorserBadge);
                 }
                 return drawerOperationsResource.performEndorsedWithdrawal(form, endorserBadge);
+            }
+            else if (actionToExecute.equals(
+                    com.intermarche.pos.ui.cash.DrawerOpenResource.ENDORSEMENT_ACTION)) {
+                // LC-12-01-01: the forced opening runs only now, under the manager's name.
+                return drawerOpenResource.performEndorsed(state.endorsement.pendingForm, endorserBadge);
             }
             else if (actionToExecute.equals(
                     com.intermarche.pos.ui.cash.FinancialMovementResource.ENDORSEMENT_ACTION)) {
@@ -373,7 +444,7 @@ public class EndorsementResource {
     @Path("/action/endorse-cancel")
     public Response cancelEndorsement() {
         LOGGER.info("Entering method cancelEndorsement");
-        endorsementService.clearRequest(state);
+        endorsementService.abandonRequest(state);
         state.touch();
         LOGGER.info("Exiting method cancelEndorsement");
         return redirectHome();

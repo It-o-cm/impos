@@ -82,4 +82,20 @@ class ChangeOrderStateTest {
         state.clear();
         assertTrue(state.entries.isEmpty());
     }
+
+    /** LC-12-05: an uninitialized staged entry does not fabricate a monetary amount. */
+    @org.junit.jupiter.api.Test
+    void coverageEntryWithNullAmount() {
+        var state = new ChangeOrderState();
+        state.entries.put("EMPTY", new ChangeOrderState.Entry());
+        org.junit.jupiter.api.Assertions.assertEquals(new java.math.BigDecimal("0.00"), state.total());
+    }
+    /** LC-12-05: a missing staged denomination entry contributes nothing to the requested change total. */
+    @Test
+    void nullStagedEntryContributesNothing() {
+        var state = new ChangeOrderState();
+        state.entries.put("EMPTY", null);
+        assertEquals(new BigDecimal("0.00"), state.total());
+    }
+
 }

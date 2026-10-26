@@ -40,6 +40,9 @@ public class ReprintResource {
 
     @Inject @Location("reprint-ticket") Template reprintTicketPage;
     @Inject @Location("reprint-ticket-detail") Template reprintDetailPage;
+    /** LC-04-05-05: frozen promotion calculations, read without revaluation. */
+    @Inject @Location("reprint-promotions") Template reprintPromotions;
+
 
     /** The mask naming a ticket held by another register (LC-08-05-05). */
     @Inject @Location("reprint-foreign") Template reprintForeignPage;
@@ -378,5 +381,34 @@ public class ReprintResource {
         reprintService.applyReassign(id, card);
         LOGGER.info("Exiting method applyReassign");
         return Response.seeOther(URI.create("/reprint/view/" + id)).build();
+    }
+    /** LC-04-05-01: exposes independent cumulative filters on the duplicata screen.
+     * @param criteria the posted form fields
+     * @return the filtered history with its entered values
+     */
+    @POST
+    @Path("/search/criteria")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance searchCriteria(@jakarta.ws.rs.BeanParam com.intermarche.pos.ui.ticket.TicketSearchCriteria criteria) {
+        reprintService.searchCriteria(criteria);
+        return reprintTicketPage.data("state", state);
+    }
+
+    /** LC-04-05-05: reads the persisted calculation trace of exactly the requested ticket.
+     * @param id persisted ticket identity
+     * @return the historical explanation, including an explicit unavailable-trace state
+     */
+    @GET
+    @Path("/view/{id}/promotions")
+    @Produces(MediaType.TEXT_HTML)
+    public Object showPromotions(@PathParam("id") Long id) {
+        Ticket ticket = Ticket.findById(id);
+        if (ticket == null) {
+            return Response.seeOther(URI.create("/reprint")).build();
+        }
+        java.util.List<com.intermarche.pos.domain.sale.TicketLineValuation> traces =
+                com.intermarche.pos.domain.sale.TicketLineValuation.list("ticket = ?1 order by id", ticket);
+        return reprintPromotions.data("ticket", ticket).data("traces", traces);
     }
 }

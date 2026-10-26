@@ -1,6 +1,5 @@
 package com.intermarche.pos.domain.catalog;
 
-import com.intermarche.pos.domain.BaseEntity;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
@@ -10,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * Entity representing a Price for a specific Product.

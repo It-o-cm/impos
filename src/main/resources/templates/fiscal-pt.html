@@ -1,0 +1,156 @@
+{!
+ ! Portuguese fiscal documents (LC-08-04-18, -19, -21, -22): the FATURA asked for the
+ ! sale under way, or, outside a sale, a past FS turned into a FATURA and the RECIBO
+ ! of a past FATURA. Touch till: every field is typed on the on-screen keyboard, ONE
+ ! FIELD AT A TIME, the field list on the left, the keyboard on the right — the
+ ! invoice screen's own mechanism.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('fiscalpt.title')}</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
+        .tabs { display: flex; gap: 10px; flex-shrink: 0; }
+        .tabs .btn { flex: 1; text-align: center; }
+        .hint { font-size: var(--fs-label); color: var(--text-muted); flex-shrink: 0; }
+        .error { background: var(--danger); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
+        .info { background: var(--success); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; overflow-wrap: anywhere; }
+        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
+        .side { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+        .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+        .fields { flex: 1; overflow-y: auto; border-top: 1px solid var(--border-strong); }
+        .field { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+                 padding: 8px 10px; border-bottom: 1px dashed var(--border-strong);
+                 font-size: var(--fs-body); cursor: pointer; }
+        .field.on { background: rgba(255,255,255,.08); }
+        .field .lab { color: var(--text-muted); white-space: nowrap; }
+        .field .val { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .field .val.empty { color: var(--text-muted); font-weight: normal; }
+        .display { width: 100%; font-size: var(--fs-field); padding: 10px 12px; border-radius: 4px;
+                   border: 2px solid var(--border-strong); background: var(--bg-panel);
+                   color: var(--text-main); text-align: left; flex-shrink: 0; overflow-wrap: anywhere; }
+        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
+        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+
+    <div class="top-bar">
+        <span class="store-name">{inject:i18n.get('fiscalpt.title')}</span>
+        <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+        {#if mode == 'request'}
+        <div class="hint"><strong>{inject:i18n.get('fiscalpt.demandeFatura')}</strong> — {inject:i18n.get('fiscalpt.demandeHint')}</div>
+        {#else}
+        <div class="tabs">
+            <a href="/fiscal-pt?mode=convert" class="btn {#if mode == 'convert'}btn-primary{#else}btn-muted{/if}">{inject:i18n.get('fiscalpt.convertir')}</a>
+            <a href="/fiscal-pt?mode=receipt" class="btn {#if mode == 'receipt'}btn-primary{#else}btn-muted{/if}">{inject:i18n.get('fiscalpt.recibo')}</a>
+        </div>
+        <div class="hint">{#if mode == 'convert'}{inject:i18n.get('fiscalpt.convertHint')}{#else}{inject:i18n.get('fiscalpt.reciboHint')}{/if}</div>
+        {/if}
+
+        {#if error}<div class="error" role="alert">{error}</div>{/if}
+        {#if info}<div class="info" role="status">{info}</div>{/if}
+
+        <form class="work" method="post" action="/fiscal-pt/{mode}" id="entryForm">
+            <div class="side">
+                <div class="fields" id="fieldList"></div>
+            </div>
+            <div class="entry">
+                <div class="entry-title" id="entryTitle"></div>
+                <div id="kbDisplay" class="display pad-display"></div>
+                <div class="keyboard pos-kb-compact" id="kbArea"></div>
+                <div class="actions">
+                    <button class="btn btn-success" type="submit">{inject:i18n.get('common.validate')}</button>
+                </div>
+            </div>
+            <input type="hidden" name="next" value="{next}">
+            {#for f in fields}
+            <input type="hidden" class="pt-field" name="{f.name}" id="f_{f.name}" value="{f.value}"
+                   data-label="{f.displayLabel}" data-kb="{f.keyboard}" data-up="{f.uppercase}" data-max="{f.maxLength}">
+            {/for}
+        </form>
+    </div>
+
+    <div class="bottom-nav">
+        <a href="{#if next == 'pay'}/pay{#else}/{/if}" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+    </div>
+</div>
+
+{#include keyboard-lib /}
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* The fields of the mode on screen, as the server describes them on their hidden
+       inputs, each with the keyboard its content needs: digits for a day or a number,
+       letters and digits for a NIF, a name or an address. */
+    const FIELDS = [...document.querySelectorAll('input.pt-field')].map(input => ({
+        name: input.name,
+        label: input.dataset.label,
+        kb: input.dataset.kb,
+        up: input.dataset.up === 'true',
+        max: Number(input.dataset.max)
+    }));
+
+    let currentField = 0;
+
+    /* Redraws the field list from the hidden inputs that actually carry the values. */
+    function refreshFields() {
+        const list = document.getElementById('fieldList');
+        list.innerHTML = '';
+        FIELDS.forEach((field, index) => {
+            const value = document.getElementById('f_' + field.name).value;
+            const row = document.createElement('div');
+            row.className = 'field' + (index === currentField ? ' on' : '');
+            const label = document.createElement('span');
+            label.className = 'lab';
+            label.innerText = field.label;
+            const shown = document.createElement('span');
+            shown.className = 'val' + (value ? '' : ' empty');
+            shown.innerText = value || '—';
+            row.appendChild(label);
+            row.appendChild(shown);
+            row.onclick = () => selectField(index);
+            list.appendChild(row);
+        });
+    }
+
+    /* Points the on-screen keyboard at one field. */
+    function selectField(index) {
+        currentField = index;
+        const field = FIELDS[index];
+        document.getElementById('entryTitle').innerText = field.label;
+        PosInput.setup({
+            displayId: 'kbDisplay',
+            hiddenId: 'f_' + field.name,
+            containerId: 'kbArea',
+            keyboardType: field.kb,
+            // TEXT on the numeric pad too: a day starts with a significant zero.
+            mode: 'text',
+            uppercase: field.up,
+            maxLength: field.max,
+            initialValue: document.getElementById('f_' + field.name).value || '',
+            onChange: refreshFields
+        });
+        refreshFields();
+    }
+
+    selectField(0);
+    document.getElementById('entryForm').addEventListener('submit', refreshFields);
+</script>
+</body>
+</html>

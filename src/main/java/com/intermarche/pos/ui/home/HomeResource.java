@@ -56,6 +56,11 @@ public class HomeResource {
     @Inject Template supervisor;
     @Inject Template ticket;
 
+    /** Decides, line by line, whether the article code is shown (BO-10-02-35). */
+    @Inject com.intermarche.pos.ui.ticket.ArticleCodeService articleCodeService;
+    /** LC-02-03-11: explicit acknowledgement of a refused article. */
+    @Inject @Location("article-message") Template articleMessage;
+
     /** The back-office message consult screen (LC-01-08-04). */
     @Inject @Location("bo-message") Template boMessage;
 
@@ -68,6 +73,18 @@ public class HomeResource {
     @Inject @Location("manual-weight") Template manualWeight;
 
     @Inject HomeService homeService;
+
+    /** The cash menu this register draws (BO-03-10-16/17). */
+    @Inject CashMenuService cashMenuService;
+
+    /** The single-queue availability of this register (BO-03-09-10). */
+    @Inject SingleQueueService singleQueueService;
+    /** Whether the FACTURE key opens the Portuguese fiscal documents (LC-08-04-18). */
+    @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The program installed on the till, launched by its key (LC-09-01-04). */
+    @Inject
+    ExternalProgramService externalProgramService;
     @Inject TicketService ticketService;
     @Inject HardwareService hardwareService;
     @Inject PosState state;
@@ -81,6 +98,31 @@ public class HomeResource {
 
     /** Settles a cheque reading that ended between two polls (see the poll). */
     @Inject com.intermarche.pos.ui.payment.PaymentService paymentService;
+
+    /**
+     * Displays the pending article refusal; no article is replayed (LC-02-03-11).
+     * @return the acknowledgement page
+     */
+    @GET
+    @Path("/article-message")
+    @DrawerMayBeOpen
+    public TemplateInstance articleMessagePage() {
+        return articleMessage.data("state", state);
+    }
+
+    /**
+     * Acknowledges the displayed refusal without registering the rejected article.
+     * @param messageId identifier of the message actually displayed
+     * @return the sale screen
+     */
+    @POST
+    @Path("/action/article-message/ack")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @DrawerMayBeOpen
+    public Response acknowledgeArticleMessage(@FormParam("messageId") String messageId) {
+        com.intermarche.pos.ui.ticket.ArticleMessageService.acknowledge(state, messageId);
+        return Response.seeOther(URI.create("/")).build();
+    }
 
     // --- Drawer error handling ---
 
@@ -160,12 +202,77 @@ public class HomeResource {
             return cancelReason.data("state", state)
                     .data("reasons", homeService.cancelReasons());
         }
+        resolveArticleCodes();
         LOGGER.info("Exiting method home");
         return main.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
                 .data("waitingLabel", homeService.waitingLabel())
                 .data("drawerAlert", homeService.drawerCapAlert())
-                .data("discountPresets", homeService.discountPresets());
+                .data("discountPresets", homeService.discountPresets())
+                // BO-03-07-03/-06: the administered keys on the ticket total.
+                .data("ticketDiscountPresets", homeService.ticketDiscountPresets())
+                .data("ptDocuments", posSettingsService.ptDocuments())
+                .data("offline", homeService.offlineAppearance())
+                .data("cashMenu", cashMenuService.current())
+                .data("singleQueue", singleQueueService.view())
+                .data("externalApps", posSettingsService.externalApps())
+                .data("externalProgram", externalProgramService.isConfigured()
+                        ? externalProgramService.label() : null);
+    }
+
+    /**
+     * Resolves which lines show their article code before the ticket zone is
+     * rendered (BO-10-02-35); a resource built without the service shows none.
+     */
+    private void resolveArticleCodes() {
+        if (articleCodeService != null) {
+            articleCodeService.resolve(state.ticket);
+        }
+    }
+
+    /**
+     * Starts the program installed on the till that the back office
+     * administered (LC-09-01-04), and says whether it started.
+     *
+     * @return the home page
+     */
+    @POST
+    @Path("/action/external-program")
+    public TemplateInstance launchExternalProgram() {
+        LOGGER.info("Entering method launchExternalProgram");
+        String refusal = externalProgramService.launch();
+        if (refusal == null) {
+            state.ticket.setNotice(i18n.format("op.programmeExterneLance", externalProgramService.label()));
+        } else {
+            state.ticket.setError(refusal);
+        }
+        state.touch();
+        LOGGER.info("Exiting method launchExternalProgram");
+        return home();
+    }
+
+    /**
+     * The hostess declares this register available, or not available, to the
+     * single-queue system (BO-03-09-10).
+     *
+     * @return the home page
+     */
+    @POST
+    @Path("/action/single-queue")
+    public TemplateInstance toggleSingleQueue() {
+        LOGGER.info("Entering method toggleSingleQueue");
+        String published = singleQueueService.toggle();
+        if (published == null) {
+            state.ticket.setError(i18n.get("queue.inactive"));
+        } else if (singleQueueService.publish()) {
+            boolean available = "AVAILABLE".equals(published);
+            state.ticket.setNotice(i18n.get(available ? "queue.publieeDisponible" : "queue.publieeNonDisponible"));
+        } else {
+            state.ticket.setError(i18n.get("queue.nonPubliee"));
+        }
+        state.touch();
+        LOGGER.info("Exiting method toggleSingleQueue");
+        return home();
     }
 
     /**
@@ -186,10 +293,16 @@ public class HomeResource {
         // the page, and this poll is the first request able to register it — the
         // register writes its draft from one thread at a time.
         paymentService.settlePendingChequeRead(state);
+        // LC-07-15-01: a cash changer deposit ends on the machine's own time, and
+        // is registered by the first request that can, like the cheque above.
+        paymentService.settlePendingCashChanger(state);
         // The lock state rides on EVERY answer, version match included: the
         // poll is how an already-open screen learns that the register locked
         // and must navigate to /lock (see LockCheckFilter).
         result.put("locked", state.isLocked());
+        // BO-10-07-19: the disconnected appearance rides every answer too, so
+        // the screen changes look while the cashier waits, sale or no sale.
+        result.put("offline", homeService.offlineAppearance());
         // LC-01-07-03/-04 and LC-01-08-04: the indicator zone is rendered
         // SERVER-SIDE outside the fragment, so the lane's request state and
         // the message-arrived flag ride every answer — version match included
@@ -207,12 +320,32 @@ public class HomeResource {
             state.returnByScanRequested = false;
         }
         result.put("returnRequested", returnRequested);
+        // LC-06-02-04 / -08: a scanned quote or order that waits for the
+        // cashier's choice sends the screen to the document. One-shot too.
+        boolean documentRequested = state.documentChoiceRequested;
+        if (documentRequested) {
+            state.documentChoiceRequested = false;
+        }
+        result.put("documentRequested", documentRequested);
+        // LC-06-05-03: a scanned selfscanning basket sends the screen to its
+        // control. One-shot too.
+        boolean selfScanRequested = state.selfScanRequested;
+        if (selfScanRequested) {
+            state.selfScanRequested = false;
+        }
+        result.put("selfScanRequested", selfScanRequested);
+        // BO-03-06-59: a scanned function barcode opens its function's screen.
+        // One-shot too.
+        String functionPath = state.functionPath;
+        state.functionPath = null;
+        result.put("functionPath", functionPath == null ? "" : functionPath);
         // Payability rides along for the same reason: the ENCAISSER control
         // is server-rendered OUTSIDE the polled fragment, so a cart filled
         // through the scan bus (hardware scanner, simulator) would leave the
         // button in its render-time state until a navigation. The client
         // reloads once when this flag stops matching the rendered control.
         result.put("payable", state.ticket.getTotalAmount().signum() > 0);
+        result.put("articleMessageActive", state.blockingArticleMessage != null);
         if (clientVersion != null && state.version == clientVersion) {
             result.put("changed", false);
             LOGGER.info("Exiting method getTicketFragment");
@@ -223,6 +356,7 @@ public class HomeResource {
         // The eligible bases ride the FRAGMENT and not a field of this answer: they are
         // shown "en permanence jusqu'au paiement" inside the ticket zone, which the
         // poll replaces wholesale (LC-09-01-12/14/16/18).
+        resolveArticleCodes();
         result.put("html", ticket.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
                 .data("waitingLabel", homeService.waitingLabel())
@@ -978,6 +1112,19 @@ public class HomeResource {
         if(qty <= 0) qty = 1;
         ticketService.addItemByEan(state, ean, BigDecimal.valueOf(qty));
         LOGGER.info("Exiting method addManualKnown");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * LC-02-12-05: a group selection requests cancellation of an existing article, never an addition.
+     * @param ean selected article identity; quantity fields cannot expand this one-unit gesture
+     * @return the sale screen, its pending supervisor approval or the final-article reason chooser
+     */
+    @POST
+    @Path("/action/cancel-group-article")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response cancelGroupArticle(@FormParam("ean") String ean) {
+        homeService.cancelGroupArticle(ean);
         return Response.seeOther(URI.create("/")).build();
     }
 

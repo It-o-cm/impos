@@ -147,4 +147,52 @@ class EvdevKeyboardSourceTest {
         source.decode(new byte[LinuxInput.INPUT_EVENT_SIZE], 0, code -> {});
         assertEquals(0, codes.size());
     }
+
+    /** LC-11-01: a successful exclusive grab keeps its descriptor and releases both the grab and the descriptor on close. */
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void successfulGrabUsesOnlyTheMockedNativeBinding() throws Exception {
+        ClassLoader isolated = new ClassLoader(EvdevKeyboardSource.class.getClassLoader()) {
+            /** LC-11-01: loads the driver and its native binding together so the binding can be replaced before initialisation. */
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (!name.equals(EvdevKeyboardSource.class.getName()) && !name.equals(LinuxInput.class.getName())) {
+                    return super.loadClass(name, resolve);
+                }
+                synchronized (getClassLoadingLock(name)) {
+                    Class<?> loaded = findLoadedClass(name);
+                    if (loaded == null) {
+                        try (var bytes = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
+                            byte[] code = java.util.Objects.requireNonNull(bytes).readAllBytes();
+                            loaded = defineClass(name, code, 0, code.length, EvdevKeyboardSource.class.getProtectionDomain());
+                        } catch (java.io.IOException failure) {
+                            throw new ClassNotFoundException(name, failure);
+                        }
+                    }
+                    if (resolve) {
+                        resolveClass(loaded);
+                    }
+                    return loaded;
+                }
+            }
+        };
+        try (var nativeLibrary = org.mockito.Mockito.mockStatic(com.sun.jna.Native.class)) {
+            nativeLibrary.when(() -> com.sun.jna.Native.load(org.mockito.ArgumentMatchers.eq("c"), org.mockito.ArgumentMatchers.any(Class.class)))
+                    .thenAnswer(invocation -> org.mockito.Mockito.mock((Class) invocation.getArgument(1)));
+            Class<?> binding = Class.forName(LinuxInput.class.getName(), true, isolated);
+            Object calls = binding.getField("C").get(null);
+            var open = binding.getMethod("open", String.class, int.class);
+            org.mockito.Mockito.when(open.invoke(calls, "mock-node", LinuxInput.O_RDONLY)).thenReturn(77);
+            Class<?> driver = Class.forName(EvdevKeyboardSource.class.getName(), true, isolated);
+            var source = (ScannerSource) driver.getConstructor(String.class, Consumer.class)
+                    .newInstance("mock-node", (Consumer<String>) code -> {});
+            assertEquals(77, source.open());
+            source.close(77);
+            var ioctl = binding.getMethod("ioctl", int.class, long.class, int.class);
+            ioctl.invoke(org.mockito.Mockito.verify(calls), 77, LinuxInput.EVIOCGRAB, 1);
+            ioctl.invoke(org.mockito.Mockito.verify(calls), 77, LinuxInput.EVIOCGRAB, 0);
+            binding.getMethod("close", int.class).invoke(org.mockito.Mockito.verify(calls), 77);
+        }
+    }
+
 }

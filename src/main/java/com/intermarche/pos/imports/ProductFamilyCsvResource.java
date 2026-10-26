@@ -7,7 +7,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
 
 import java.io.InputStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * REST Endpoint for bulk importing or updating ProductFamilies from a CSV file stream.
@@ -22,10 +29,10 @@ import java.util.*;
  * Note: PRODUCT_EANS and SUBFAMILY_CODES can contain multiple values
  * separated by commas.
  * <p>
- * REGISTER-SIDE COPY. The same importer as the store node's, minus its HTTP
- * surface: here it is a plain bean, called by {@code RefApplyService} on the
- * raw file the register pulled through ENGINE_FEEDS. The injection point stays
- * the node — this class never listens on a port.
+ * ON A REGISTER the same importer also serves the referential pull: it is
+ * called by {@code RefApplyService} on the raw file the register pulled
+ * through ENGINE_FEEDS. The injection point stays the node — this class
+ * never listens on a port.
  * <p>
  * Place in the POS architecture since the phase 6 centralized referentials:
  * these CSV endpoints exist on every node, but their proper home is the
@@ -42,6 +49,10 @@ import java.util.*;
  * then an error entry), which makes import ORDER matter: products before
  * families, parent families after their children.
  */
+// No @Path: the ONE door is POST /feeds/import/{CODE}, which delegates here.
+// A second address for the same import is a second thing to secure, to
+// document and to keep in step, and the permission policy had to name them
+// one by one — an importer forgotten there was a door left open.
 @ApplicationScoped
 public class ProductFamilyCsvResource extends ImporterCsvResource {
 
@@ -331,7 +342,8 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         family.products.clear();
         for (String ean : requestedEans) {
             Product p = productMap.get(ean);
-            if (p != null) {family.products.add(p);
+            if (p != null) {
+                family.products.add(p);
             } else {
                 // Throw exception to trigger rollback and fallback
                 throw new IllegalArgumentException("Product EAN '" + ean + "' not found.");
@@ -356,7 +368,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
             List<ProductFamily> subFamilies = ProductFamily.list("code IN ?1", requestedSubCodes);
             for (ProductFamily sf : subFamilies) subFamilyMap.put(sf.code, sf);
         }
-        return subFamilyMap == null ? Collections.emptyMap() : subFamilyMap;
+        return subFamilyMap == null ? Map.of() : subFamilyMap;
     }
 
     /**
@@ -374,7 +386,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         if (productMap == null && !requestedEans.isEmpty()) {
             productMap = productsByEan(requestedEans);
         }
-        return productMap==null ? Collections.emptyMap() : productMap;
+        return productMap == null ? Map.of() : productMap;
     }
 
     /**

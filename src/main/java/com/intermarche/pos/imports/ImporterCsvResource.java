@@ -1,5 +1,8 @@
 package com.intermarche.pos.imports;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.inject.Inject;
@@ -7,14 +10,21 @@ import jakarta.transaction.TransactionManager;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -88,6 +98,15 @@ public abstract class ImporterCsvResource {
     com.intermarche.pos.service.sync.EngineFeedService engineFeedService;
 
     /**
+     * Keeper of the integration states ({@code BO-08-01-04}): a file deposited
+     * at the central echelon leaves the same written trace as a referential
+     * domain pulled at the store echelon, so an integration can be answered
+     * for wherever it happened.
+     */
+    @Inject
+    com.intermarche.pos.service.sync.RefApplyService refApplyService;
+
+    /**
      * Names the engine feed this importer captures, or null when the file
      * is not part of the engine distribution. Subclasses of the SHARED
      * feeds (products, prices, families, stores) override this so the
@@ -98,6 +117,51 @@ public abstract class ImporterCsvResource {
      */
     protected String feedCode() {
         return null;
+    }
+
+    /**
+     * The name this importer's integrations are filed under
+     * ({@code BO-08-01-04}), at most the twenty characters the audit column
+     * holds.
+     *
+     * <p>Derived from the class rather than declared by each subclass: the
+     * eleven importers would otherwise each carry one line whose only risk is
+     * being forgotten by the twelfth. A subclass that wants another name
+     * overrides it.
+     *
+     * @return the audit domain, never null
+     */
+    protected String auditDomain() {
+        String name = getClass().getSimpleName().replace("CsvResource", "").replace("Resource", "");
+        StringBuilder domain = new StringBuilder();
+        for (char character : name.toCharArray()) {
+            if (Character.isUpperCase(character) && domain.length() > 0) {
+                domain.append('_');
+            }
+            domain.append(Character.toUpperCase(character));
+        }
+        String audited = domain.length() == 0 ? "IMPORT" : domain.toString();
+        return audited.length() > 20 ? audited.substring(0, 20) : audited;
+    }
+
+    /**
+     * Files the integration state of one deposited file
+     * ({@code BO-08-01-04}), swallowing its own trouble.
+     *
+     * <p>An import that succeeded must not be reported as failed because the
+     * trace could not be written — the rule the referential audit already
+     * follows, applied to the other road in.
+     *
+     * @param outcome how the integration ended
+     * @param detail what to remember of it
+     */
+    private void recordIntegration(com.intermarche.pos.domain.sync.RefApplyAudit.Outcome outcome,
+            String detail) {
+        try {
+            refApplyService.recordAudit(auditDomain(), null, outcome, detail);
+        } catch (Exception failure) {
+            LOGGER.warnf("État d'intégration non écrit (%s)", failure.getMessage());
+        }
     }
 
     /**
@@ -131,26 +195,31 @@ public abstract class ImporterCsvResource {
             rawContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             LOGGER.error("Error reading input stream", e);
+            // BO-08-01-04: a file that could not be read at all leaves a
+            // FAILED state rather than nothing — the buffering of the whole
+            // file must not lose the trace the direct read used to leave.
+            recordIntegration(com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.FAILED,
+                    "Lecture du fichier impossible : " + e.getMessage());
             LOGGER.info("Exiting method importCsvStream");
-            return Response.serverError().entity("Error reading file: " + e.getMessage()).build();
+            return Response.serverError().entity(errorAnswer("Error reading file: " + e.getMessage())).build();
         }
-        try (BufferedReader reader = new BufferedReader(new java.io.StringReader(rawContent))) {
-            String line;
+        try {
+            // BO-08-01-04: immutable buffered text has no remaining I/O failure path.
+            java.util.Iterator<String> lines = rawContent.lines().iterator();
             int lineNumber = 0;
             Map<String, Integer> header = null;
             List<LineData> parsedLines = new ArrayList<>(STAGE_1_SIZE);
             Set<String> targetCodes = new HashSet<>(STAGE_1_SIZE);
-            while ((line = reader.readLine()) != null) {
+            while (lines.hasNext()) {
                 lineNumber++;
-                line = line.trim();
+                String line = lines.next().trim();
                 if (line.isEmpty()) continue;
                 if (header == null) {
                     header = parseHeader(line);
                     List<String> missing = missingColumns(header, keyColumn, requiredColumns);
                     if (!missing.isEmpty()) {
                         return Response.status(Response.Status.BAD_REQUEST)
-                                .entity("{\"error\":\"Missing required columns: "
-                                        + String.join(", ", missing) + "\"}")
+                                .entity(errorAnswer("Missing required columns: " + String.join(", ", missing)))
                                 .build();
                     }
                     continue;
@@ -181,20 +250,25 @@ public abstract class ImporterCsvResource {
                 Map<String, Object> contextMap = processChunkWithFallback(parsedLines, targetCodes, counters, errors);
                 processWithStages(parsedLines, contextMap, STAGE_1_SIZE, counters, errors);
             }
-        } catch (IOException e) {
-            LOGGER.error("Error reading input stream", e);
-            LOGGER.info("Exiting method importCsvStream");
-            return Response.serverError().entity("Error reading file: " + e.getMessage()).build();
         } catch (Throwable e) {
             LOGGER.error("Unexpected error", e);
+            recordIntegration(com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.FAILED,
+                    String.valueOf(e.getMessage()));
             LOGGER.info("Exiting method importCsvStream");
-            return Response.serverError().entity("Unexcepted error: " + e.getMessage()).build();
+            return Response.serverError().entity(errorAnswer("Unexcepted error: " + e.getMessage())).build();
         }
         LOGGER.info("Import finished. Created: " + counters[0] + ", Updated: " + counters[1]);
+        // BO-08-01-04: the integration state of a DEPOSITED file. A domain
+        // pulled by a store node has had one since the referential audit; a
+        // file dropped on the central node had none, so nobody could say
+        // afterwards whether last night's customer file went in.
+        recordIntegration(com.intermarche.pos.domain.sync.RefApplyAudit.Outcome.APPLIED,
+                counters[0] + " créé(s), " + counters[1] + " mis à jour, "
+                        + errors.size() + " erreur(s)");
         captureFeed(rawContent);
-        StringBuilder sb = buildAnswer(counters, errors);
+        String answer = buildAnswer(counters, errors);
         LOGGER.info("Exiting method importCsvStream");
-        return Response.ok(sb.toString()).build();
+        return Response.ok(answer).build();
     }
 
     /**
@@ -317,19 +391,36 @@ public abstract class ImporterCsvResource {
     }
 
     /**
-     * Builds a JSON response string summarizing the import results.
+     * Builds the JSON answer of a refused import, {@code {"error":"…"}},
+     * through the JSON library: the message may quote a header, a path
+     * parameter or an exception text, none of which is JSON-safe.
+     *
+     * @param message the refusal message
+     * @return the JSON document
      */
-    private static StringBuilder buildAnswer(int[] counters, List<String> errors) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("{\"createdCount\":").append(counters[0]);
-        sb.append(", \"updatedCount\":").append(counters[1]);
+    public static String errorAnswer(String message) {
+        return JsonNodeFactory.instance.objectNode().put("error", message).toString();
+    }
+
+    /**
+     * Builds the JSON answer summarizing the import results. The document
+     * is built by the JSON library, never by concatenation: an error
+     * message quotes the rejected line verbatim, and a quote, a backslash
+     * or a control character in it must not break the answer.
+     *
+     * @param counters the created and updated counts
+     * @param errors   the definitive error messages, omitted when empty
+     * @return the JSON document
+     */
+    static String buildAnswer(int[] counters, List<String> errors) {
+        ObjectNode answer = JsonNodeFactory.instance.objectNode()
+                .put("createdCount", counters[0])
+                .put("updatedCount", counters[1]);
         if (!errors.isEmpty()) {
-            sb.append(", \"errors\":[");
-            sb.append(String.join("\",\"", errors));
-            sb.append("\"]");
+            ArrayNode list = answer.putArray("errors");
+            errors.forEach(list::add);
         }
-        sb.append("}");
-        return sb;
+        return answer.toString();
     }
 
     /**
@@ -344,7 +435,7 @@ public abstract class ImporterCsvResource {
         String[] cells = headerLine.split("\\|", -1);
         Map<String, Integer> header = new LinkedHashMap<>();
         for (int i = 0; i < cells.length; i++) {
-            String name = cells[i] == null ? "" : cells[i].trim();
+            String name = cells[i].trim();
             if (name.isEmpty()) continue;
             Integer previous = header.putIfAbsent(name, i);
             if (previous != null) {

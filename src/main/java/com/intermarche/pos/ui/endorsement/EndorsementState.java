@@ -32,6 +32,20 @@ public class EndorsementState implements Serializable {
     public String scannedBadge = null;
 
     /**
+     * The supervisor barcode the scanner PHYSICALLY read during this request,
+     * or null (BO-10-02-31). Unlike {@link #scannedBadge}, which the panel's
+     * poll takes, it stays until the request ends: it is the proof a barcode
+     * mode checks when the panel is validated.
+     */
+    public String presentedBadge = null;
+
+    /**
+     * The Dallas key the reader delivered during this request, or null
+     * (BO-10-02-31).
+     */
+    public String presentedDallasKey = null;
+
+    /**
      * Who, at the back office, authorised the gesture this lane is holding
      * ({@code BO-04-02-02}), or null when nobody did.
      *
@@ -42,6 +56,12 @@ public class EndorsementState implements Serializable {
      * gesture.
      */
     public String remoteGrant = null;
+    /**
+     * Whether this request was sent to the back office as it opened
+     * ({@code LC-01-05-08}), so that a refusal coming back from there cancels
+     * this gesture and not some other request the lane may hold.
+     */
+    public boolean remoteRequested = false;
 
     /** The current endorsement error, or null. */
     public String error = null;
@@ -78,6 +98,13 @@ public class EndorsementState implements Serializable {
     public BigDecimal pendingValue = BigDecimal.ZERO;
 
     /**
+     * The profiles one of which the endorsing holder must carry for the gesture
+     * held now, or empty when the usual endorsing roles and profiles apply
+     * (BO-04-02-01): a function rule or a control alert may name its own.
+     */
+    public java.util.List<String> requiredProfiles = new java.util.ArrayList<>();
+
+    /**
      * Opens an endorsement request for the given action.
      *
      * @param action the action code requiring authorization
@@ -99,8 +126,12 @@ public class EndorsementState implements Serializable {
         this.requestedAction = action;
         this.error = null;
         this.scannedBadge = null;
+        this.presentedBadge = null;
+        this.presentedDallasKey = null;
         this.pendingForm = new java.util.LinkedHashMap<>(form != null ? form : java.util.Map.of());
         this.returnPath = returnPath;
+        this.remoteRequested = false;
+        this.requiredProfiles = new java.util.ArrayList<>();
         clearPendingPrice();
     }
 
@@ -121,6 +152,10 @@ public class EndorsementState implements Serializable {
         this.pendingValue = value != null ? value : BigDecimal.ZERO;
         this.error = null;
         this.scannedBadge = null;
+        this.presentedBadge = null;
+        this.presentedDallasKey = null;
+        this.remoteRequested = false;
+        this.requiredProfiles = new java.util.ArrayList<>();
     }
 
     /**
@@ -131,9 +166,13 @@ public class EndorsementState implements Serializable {
         this.requestedAction = null;
         this.error = null;
         this.scannedBadge = null;
+        this.presentedBadge = null;
+        this.presentedDallasKey = null;
         this.remoteGrant = null;
+        this.remoteRequested = false;
         this.pendingForm = new java.util.LinkedHashMap<>();
         this.returnPath = null;
+        this.requiredProfiles = new java.util.ArrayList<>();
         clearPendingPrice();
     }
 
@@ -151,7 +190,20 @@ public class EndorsementState implements Serializable {
      *
      * @param badge the scanned badge id
      */
-    public void setScannedBadge(String badge) { this.scannedBadge = badge; }
+    public void setScannedBadge(String badge) {
+        this.scannedBadge = badge;
+        this.presentedBadge = badge;
+    }
+
+    /**
+     * Records the Dallas key the reader delivered during the endorsement
+     * (BO-10-02-31).
+     *
+     * @param key the normalised key identifier
+     */
+    public void setPresentedDallasKey(String key) {
+        this.presentedDallasKey = key;
+    }
 
     /**
      * Clears the scanned manager badge.

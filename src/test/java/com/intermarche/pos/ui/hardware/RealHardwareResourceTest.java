@@ -53,6 +53,8 @@ class RealHardwareResourceTest {
         assertDoesNotThrow(resource::openDrawer);
         assertDoesNotThrow(() -> resource.printTicket("TICKET"));
         assertDoesNotThrow(() -> resource.printTicket(null));
+        assertDoesNotThrow(() -> resource.printSlip("SHEET"));
+        assertDoesNotThrow(() -> resource.printSlip(null));
         assertDoesNotThrow(resource::cutPaper);
     }
 }

@@ -277,4 +277,49 @@ class AuthStateTest {
             Assertions.assertFalse(state.supervisorBadgeArmed());
         }
     }
+    /** LC-01-02-03: a badge close request is consumed once, preventing the screen poll from replaying the close. */
+    @Test
+    void badgeCloseRequestIsConsumedExactlyOnce() {
+        var state = new AuthState();
+        Assertions.assertFalse(state.takeCloseRequest());
+        state.closeRequestedByBadge = true;
+        Assertions.assertTrue(state.takeCloseRequest());
+        Assertions.assertFalse(state.closeRequestedByBadge);
+        Assertions.assertFalse(state.takeCloseRequest());
+    }
+
+    /**
+     * BO-01-02-07: a Dallas key read while locked lands in a one-shot mailbox
+     * and is recorded as PRESENTED, each consumed once.
+     */
+    @Test
+    void aReadDallasKeyIsDepositedAndPresentedOnce() {
+        AuthState state = new AuthState();
+        state.setScannedDallasKey("01A2B3C4D5E6F708");
+        Assertions.assertEquals("01A2B3C4D5E6F708", state.takeScannedDallasKey());
+        Assertions.assertNull(state.takeScannedDallasKey());
+        Assertions.assertEquals("01A2B3C4D5E6F708", state.takePresentedDallasKey());
+        Assertions.assertNull(state.takePresentedDallasKey());
+    }
+
+    /**
+     * BO-01-02-07: signing in, signing out and pausing forget a Dallas key
+     * read before.
+     */
+    @Test
+    void loginLogoutAndPauseForgetTheDallasKey() {
+        AuthState state = new AuthState();
+        state.setScannedDallasKey("01A2B3C4D5E6F708");
+        state.login(1L, "Ines Sco", "77777777");
+        Assertions.assertNull(state.scannedDallasKey);
+        Assertions.assertNull(state.presentedDallasKey);
+        state.setScannedDallasKey("01A2B3C4D5E6F708");
+        state.pause();
+        Assertions.assertNull(state.scannedDallasKey);
+        Assertions.assertNull(state.presentedDallasKey);
+        state.setScannedDallasKey("01A2B3C4D5E6F708");
+        state.logout();
+        Assertions.assertNull(state.scannedDallasKey);
+        Assertions.assertNull(state.presentedDallasKey);
+    }
 }

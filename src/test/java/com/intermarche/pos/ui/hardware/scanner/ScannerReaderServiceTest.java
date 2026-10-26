@@ -75,6 +75,12 @@ class ScannerReaderServiceTest {
         service.enabled = true;
         service.namePatterns = PATTERNS;
         service.sinkUrl = sinkUrl;
+        service.customerSinkUrl = sinkUrl;
+        service.settings = Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        Mockito.when(service.settings.hardwareEnabled("scanner")).thenReturn(true);
+        Mockito.when(service.settings.scannerDriver()).thenReturn("AUTO");
+        Mockito.when(service.settings.scannerNamePatterns()).thenReturn("");
+        Mockito.when(service.settings.secondScannerNamePatterns()).thenReturn("");
         return service;
     }
 
@@ -194,78 +200,55 @@ class ScannerReaderServiceTest {
         assertEquals(0, source.decodeCalls);
     }
 
-    /**
-     * Whether a reader thread is currently blocked inside the native read of
-     * {@code readLoop} (its stack shows {@code readLoop} above a JNA frame), so
-     * the test can flip {@code running} exactly while the loop is parked past
-     * its {@code while(running)} check — no sleep, a pure spin on the state.
-     *
-     * @param thread the reader thread
-     * @return true when the thread is inside the native read
-     */
-    private static boolean isBlockedInNativeRead(Thread thread) {
-        boolean sawReadLoop = false;
-        boolean sawNative = false;
-        for (StackTraceElement e : thread.getStackTrace()) {
-            if (e.getClassName().equals(ScannerReaderService.class.getName())
-                    && e.getMethodName().equals("readLoop")) {
-                sawReadLoop = true;
-            }
-            if (e.getClassName().startsWith("com.sun.jna")) {
-                sawNative = true;
-            }
-        }
-        return sawReadLoop && sawNative;
-    }
-
-    /**
-     * The shutdown race: a reader parked in a blocking read wakes with a
-     * non-positive result AFTER {@code running} has been cleared, and returns
-     * silently without logging the end-of-read warning. The reader is parked on
-     * an empty FIFO opened read-write (so the read blocks), {@code running} is
-     * cleared while it is parked, then the descriptor is closed to wake the
-     * read with {@code -1}. Covers the inner {@code if(running)} FALSE arm of
-     * {@code readLoop}.
-     *
-     * @param tmp a temporary directory
-     * @throws Exception on reflection, process or file failure
+    /** LC-13-02-12: a read returning after shutdown is ignored without decoding, using a deterministic native seam instead of an OS-dependent FIFO close.
+     * @throws Exception when reflective isolation fails
      */
     @Test
-    void readLoopEndsSilentlyWhenStoppedDuringRead(@TempDir Path tmp) throws Exception {
-        Path fifo = tmp.resolve("scanner-fifo");
-        assertEquals(0, new ProcessBuilder("mkfifo", fifo.toString()).inheritIO().start().waitFor());
-        AtomicReference<Integer> writeFd = new AtomicReference<>();
-        Thread opener = new Thread(() -> writeFd.set(LinuxInput.C.open(fifo.toString(), 1)), "test-fifo-writer");
-        opener.setDaemon(true);
-        opener.start();
-        int readFd = LinuxInput.C.open(fifo.toString(), LinuxInput.O_RDONLY);
-        opener.join(5000);
-        assertTrue(readFd >= 0);
-        assertTrue(writeFd.get() != null && writeFd.get() >= 0);
-        ScannerReaderService service = service("http://127.0.0.1:1/nope");
-        FakeSource source = new FakeSource();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-        Thread reader = new Thread(() -> {
-            try {
-                readLoop(service, source, readFd);
-            } catch (Throwable t) {
-                failure.set(t);
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void readLoopEndsSilentlyWhenStoppedDuringRead() throws Exception {
+        ClassLoader isolated = new ClassLoader(ScannerReaderService.class.getClassLoader()) {
+            /** Keeps the native binding local to this test, leaving every other scanner test's binding intact. */
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (!name.equals(ScannerReaderService.class.getName()) && !name.equals(LinuxInput.class.getName())) {
+                    return super.loadClass(name, resolve);
+                }
+                synchronized (getClassLoadingLock(name)) {
+                    Class<?> loaded = findLoadedClass(name);
+                    if (loaded == null) {
+                        try (var bytes = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
+                            byte[] code = java.util.Objects.requireNonNull(bytes).readAllBytes();
+                            loaded = defineClass(name, code, 0, code.length, ScannerReaderService.class.getProtectionDomain());
+                        } catch (java.io.IOException failure) {
+                            throw new ClassNotFoundException(name, failure);
+                        }
+                    }
+                    if (resolve) {
+                        resolveClass(loaded);
+                    }
+                    return loaded;
+                }
             }
-        }, "test-scanner-reader");
-        reader.setDaemon(true);
-        reader.start();
-        long deadline = System.nanoTime() + 10_000_000_000L;
-        while (!isBlockedInNativeRead(reader) && System.nanoTime() < deadline) {
-            Thread.onSpinWait();
+        };
+        try (var nativeLibrary = Mockito.mockStatic(com.sun.jna.Native.class)) {
+            nativeLibrary.when(() -> com.sun.jna.Native.load(Mockito.eq("c"), Mockito.any(Class.class)))
+                    .thenAnswer(invocation -> Mockito.mock((Class) invocation.getArgument(1)));
+            Class<?> binding = Class.forName(LinuxInput.class.getName(), true, isolated);
+            Object calls = binding.getField("C").get(null);
+            Class<?> driver = Class.forName(ScannerReaderService.class.getName(), true, isolated);
+            Object service = driver.getConstructor().newInstance();
+            var stop = driver.getDeclaredMethod("stop");
+            stop.setAccessible(true);
+            var read = binding.getMethod("read", int.class, byte[].class, int.class);
+            Object stubbing = Mockito.doAnswer(call -> { stop.invoke(service); return 0; }).when(calls);
+            read.invoke(stubbing, Mockito.anyInt(), Mockito.any(byte[].class), Mockito.anyInt());
+            var loop = driver.getDeclaredMethod("readLoop", ScannerSource.class, int.class);
+            loop.setAccessible(true);
+            FakeSource source = new FakeSource();
+            assertDoesNotThrow(() -> loop.invoke(service, source, 77));
+            read.invoke(Mockito.verify(calls), Mockito.eq(77), Mockito.any(byte[].class), Mockito.eq(source.readSize()));
+            assertEquals(0, source.decodeCalls);
         }
-        assertTrue(isBlockedInNativeRead(reader));
-        service.stop();
-        LinuxInput.C.close(writeFd.get());
-        reader.join(5000);
-        LinuxInput.C.close(readFd);
-        assertFalse(reader.isAlive());
-        assertNull(failure.get());
-        assertEquals(0, source.decodeCalls);
     }
 
     /**
@@ -397,5 +380,71 @@ class ScannerReaderServiceTest {
         public void decode(byte[] buffer, int length, Consumer<String> sink) {
             decodeCalls++;
         }
+    }
+
+    /**
+     * BO-03-09-16: a scanner deactivated by the back office starts nothing;
+     * BO-03-09-17: an OPOS driver leaves the reading to the hardware module.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void anAdministeredDeactivationOrOposStartsNothing() throws Exception {
+        ScannerReaderService off = service("http://127.0.0.1:1/nope");
+        Mockito.when(off.settings.hardwareEnabled("scanner")).thenReturn(false);
+        ScannerReaderService opos = service("http://127.0.0.1:1/nope");
+        Mockito.when(opos.settings.scannerDriver()).thenReturn("OPOS");
+        try (MockedConstruction<ScannerDiscovery> discovery = discoveryReturning(List.of())) {
+            off.onStart(null);
+            opos.onStart(null);
+            assertTrue(discovery.constructed().isEmpty());
+        }
+        assertTrue(((List<?>) field(off, "readers")).isEmpty());
+        assertTrue(((List<?>) field(opos, "readers")).isEmpty());
+    }
+
+    /**
+     * BO-03-09-16/17/18: a forced driver skips the devices of the other
+     * channel; the administered patterns and the second scanner's are both
+     * discovered, and a customer-side device is read into its own intake.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void theDriverAndTheSecondScannerChooseTheDevices() throws Exception {
+        ScannerReaderService service = service("http://127.0.0.1:1/nope");
+        Mockito.when(service.settings.scannerDriver()).thenReturn("EVDEV");
+        Mockito.when(service.settings.scannerNamePatterns()).thenReturn("datalogic");
+        Mockito.when(service.settings.secondScannerEnabled()).thenReturn(true);
+        Mockito.when(service.settings.secondScannerNamePatterns()).thenReturn("client");
+        ScannerDiscovery.DiscoveredDevice hidraw = new ScannerDiscovery.DiscoveredDevice(
+                ScannerDiscovery.Channel.HIDRAW, "/dev/does-not-exist-hidraw", "Datalogic Magellan");
+        ScannerDiscovery.DiscoveredDevice cashier = new ScannerDiscovery.DiscoveredDevice(
+                ScannerDiscovery.Channel.EVDEV, "/dev/does-not-exist-evdev-1", "Datalogic Gryphon");
+        ScannerDiscovery.DiscoveredDevice customer = new ScannerDiscovery.DiscoveredDevice(
+                ScannerDiscovery.Channel.EVDEV, "/dev/does-not-exist-evdev-2", "Zebra client");
+        try (MockedConstruction<ScannerDiscovery> discovery =
+                discoveryReturning(List.of(hidraw, cashier, customer))) {
+            service.onStart(null);
+            assertEquals(1, discovery.constructed().size());
+        }
+        assertTrue(((List<?>) field(service, "readers")).isEmpty());
+    }
+
+    /** The administered patterns replace the deployment's; none administered keeps them. */
+    @Test
+    void patternsAndMatchesReadTheFragments() {
+        assertEquals(List.of("datalogic", "zebra"), ScannerReaderService.patterns(" Datalogic ;, zebra", List.of("x")));
+        assertEquals(List.of("x"), ScannerReaderService.patterns(" ", List.of("x")));
+        assertTrue(ScannerReaderService.matches("Zebra Client", List.of("client")));
+        assertFalse(ScannerReaderService.matches("Zebra", List.of("client")));
+        assertFalse(ScannerReaderService.matches(null, List.of("client")));
+    }
+
+    /** BO-03-09-18: a code of the customer-side scanner is pushed without ever throwing. */
+    @Test
+    void aCustomerCodeIsPushedWithoutThrowing() {
+        ScannerReaderService service = service("http://127.0.0.1:1/nope");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.pushCustomerCode("2990000000001"));
     }
 }

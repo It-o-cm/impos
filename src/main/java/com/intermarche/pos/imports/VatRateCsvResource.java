@@ -8,14 +8,25 @@ import org.jboss.logging.Logger;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * REST endpoint bulk importing the VAT referential from a CSV stream
  * (BO-02-03-14).
  * <p>
  * Consumed columns (resolved by header name; unknown columns of the shared
- * feed are ignored): VAT_NUMBER (key), RATE, LABEL.
+ * feed are ignored): VAT_NUMBER (key), RATE, LABEL, and the optional COUNTRY,
+ * LEGAL_MENTION, EXEMPT and EXEMPTION_CODE that declare the regimes of each
+ * country with their exemptions (BO-02-02-01, BO-02-02-02). An optional column
+ * ABSENT from the header leaves the field as the row holds it — the historical
+ * three-column file keeps rewriting nothing it does not carry — while a column
+ * present but empty clears it.
+ * <p>
+ * Two lines may state the same RATE under two numbers: the number is the key,
+ * and several regimes of one percentage are a legal reality (BO-02-02-01).
  * <p>
  * The NUMBER is the natural key, not the rate: a legal rate change is a new
  * value on the same number, and every price row keeps pointing at that number
@@ -57,6 +68,19 @@ public class VatRateCsvResource extends ImporterCsvResource {
     static final String COL_RATE = "RATE";
     /** Header name of the human-readable label. */
     static final String COL_LABEL = "LABEL";
+    /** Header name of the optional country the regime answers to. */
+    static final String COL_COUNTRY = "COUNTRY";
+    /** Header name of the optional legal mention the regime obliges. */
+    static final String COL_LEGAL_MENTION = "LEGAL_MENTION";
+    /**
+     * Header name of the optional exemption flag (BO-02-02-01, BO-02-03-26/27):
+     * a true cell declares the regime an exemption, distinct from a rate of
+     * zero; a feed that does not carry the column leaves the flag of the row
+     * alone.
+     */
+    static final String COL_EXEMPT = "EXEMPT";
+    /** Header name of the optional exemption code (M01 to M99 in Portugal). */
+    static final String COL_EXEMPTION_CODE = "EXEMPTION_CODE";
 
     /** The columns this importer cannot work without. */
     private static final List<String> REQUIRED_COLUMNS = List.of(COL_RATE);
@@ -184,7 +208,7 @@ public class VatRateCsvResource extends ImporterCsvResource {
             counters[0]++;
             Panache.getEntityManager().persist(rate);
         } else {
-            int incomingChecksum = computeIncomingChecksum(number, data);
+            int incomingChecksum = computeIncomingChecksum(number, data, rate);
             if (rate.changedFrom(incomingChecksum)) {
                 rate = VatRate.findById(rate.id);
                 feedVatRate(data, rate);
@@ -225,6 +249,61 @@ public class VatRateCsvResource extends ImporterCsvResource {
     private void feedVatRate(LineData data, VatRate rate) {
         rate.rate = safeParseBigDecimal(data, COL_RATE);
         rate.label = safeGet(data, COL_LABEL);
+        rate.country = country(data, rate.country);
+        rate.legalMention = optional(data, COL_LEGAL_MENTION, rate.legalMention);
+        rate.exempt = exempt(data, rate.exempt);
+        rate.exemptionCode = optional(data, COL_EXEMPTION_CODE, rate.exemptionCode);
+    }
+
+    /**
+     * Reads an optional text column: the cell when the header carries the
+     * column, an empty cell meaning null, the current value otherwise.
+     *
+     * @param data the parsed CSV line data
+     * @param column the optional column
+     * @param current the value the row holds, possibly null
+     * @return the value to keep
+     */
+    private String optional(LineData data, String column, String current) {
+        if (!data.has(column)) {
+            return current;
+        }
+        String cell = safeGet(data, column);
+        return cell == null || cell.isEmpty() ? null : cell;
+    }
+
+    /**
+     * Reads the optional country column, normalised like the back-office
+     * screen does: upper case, three characters at most.
+     *
+     * @param data the parsed CSV line data
+     * @param current the country the row holds, possibly null
+     * @return the country to keep
+     */
+    private String country(LineData data, String current) {
+        String cell = optional(data, COL_COUNTRY, current);
+        if (cell == null) {
+            return null;
+        }
+        String code = cell.trim().toUpperCase(java.util.Locale.ROOT);
+        return code.length() > 3 ? code.substring(0, 3) : code;
+    }
+
+    /**
+     * Reads the optional exemption flag: {@code true}, {@code 1}, {@code O},
+     * {@code Y} or {@code S} (oui, yes, sim) exempt; any other cell does not.
+     *
+     * @param data the parsed CSV line data
+     * @param current the flag the row holds
+     * @return the flag to keep
+     */
+    private boolean exempt(LineData data, boolean current) {
+        if (!data.has(COL_EXEMPT)) {
+            return current;
+        }
+        String cell = safeGet(data, COL_EXEMPT);
+        return cell != null && List.of("TRUE", "1", "O", "Y", "S")
+                .contains(cell.toUpperCase(java.util.Locale.ROOT));
     }
 
     /**
@@ -243,17 +322,23 @@ public class VatRateCsvResource extends ImporterCsvResource {
     /**
      * Computes the checksum of the incoming line.
      * <p>
-     * Replicates {@link VatRate#getChecksum()} logic.
+     * Carried by {@link VatRate#checksumOf}, the one formula the entity hashes
+     * by: a line seen as unchanged is a line whose seven fields match the row's,
+     * which is what makes the update-vs-skip comparison meaningful. A field
+     * whose optional column the file does not carry is read off the row the
+     * line would rewrite, exactly as the update keeps it.
      *
      * @param number The regime number of the line.
      * @param data   The parsed CSV line data.
+     * @param existing The regime the line names, never null here.
      * @return The integer hash of the incoming data.
      */
-    private int computeIncomingChecksum(Integer number, LineData data) {
+    private int computeIncomingChecksum(Integer number, LineData data, VatRate existing) {
         BigDecimal rate = safeParseBigDecimal(data, COL_RATE);
-        // The CSV speaks only for the three fields it carries: the country and
-        // the legal mention are administered locally, so the line answers
-        // their absent default and an unchanged line is not a change.
-        return Objects.hash(number, rate, safeGet(data, COL_LABEL), null, null);
+        return VatRate.checksumOf(number, rate, safeGet(data, COL_LABEL),
+                country(data, existing.country),
+                optional(data, COL_LEGAL_MENTION, existing.legalMention),
+                exempt(data, existing.exempt),
+                optional(data, COL_EXEMPTION_CODE, existing.exemptionCode));
     }
 }

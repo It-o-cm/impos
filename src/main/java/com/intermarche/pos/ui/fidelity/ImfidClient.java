@@ -1,6 +1,13 @@
 package com.intermarche.pos.ui.fidelity;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.util.RawValue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -54,10 +61,25 @@ public class ImfidClient {
     @jakarta.inject.Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
-    /** Shared HTTP client (connection reuse, connect timeout). */
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofMillis(1500))
-            .build();
+    /** The connection timeout applying when none is administered (BO-10-03-10). */
+    static final int DEFAULT_CONNECT_TIMEOUT_MS = 1500;
+
+    /** The per-call response timeout applying when none is administered (BO-10-03-10). */
+    static final int DEFAULT_READ_TIMEOUT_MS = 2500;
+
+    /**
+     * Shared HTTP client (connection reuse), built for the connection timeout
+     * administered when it was built and rebuilt when that timeout changes
+     * (BO-10-03-10): the timeout is a property of the client, not of a request.
+     */
+    private HttpClient httpClient;
+
+    /** The connection timeout {@link #httpClient} was built with, in milliseconds. */
+    private int httpClientConnectMs;
+
+    /** The writer of the request bodies: decimals in plain notation. */
+    private static final ObjectWriter WRITER = new ObjectMapper()
+            .enable(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN).writer();
 
     /** Tolerant reader: unknown JSON properties are ignored (spec §2). */
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -96,9 +118,7 @@ public class ImfidClient {
     /**
      * Resolves the Basic-auth user of the POS machine account (BO-11-04-04):
      * the ADMINISTERED value wins, the {@code pos.fid.user} deployment property
-     * is the fallback. The PASSWORD is deliberately NOT administrable — it
-     * would travel in clear in the referential snapshot and show on the admin
-     * page — and stays a deployment secret.
+     * is the fallback. The password has its own resolution, {@link #authPassword()}.
      *
      * @return the Basic-auth user, or null when none is configured
      */
@@ -108,6 +128,67 @@ public class ImfidClient {
             return administered.trim();
         }
         return user.orElse(null);
+    }
+
+    /**
+     * Resolves the Basic-auth password of the POS machine account
+     * (BO-10-03-08): the ADMINISTERED value wins — the back office edits it
+     * masked and the referential distributes it with the other loyalty call
+     * settings — and the {@code pos.fid.password} deployment property is the
+     * fallback for a node administering none. Not trimmed: a password is a
+     * secret, every character of it counts.
+     *
+     * @return the Basic-auth password, or null when none is configured
+     */
+    String authPassword() {
+        String administered = posSettingsService != null ? posSettingsService.fidelityPassword() : null;
+        if (administered != null && !administered.isEmpty()) {
+            return administered;
+        }
+        return password.orElse(null);
+    }
+
+    /**
+     * Resolves the connection timeout towards the loyalty service
+     * (BO-10-03-10): the administered value, or the historical 1500 ms when
+     * none is wired or a non-positive one is read.
+     *
+     * @return the connection timeout in milliseconds, strictly positive
+     */
+    int connectTimeoutMs() {
+        int administered = posSettingsService != null ? posSettingsService.fidelityConnectTimeoutMs() : 0;
+        return administered > 0 ? administered : DEFAULT_CONNECT_TIMEOUT_MS;
+    }
+
+    /**
+     * Resolves the response timeout of one loyalty call (BO-10-03-10): past it
+     * the call fails, the caller's breaker opens and the register shows the
+     * loyalty service as unavailable — the sale goes on without it.
+     *
+     * @return the response timeout, strictly positive
+     */
+    Duration readTimeout() {
+        int administered = posSettingsService != null ? posSettingsService.fidelityReadTimeoutMs() : 0;
+        return Duration.ofMillis(administered > 0 ? administered : DEFAULT_READ_TIMEOUT_MS);
+    }
+
+    /**
+     * Returns the shared HTTP client, built for the CURRENT administered
+     * connection timeout (BO-10-03-10): the same client is reused while the
+     * timeout stands, and a new one is built the first call after it changed —
+     * a back-office edit applies without a restart.
+     *
+     * @return the HTTP client
+     */
+    synchronized HttpClient http() {
+        int connectMs = connectTimeoutMs();
+        if (httpClient == null || connectMs != httpClientConnectMs) {
+            httpClient = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofMillis(connectMs))
+                    .build();
+            httpClientConnectMs = connectMs;
+        }
+        return httpClient;
     }
 
     /**
@@ -157,24 +238,29 @@ public class ImfidClient {
      */
     public EarnProjection earn(String valuationRequestJson, String valuationResponseJson,
             String projectionMode) throws Exception {
-        String modeMember = (projectionMode == null || projectionMode.isBlank())
-                ? "" : ",\"projectionMode\":\"" + projectionMode + "\"";
-        String body = "{\"valuationRequest\":" + valuationRequestJson
-                + ",\"valuationResponse\":" + valuationResponseJson + modeMember + "}";
+        ObjectNode payload = JsonNodeFactory.instance.objectNode();
+        payload.putRawValue("valuationRequest", new RawValue(String.valueOf(valuationRequestJson)));
+        payload.putRawValue("valuationResponse", new RawValue(String.valueOf(valuationResponseJson)));
+        if (projectionMode != null && !projectionMode.isBlank()) {
+            payload.put("projectionMode", projectionMode);
+        }
+        String body = json(payload);
         HttpRequest request = authenticated("/api/earn")
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofMillis(2500))
+                .timeout(readTimeout())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
             // The body is appended unconditionally: a String body handler
             // yields "" for a bodiless answer, never null — the guarded
             // version could not take its false arm.
             throw new ImfidUnavailableException("/api/earn", response.statusCode(), response.body());
         }
-        return objectMapper.readValue(response.body(), EarnProjection.class);
+        EarnProjection projection = objectMapper.readValue(response.body(), EarnProjection.class);
+        projection.sortByCategoryPriority();
+        return projection;
     }
 
     /**
@@ -188,11 +274,11 @@ public class ImfidClient {
      */
     public AccountInfo account(String card) throws Exception {
         HttpRequest request = authenticated("/api/accounts/" + card)
-                .timeout(Duration.ofMillis(2500))
+                .timeout(readTimeout())
                 .GET()
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() == 404) {
             return null;
         }
@@ -227,11 +313,11 @@ public class ImfidClient {
     public List<CardPromotion> promotions(String card) throws Exception {
         HttpRequest request = authenticated("/api/accounts/" + card
                         + "/promotions?benefit=" + BENEFIT_IMMEDIATE_DISCOUNT)
-                .timeout(Duration.ofMillis(2500))
+                .timeout(readTimeout())
                 .GET()
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() == 404) {
             return new ArrayList<>();
         }
@@ -290,11 +376,11 @@ public class ImfidClient {
         appendParam(qs, "firstName", firstName);
         appendParam(qs, "city", city);
         HttpRequest request = authenticated("/api/cards/lookup" + qs)
-                .timeout(Duration.ofMillis(2500))
+                .timeout(readTimeout())
                 .GET()
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         LookupResult result = new LookupResult();
         if (response.statusCode() == 200) {
             result.matches = objectMapper.readValue(response.body(),
@@ -337,15 +423,15 @@ public class ImfidClient {
      */
     public ReservationResult reserve(String card, BigDecimal amount, String ticketRef)
             throws Exception {
-        String body = "{\"card\":\"" + card + "\",\"amount\":" + amount.toPlainString()
-                + ",\"ticketRef\":\"" + ticketRef + "\"}";
+        String body = json(JsonNodeFactory.instance.objectNode()
+                .put("card", card).put("amount", amount).put("ticketRef", ticketRef));
         HttpRequest request = authenticated("/api/burn/reservations")
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofMillis(2500))
+                .timeout(readTimeout())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         ReservationResult result = new ReservationResult();
         result.httpStatus = response.statusCode();
         switch (response.statusCode()) {
@@ -377,14 +463,15 @@ public class ImfidClient {
     public ConfirmResult confirm(long reservationId, String fiscalDate) throws Exception {
         HttpRequest request = authenticated("/api/burn/reservations/" + reservationId + "/confirm")
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofMillis(2500))
-                .POST(HttpRequest.BodyPublishers.ofString("{\"fiscalDate\":\"" + fiscalDate + "\"}"))
+                .timeout(readTimeout())
+                .POST(HttpRequest.BodyPublishers.ofString(json(JsonNodeFactory.instance.objectNode()
+                        .put("fiscalDate", fiscalDate))))
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         ConfirmResult result = new ConfirmResult();
         result.httpStatus = response.statusCode();
-        if (response.statusCode() == 200 && response.body() != null && !response.body().isBlank()) {
+        if (response.statusCode() == 200 && !response.body().isBlank()) {
             // imfid response B: the 200 now carries the ledger figures. On an
             // idempotent replay balanceBefore is null (no longer knowable) —
             // tolerated; burnedAmount and balanceAfter stay served. balanceAfter
@@ -426,10 +513,10 @@ public class ImfidClient {
     public void release(long reservationId) {
         try {
             HttpRequest request = authenticated("/api/burn/reservations/" + reservationId)
-                    .timeout(Duration.ofMillis(2500))
+                    .timeout(readTimeout())
                     .DELETE()
                     .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            http().send(request, HttpResponse.BodyHandlers.discarding());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
@@ -496,9 +583,10 @@ public class ImfidClient {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(base + path));
         String authUser = authUser();
-        if (authUser != null && password.isPresent()) {
+        String authPassword = authPassword();
+        if (authUser != null && authPassword != null) {
             builder.header("Authorization", "Basic " + Base64.getEncoder()
-                    .encodeToString((authUser + ":" + password.get()).getBytes()));
+                    .encodeToString((authUser + ":" + authPassword).getBytes()));
         }
         return builder;
     }
@@ -511,6 +599,25 @@ public class ImfidClient {
         public BigDecimal total;
         /** Per-rule entries; labels are the ONLY rule data printed on tickets. */
         public List<EarnEntry> entries = new ArrayList<>();
+
+        /**
+         * Orders the entries by the CATEGORY PRIORITY the programme
+         * communicated (BO-10-03-20), the entries of a category with no rank
+         * after the ranked ones; the sort is stable, so equal ranks keep the
+         * order they arrived in.
+         *
+         * <p>Done once, at reception: the order then travels with the entries
+         * onto the frozen advantage lines, so the receipt groups its
+         * categories in that priority and a duplicata regroups them
+         * identically, without a rank column to carry.
+         */
+        public void sortByCategoryPriority() {
+            if (entries == null) {
+                return;
+            }
+            entries.sort(java.util.Comparator.comparingInt(entry -> entry.advantageCategoryOrder == null
+                    ? Integer.MAX_VALUE : entry.advantageCategoryOrder));
+        }
         /** Burnable base of this ticket (caps a fidelity payment with the balance). */
         public BigDecimal burnableBase;
         /**
@@ -528,6 +635,18 @@ public class ImfidClient {
          * resolved.
          */
         public Balances balances;
+        /**
+         * The short ADVANTAGE MESSAGE of the sale, two lines at most
+         * (BO-03-03-26), printed before the advantages; null when the programme
+         * sends none.
+         */
+        public List<String> shortMessage;
+        /**
+         * The COMMERCIAL MESSAGES of the sale (BO-03-03-27): up to five
+         * messages of up to ten lines each, printed at the end of the loyalty
+         * section; null when the programme sends none.
+         */
+        public List<List<String>> commercialMessages;
     }
 
     /** One applied cap; {@code scope} is a free string (open nomenclature). */
@@ -575,6 +694,12 @@ public class ImfidClient {
         public String advantageCategory;
         /** The advantage category LABEL, printed verbatim, or null. */
         public String advantageCategoryLabel;
+        /**
+         * The PRIORITY of the advantage category, the smaller first, as the
+         * programme ranks its categories (BO-10-03-20), or null when it ranks
+         * none.
+         */
+        public Integer advantageCategoryOrder;
     }
 
     /**
@@ -589,11 +714,11 @@ public class ImfidClient {
     public MovementsPage movements(String card, int page, int size) throws Exception {
         HttpRequest request = authenticated("/api/accounts/" + card
                         + "/movements?page=" + page + "&size=" + size)
-                .timeout(Duration.ofMillis(2500))
+                .timeout(readTimeout())
                 .GET()
                 .build();
         HttpResponse<String> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                http().send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() == 404) {
             return null;
         }
@@ -661,5 +786,306 @@ public class ImfidClient {
         public BigDecimal balance;
         /** Balance minus active leases — the payment cap. */
         public BigDecimal availableBalance;
+        /**
+         * The language the holder speaks, as the loyalty base records it (an
+         * IETF tag such as {@code nl} or {@code pt-PT}), or null when the base
+         * records none (LC-13-06-09, -14).
+         */
+        public String language;
+        /**
+         * The holder's last name when the programme returns it with the
+         * account, or null (BO-10-03-04): a programme managing the identity
+         * answers a scanned card with its holder, and the register shows it
+         * on the cashier screen where the store administers it.
+         */
+        public String lastName;
+        /** The holder's first name, same provenance and rule as the last name (BO-10-03-04). */
+        public String firstName;
+    }
+
+    /**
+     * Reads the balance of EACH pot of a card (BO-10-02-33 — the FID Portugal
+     * cagnottes), as the programme computes it with the current transaction:
+     * the advantages this ticket earns and the loyalty payment already settled
+     * travel in the body, so the answer is what each pot will hold once the
+     * ticket is closed. Pure read, like the earn projection.
+     *
+     * @param card the card number
+     * @param earnAmount the advantages the current ticket earns, or null for none
+     * @param burnAmount the loyalty payment settled on the current ticket, or null for none
+     * @return the balances in the programme's order, empty when the card is unknown (404)
+     * @throws Exception on transport failure or unexpected status
+     */
+    public List<PotBalance> pots(String card, BigDecimal earnAmount, BigDecimal burnAmount)
+            throws Exception {
+        String body = json(JsonNodeFactory.instance.objectNode()
+                .put("earnAmount", plain(earnAmount)).put("burnAmount", plain(burnAmount)));
+        HttpRequest request = authenticated("/api/accounts/" + card + "/pots")
+                .header("Content-Type", "application/json")
+                .timeout(readTimeout())
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        HttpResponse<String> response =
+                http().send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 404) {
+            return new ArrayList<>();
+        }
+        if (response.statusCode() != 200) {
+            throw new ImfidUnavailableException("/api/accounts/{card}/pots", response.statusCode());
+        }
+        return objectMapper.readValue(response.body(),
+                objectMapper.getTypeFactory()
+                        .constructCollectionType(List.class, PotBalance.class));
+    }
+
+    /**
+     * Writes an amount as a JSON number, zero for none.
+     *
+     * @param amount the amount, or null
+     * @return the amount, zero for none
+     */
+    private static BigDecimal plain(BigDecimal amount) {
+        return amount == null ? BigDecimal.ZERO : amount;
+    }
+
+    /**
+     * Writes a request body built by the JSON library: compact, decimals in
+     * plain notation ({@code 10.00}, never {@code 1E+1}), raw members — the
+     * valuation couple — written verbatim.
+     *
+     * @param body the document
+     * @return its JSON text
+     * @throws IllegalStateException when the document cannot be written
+     */
+    public static String json(JsonNode body) {
+        try {
+            return WRITER.writeValueAsString(body);
+        } catch (JsonProcessingException unwritable) {
+            throw new IllegalStateException("Corps JSON impossible à écrire", unwritable);
+        }
+    }
+
+    /**
+     * The MESSAGES the loyalty programme addresses to the customer with a sale
+     * (BO-03-03-26, BO-03-03-27): the short two-line advantage message and up
+     * to five commercial messages of up to ten lines.
+     *
+     * <p>The bounds are the programme's own formats and are enforced at
+     * reception: a third line of a short message or a sixth commercial message
+     * is a message the paper has no room for, and cutting it here means the
+     * frozen text, the receipt and every duplicata agree on what was kept.
+     * Serializable because it is held by the fidelity state of the sale.
+     */
+    public static class LoyaltyMessages implements java.io.Serializable {
+        /** Serialization identity of the messages. */
+        private static final long serialVersionUID = 1L;
+        /** The most lines a short advantage message carries. */
+        public static final int SHORT_LINES = 2;
+        /** The most commercial messages a sale carries. */
+        public static final int COMMERCIAL_MESSAGES = 5;
+        /** The most lines one commercial message carries. */
+        public static final int COMMERCIAL_LINES = 10;
+        /** The lines of the short advantage message, empty when none. */
+        public List<String> shortLines = new ArrayList<>();
+        /** The commercial messages, each a list of lines, empty when none. */
+        public List<List<String>> commercial = new ArrayList<>();
+
+        /**
+         * Reads the messages of an earn projection, within the programme's
+         * bounds; blank lines and empty messages are dropped.
+         *
+         * @param projection the parsed projection, or null
+         * @return the messages, empty when the projection carries none
+         */
+        public static LoyaltyMessages of(EarnProjection projection) {
+            LoyaltyMessages messages = new LoyaltyMessages();
+            if (projection == null) {
+                return messages;
+            }
+            messages.shortLines = lines(projection.shortMessage, SHORT_LINES);
+            if (projection.commercialMessages != null) {
+                for (List<String> message : projection.commercialMessages) {
+                    List<String> kept = lines(message, COMMERCIAL_LINES);
+                    if (!kept.isEmpty() && messages.commercial.size() < COMMERCIAL_MESSAGES) {
+                        messages.commercial.add(kept);
+                    }
+                }
+            }
+            return messages;
+        }
+
+        /**
+         * Keeps the non-blank lines of a message, within a bound, without the
+         * tabs and line breaks the frozen text uses as separators.
+         *
+         * @param raw the lines as received, possibly null
+         * @param max the most lines kept
+         * @return the kept lines
+         */
+        private static List<String> lines(List<String> raw, int max) {
+            List<String> kept = new ArrayList<>();
+            if (raw == null) {
+                return kept;
+            }
+            for (String line : raw) {
+                if (line != null && !line.isBlank() && kept.size() < max) {
+                    kept.add(line.replaceAll("[\\t\\r\\n]", " ").strip());
+                }
+            }
+            return kept;
+        }
+
+        /**
+         * Tells whether the sale carries no message at all.
+         *
+         * @return true when there is nothing to print
+         */
+        public boolean isEmpty() {
+            return shortLines.isEmpty() && commercial.isEmpty();
+        }
+
+        /**
+         * Writes the messages as the text frozen on the ticket: one line per
+         * printed line, {@code S} and a tab before a line of the short message,
+         * {@code C} followed by the message's rank and a tab before a line of a
+         * commercial message.
+         *
+         * @return the frozen text, or null when there is no message
+         */
+        public String encode() {
+            if (isEmpty()) {
+                return null;
+            }
+            List<String> rows = new ArrayList<>();
+            for (String line : shortLines) {
+                rows.add("S\t" + line);
+            }
+            for (int rank = 0; rank < commercial.size(); rank++) {
+                for (String line : commercial.get(rank)) {
+                    rows.add("C" + rank + "\t" + line);
+                }
+            }
+            return String.join("\n", rows);
+        }
+
+        /**
+         * Reads back the messages frozen by {@link #encode()}; a row in no known
+         * shape is ignored rather than printed.
+         *
+         * @param text the frozen text, possibly null or blank
+         * @return the messages, empty when none was frozen
+         */
+        public static LoyaltyMessages decode(String text) {
+            LoyaltyMessages messages = new LoyaltyMessages();
+            if (text == null || text.isBlank()) {
+                return messages;
+            }
+            java.util.Map<String, List<String>> byRank = new java.util.LinkedHashMap<>();
+            for (String row : text.split("\n")) {
+                int tab = row.indexOf('\t');
+                if (tab < 1) {
+                    continue;
+                }
+                String kind = row.substring(0, tab);
+                String line = row.substring(tab + 1);
+                if ("S".equals(kind)) {
+                    messages.shortLines.add(line);
+                } else if (kind.startsWith("C")) {
+                    byRank.computeIfAbsent(kind, absent -> new ArrayList<>()).add(line);
+                }
+            }
+            messages.commercial.addAll(byRank.values());
+            return messages;
+        }
+    }
+
+    /**
+     * The balance of one pot of a card (BO-10-02-33), tolerant reader.
+     * Serializable because it is held by the fidelity state of the sale.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PotBalance implements java.io.Serializable {
+        /** Serialization identity of the pot view. */
+        private static final long serialVersionUID = 1L;
+        /** The pot code, e.g. CAGNOTTE or a FID Portugal pot code. */
+        public String code;
+        /** The pot label, displayed and printed verbatim. */
+        public String label;
+        /** The pot balance once the current transaction is taken into account. */
+        public BigDecimal balance;
+
+        /**
+         * Returns the pot label, falling back on its code when the programme
+         * sent none.
+         *
+         * @return the display label, never null
+         */
+        public String getDisplayLabel() {
+            if (label != null && !label.isBlank()) {
+                return label;
+            }
+            return code == null ? "" : code;
+        }
+
+        /**
+         * Returns the balance formatted with the French comma and the euro sign.
+         *
+         * @return the formatted balance, empty when the programme sent none
+         */
+        public String getBalanceFormatted() {
+            if (balance == null) {
+                return "";
+            }
+            return balance.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
+                    .replace('.', ',') + " \u20ac";
+        }
+
+        /**
+         * Writes the pots a sale leaves behind as the text frozen on the ticket
+         * (BO-10-02-33): one pot per line, its display label, a tab, then its
+         * balance as a plain decimal \u2014 empty when the programme sent none. The
+         * tabs and line breaks a label might carry are turned into blanks, so
+         * the text always reads back into the same pots.
+         *
+         * @param pots the pots, possibly null
+         * @return the frozen text, or null when there is no pot to state
+         */
+        public static String encode(List<PotBalance> pots) {
+            if (pots == null || pots.isEmpty()) {
+                return null;
+            }
+            StringBuilder text = new StringBuilder();
+            for (PotBalance pot : pots) {
+                if (text.length() > 0) {
+                    text.append('\n');
+                }
+                text.append(pot.getDisplayLabel().replaceAll("[\\t\\r\\n]", " ")).append('\t')
+                        .append(pot.balance == null ? "" : pot.balance.toPlainString());
+            }
+            return text.toString();
+        }
+
+        /**
+         * Reads back the pots frozen on a ticket by {@link #encode(List)}
+         * (BO-10-02-33). Each pot comes back with its label and balance; the
+         * code is not frozen and stays null.
+         *
+         * @param text the frozen text, possibly null or blank
+         * @return the pots in their frozen order, empty when none was frozen
+         */
+        public static List<PotBalance> decode(String text) {
+            List<PotBalance> pots = new java.util.ArrayList<>();
+            if (text == null || text.isBlank()) {
+                return pots;
+            }
+            for (String row : text.split("\n")) {
+                String[] parts = row.split("\t", -1);
+                PotBalance pot = new PotBalance();
+                pot.label = parts[0];
+                pot.balance = parts.length > 1 && !parts[1].isBlank() ? new BigDecimal(parts[1].trim()) : null;
+                pots.add(pot);
+            }
+            return pots;
+        }
     }
 }

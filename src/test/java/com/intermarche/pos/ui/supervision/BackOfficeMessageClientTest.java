@@ -143,4 +143,77 @@ class BackOfficeMessageClientTest {
         BackOfficeMessageClient client = client(Optional.of("http://node/msg"), http);
         assertNull(client.fetchPending());
     }
+
+    /** LC-03-07: each HTTP status/body guard is exercised independently on pending and survey requests. */
+    @Test
+    void pendingAndSurveyResponseGuards() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        BackOfficeMessageClient client = client(Optional.of("http://node/messages/pending"), http);
+        for (int status : new int[]{199, 300, 200, 200}) {
+            String body = status == 200 ? null : "ignored";
+            HttpResponse<String> answer = resp(status, body);
+            doReturn(answer).when(http).send(any(HttpRequest.class), any());
+            assertNull(client.fetchPending(""));
+            assertNull(client.fetchSurvey(7L));
+        }
+        HttpResponse<String> blank = resp(200, " ");
+        doReturn(blank).when(http).send(any(HttpRequest.class), any());
+        assertNull(client.fetchSurvey(7L));
+    }
+
+    /** LC-03-07: surveys tolerate absent/blank URLs and invalid relative roots without any network boundary. */
+    @Test
+    void surveyUrlGuardsAndRootFallback() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        assertNull(client(Optional.empty(), http).fetchSurvey(7L));
+        assertNull(client(Optional.of(" "), http).fetchSurvey(7L));
+        assertNull(client(Optional.of("relative"), http).fetchSurvey(7L));
+        org.mockito.Mockito.verifyNoInteractions(http);
+    }
+
+    /** LC-03-07: moments and tokens are transmitted only when nonblank, and survey responses deserialize fully. */
+    @Test
+    void momentAndTokenTransport() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> answer = resp(200, "{\"question\":\"Choose\",\"required\":true,\"options\":\"Yes;No\"}");
+        doReturn(answer).when(http).send(any(HttpRequest.class), any());
+        BackOfficeMessageClient client = client(Optional.of("http://node/messages/pending"), http);
+        client.token = Optional.of(" ");
+        assertEquals("Choose", client.fetchPending("START").question());
+        client.token = Optional.of("TOKEN");
+        assertEquals(true, client.fetchSurvey(7L).required());
+        var requests = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.times(2)).send(requests.capture(), any());
+        assertEquals("terminal=C04&moment=START", requests.getAllValues().get(0).uri().getQuery());
+        assertEquals(Optional.empty(), requests.getAllValues().get(0).headers().firstValue("X-Sync-Token"));
+        assertEquals(Optional.of("TOKEN"), requests.getAllValues().get(1).headers().firstValue("X-Sync-Token"));
+        assertEquals("/messages/survey/7", requests.getAllValues().get(1).uri().getPath());
+    }
+
+    /** LC-03-07: malformed survey JSON and transport exceptions both remain a missing message. */
+    @Test
+    void surveyFailuresAreContained() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> answer = resp(200, "invalid json");
+        doReturn(answer).when(http).send(any(HttpRequest.class), any());
+        BackOfficeMessageClient client = client(Optional.of("http://node/messages/pending"), http);
+        assertNull(client.fetchSurvey(7L));
+        doThrow(new java.io.IOException("offline")).when(http).send(any(HttpRequest.class), any());
+        assertNull(client.fetchSurvey(7L));
+    }
+
+    /** LC-03-07: each endpoint independently filters blank tokens and transmits configured tokens. */
+    @Test
+    void bothEndpointsFilterBothTokenLegs() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> answer = resp(200, "{\"text\":\"NOTICE\"}");
+        doReturn(answer).when(http).send(any(HttpRequest.class), any());
+        BackOfficeMessageClient client = client(Optional.of("http://node/messages/pending"), http);
+        for (String token : new String[]{" ", "TOKEN"}) {
+            client.token = Optional.of(token);
+            assertEquals("NOTICE", client.fetchPending().text());
+            assertEquals("NOTICE", client.fetchSurvey(7L).text());
+        }
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.times(4)).send(any(HttpRequest.class), any());
+    }
 }

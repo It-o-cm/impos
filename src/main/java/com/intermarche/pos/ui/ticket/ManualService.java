@@ -31,7 +31,16 @@ import java.util.*;
  * </ul>
  */
 @ApplicationScoped
+@jakarta.inject.Named("manualService")
 public class ManualService {
+
+    /**
+     * How many LEVEL-0 articles the sale screen itself carries as keys
+     * (BO-03-01-04): the key grid of the sale screen is shared with the
+     * register's own functions, so it holds the first ones; every LEVEL-0
+     * article is also on the first screen of direct entry.
+     */
+    static final int SALE_SCREEN_KEYS = 4;
 
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(ManualService.class);
@@ -39,8 +48,6 @@ public class ManualService {
     /** The page size used when no settings service is wired (unit context). */
     static final int DEFAULT_PER_PAGE = 12;
 
-    /** Tiles the grid shows at once, three columns by four rows. */
-    private static final int GRID_TILES = 12;
 
     /**
      * Every database read this screen needs.
@@ -76,6 +83,26 @@ public class ManualService {
     @Inject
     com.intermarche.pos.ui.Messages i18n;
 
+    /** LC-02-07-18: request-local article ordering; never stored in register or BackOffice state. */
+    public enum ArticleSort {
+        DEFAULT, NAME_ASC, NAME_DESC, CODE_ASC, CODE_DESC;
+
+        /**
+         * Accepts only explicit screen options; absent or unknown input restores the administered order.
+         * @param value requested ordering token
+         * @return a safe ordering choice, never raw query text
+         */
+        public static ArticleSort parse(String value) {
+            return switch (value) {
+                case "NAME_ASC" -> NAME_ASC;
+                case "NAME_DESC" -> NAME_DESC;
+                case "CODE_ASC" -> CODE_ASC;
+                case "CODE_DESC" -> CODE_DESC;
+                case null, default -> DEFAULT;
+            };
+        }
+    }
+
     // DTOs internes
     /**
      * One tile of the drill-down: a category to open or a product to add.
@@ -84,6 +111,10 @@ public class ManualService {
         public String label; public boolean isCategory; public String url; public String ean;
         /** The size CSS class of the tile (BO-03-01-08). */
         public String sizeClass;
+        /** LC-02-07-14/15: the back-office thumbnail, already resized and distributed with the product. */
+        public String imageData;
+        /** LC-02-07-11: current TTC amount with the optional administered currency label. */
+        public String priceFormatted;
         /** Whether this tile is a pinned group shown permanently (BO-03-01-07). */
         public boolean pinned;
 
@@ -144,6 +175,11 @@ public class ManualService {
      * requested page of the remaining groups, both ordered by the configured
      * mode and each carrying its size class (Lot 5F).
      *
+     * <p>The reserved LEVEL-0 group is not drawn as a group touch
+     * (BO-03-01-04, BO-03-01-05): its articles are drawn as DIRECT article
+     * touches, after the pinned groups and on every page of the first screen,
+     * so a frequent article — the bag — is rung without opening any group.
+     *
      * @param page the 1-based page requested for the non-pinned groups
      * @return the root level
      */
@@ -155,7 +191,12 @@ public class ManualService {
         Comparator<ProductFamily> order = orderComparator(mode(), settings);
         List<ProductFamily> pinned = new ArrayList<>();
         List<ProductFamily> rest = new ArrayList<>();
+        ProductFamily levelZero = null;
         for (ProductFamily f : allFamilies) {
+            if (ProductFamily.LEVEL_ZERO_CODE.equals(f.code)) {
+                levelZero = f;
+                continue;
+            }
             if (tree.childIds().contains(f.id) || !tree.qualifying().contains(f.id)) {
                 continue;
             }
@@ -167,13 +208,15 @@ public class ManualService {
         }
         pinned.sort(order);
         rest.sort(order);
-        int perPage = pageBudget(pinned.size());
+        List<ManualItem> direct = levelZeroItems(levelZero);
+        int perPage = pageBudget(pinned.size() + direct.size());
         int totalPages = rest.isEmpty() ? 1 : (rest.size() + perPage - 1) / perPage;
         int current = clamp(page, totalPages);
         List<ManualItem> items = new ArrayList<>();
         for (ProductFamily f : pinned) {
             items.add(categoryItem(f, settings));
         }
+        items.addAll(direct);
         int from = (current - 1) * perPage;
         int to = Math.min(from + perPage, rest.size());
         for (int i = from; i < to; i++) {
@@ -182,7 +225,7 @@ public class ManualService {
         String prevUrl = current > 1 ? "/manual?page=" + (current - 1) : null;
         String nextUrl = current < totalPages ? "/manual?page=" + (current + 1) : null;
         LOGGER.info("Exiting method getManualRootData");
-        return new ManualViewData(items, "Accueil", true, null, current, totalPages, prevUrl, nextUrl);
+        return new ManualViewData(items, homeLabel(), true, null, current, totalPages, prevUrl, nextUrl);
     }
 
     /**
@@ -203,9 +246,20 @@ public class ManualService {
      * @return the category level
      */
     public ManualViewData getManualCategoryData(String code, int page) {
+        return getManualCategoryData(code, page, ArticleSort.DEFAULT);
+    }
+
+    /**
+     * LC-02-07-18: applies a temporary article order before paging, preserving group navigation.
+     * @param code family code
+     * @param page requested one-based page
+     * @param sort whitelisted request-local order
+     * @return the category page, with the same order carried only by its pager
+     */
+    public ManualViewData getManualCategoryData(String code, int page, ArticleSort sort) {
         LOGGER.info("Entering method getManualCategoryData with code: " + code + ", page: " + page);
         List<ManualItem> items = new ArrayList<>();
-        String breadcrumb = "Accueil";
+        String breadcrumb = homeLabel();
         String parentUrl = "/manual";
         Map<String, TouchGroupSetting> settings = TouchGroupSetting.byFamilyCode();
         List<ProductFamily> allFamilies = drawnHere(ProductFamily.listAll(), settings);
@@ -220,7 +274,7 @@ public class ManualService {
             LOGGER.info("Exiting method getManualCategoryData");
             return new ManualViewData(items, breadcrumb, false, parentUrl, 1, 1, null, null);
         }
-        breadcrumb = "Accueil > " + family.description;
+        breadcrumb = breadcrumb + " > " + family.description;
         List<ProductFamily> children = new ArrayList<>();
         if (family.productFamilies != null) {
             // BO-03-01-21/-22/-23: a sub-group scoped elsewhere is no more drawn
@@ -245,11 +299,11 @@ public class ManualService {
         int productFrom = Math.max(0, from - children.size());
         int productTo = Math.max(0, to - children.size());
         if (productTo > productFrom) {
-            for (Product p : repository.products(family.id, productFrom, productTo - productFrom)) {
-                items.add(new ManualItem(p.name, false, null, p.ean, "size-normal", false));
+            for (Product p : repository.products(family.id, productFrom, productTo - productFrom, sort)) {
+                items.add(productItem(p));
             }
         }
-        String base = "/manual/cat/" + code + "?page=";
+        String base = "/manual/cat/" + code + (sort == ArticleSort.DEFAULT ? "?page=" : "?sort=" + sort.name() + "&page=");
         String prevUrl = current > 1 ? base + (current - 1) : null;
         String nextUrl = current < totalPages ? base + (current + 1) : null;
         LOGGER.info("Exiting method getManualCategoryData");
@@ -257,21 +311,74 @@ public class ManualService {
     }
 
     /**
+     * The direct article touches of the first screen: the active EAN-only
+     * articles of the LEVEL-0 group, in the administered article order, as
+     * many as one page holds (BO-03-01-04, BO-03-01-05).
+     *
+     * @param levelZero the LEVEL-0 group this register draws, or null
+     * @return the article tiles, empty when there is no such group
+     */
+    private List<ManualItem> levelZeroItems(ProductFamily levelZero) {
+        List<ManualItem> tiles = new ArrayList<>();
+        if (levelZero == null) {
+            return tiles;
+        }
+        for (Product p : repository.products(levelZero.id, 0, perPage(), ArticleSort.DEFAULT)) {
+            tiles.add(productItem(p));
+        }
+        return tiles;
+    }
+
+    /**
+     * The LEVEL-0 articles drawn as keys on the sale screen itself
+     * (BO-03-01-04, BO-03-01-05): the frequent article is rung in one touch,
+     * without opening the direct entry. Read from the distributed referential
+     * at each rendering, so an article the back office adds or deactivates
+     * appears or disappears at the next pull, with nothing to re-send.
+     *
+     * @return the first LEVEL-0 article keys, empty when this register draws no
+     *         LEVEL-0 group
+     */
+    public List<ManualItem> levelZeroKeys() {
+        ProductFamily levelZero = ProductFamily.findByCode(ProductFamily.LEVEL_ZERO_CODE);
+        if (levelZero == null
+                || drawnHere(List.of(levelZero), TouchGroupSetting.byFamilyCode()).isEmpty()) {
+            return List.of();
+        }
+        List<ManualItem> keys = new ArrayList<>();
+        for (Product p : repository.products(levelZero.id, 0, SALE_SCREEN_KEYS, ArticleSort.DEFAULT)) {
+            keys.add(new ManualItem(p.name, false, null, p.ean, "size-normal", false));
+        }
+        return keys;
+    }
+
+    /**
+     * Builds an article tile: label, EAN, thumbnail and current price.
+     *
+     * @param p the article
+     * @return the article tile
+     */
+    private ManualItem productItem(Product p) {
+        ManualItem tile = new ManualItem(p.name, false, null, p.ean, "size-normal", false);
+        tile.imageData = p.imageData;
+        var amount = repository.currentPrice(p.id);
+        tile.priceFormatted = amount == null ? "—" : amount.setScale(2, java.math.RoundingMode.HALF_UP)
+                .toPlainString().replace('.', ',') + (posSettings == null || posSettings.touchPriceCurrency() ? " EUR" : "");
+        return tile;
+    }
+
+    /**
      * How many tiles one page may hold, once the permanent ones are deducted.
      *
-     * <p>The grid is twelve tiles and its first one is always taken -- NON RECONNU at
-     * the root, RETOUR below it -- so eleven remain, and the pinned groups shown on
-     * every page eat into those. Deducting them is what makes the overflow impossible:
-     * before, the configured page size was added ON TOP of the pinned groups, and the
-     * surplus tiles fell into rows the grid clips away, invisible and unreachable.
-     * At least one tile is always granted, so a till pinned to saturation still turns
-     * pages instead of showing nothing.
+     * <p>LC-02-07-02: the grid grows to the configured page size. Pinned groups
+     * consume that budget; the navigation tile occupies an additional cell.
+     * At least one pageable tile remains even when all groups are pinned.
      *
      * @param pinnedCount how many pinned groups are shown on every page
      * @return the number of tiles the page may hold
      */
     private int pageBudget(int pinnedCount) {
-        return Math.max(1, Math.min(perPage(), GRID_TILES - 1 - pinnedCount));
+        return Math.max(1, perPage() - pinnedCount);
     }
 
 
@@ -377,6 +484,7 @@ public class ManualService {
         List<ProductFamily> pinned = new ArrayList<>();
         for (ProductFamily f : allFamilies) {
             if (TouchGroupSetting.orDefaults(settings, f.code).pinned
+                    && !ProductFamily.LEVEL_ZERO_CODE.equals(f.code)
                     && !tree.childIds().contains(f.id) && tree.qualifying().contains(f.id)) {
                 pinned.add(f);
             }
@@ -398,6 +506,17 @@ public class ManualService {
         return new ManualItem(groupLabel(family, setting), true,
                 "/manual/cat/" + family.code, null,
                 sizeClass(setting.buttonSize), setting.pinned);
+    }
+
+    /**
+     * The root of the breadcrumb in the language the till is set to: the
+     * bundle's wording, or the French one for a service built outside CDI,
+     * which has no language resolver.
+     *
+     * @return the breadcrumb root
+     */
+    private String homeLabel() {
+        return i18n == null ? "Accueil" : i18n.get("manual.accueil");
     }
 
     /**

@@ -214,6 +214,28 @@ class ImfidClientTest {
     }
 
     /**
+     * BO-10-03-20: the entries come back ordered by the category priority the
+     * programme communicated, the unranked ones last, equal ranks in their
+     * order of arrival; a projection carrying no entries list is left alone.
+     */
+    @Test
+    void earnOrdersTheEntriesByCategoryPriority() throws Exception {
+        stub("/api/earn", 200, "{\"total\":3,\"entries\":["
+                + "{\"ruleCode\":\"A\",\"advantageCategory\":\"DIVERS\"},"
+                + "{\"ruleCode\":\"B\",\"advantageCategory\":\"FRAIS\",\"advantageCategoryOrder\":2},"
+                + "{\"ruleCode\":\"C\",\"advantageCategory\":\"BIO\",\"advantageCategoryOrder\":1},"
+                + "{\"ruleCode\":\"D\",\"advantageCategory\":\"FRAIS\",\"advantageCategoryOrder\":2}]}");
+        ImfidClient.EarnProjection projection = client.earn("{}", "{}");
+        assertEquals(java.util.List.of("C", "B", "D", "A"),
+                projection.entries.stream().map(entry -> entry.ruleCode).toList());
+        assertEquals(1, projection.entries.get(0).advantageCategoryOrder);
+        ImfidClient.EarnProjection empty = new ImfidClient.EarnProjection();
+        empty.entries = null;
+        empty.sortByCategoryPriority();
+        assertNull(empty.entries);
+    }
+
+    /**
      * A ZERO projection is a legitimate answer, not an error: a cart entirely
      * absorbed by an offer earns nothing (imfid's invariant I2).
      */
@@ -1082,5 +1104,342 @@ class ImfidClientTest {
         bare.posSettingsService = null;
         bare.user = Optional.of("pos-deploy");
         assertEquals("pos-deploy", bare.authUser());
+    }
+
+    /** LC-03-04: a blank projection mode is omitted, and an empty successful confirmation retains a status-only result. */
+    @Test
+    void blankProjectionAndConfirmationBodiesKeepTheirFallbacks() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
+        client.earn("{}", "{}", " ");
+        assertFalse(receivedBody.get().contains("projectionMode"));
+        stub("/api/burn/reservations/42/confirm", 200, " ");
+        var result = client.confirm(42L, "2026-10-20");
+        assertEquals(200, result.httpStatus);
+        assertNull(result.balanceBefore);
+        assertNull(result.balanceAfter);
+    }
+
+    // --- lot 18 group G: configuration (BO-10-03-08, BO-10-03-10) ---
+
+    /**
+     * BO-10-03-08: the ADMINISTERED password wins over the deployment property
+     * and is sent verbatim, untrimmed, in the Basic header.
+     */
+    @Test
+    void theAdministeredPasswordIsSentInTheBasicHeader() throws Exception {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityPassword()).thenReturn(" adm-pass");
+        stub("/api/accounts/C1", 404, "");
+        client.account("C1");
+        assertEquals("Basic " + java.util.Base64.getEncoder()
+                        .encodeToString("pos: adm-pass".getBytes(StandardCharsets.UTF_8)),
+                receivedAuthorization.get());
+    }
+
+    /**
+     * BO-10-03-08: an EMPTY administered password keeps the deployment one —
+     * the filled-value guard's false arm.
+     */
+    @Test
+    void anEmptyAdministeredPasswordKeepsTheDeploymentProperty() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityPassword()).thenReturn("");
+        assertEquals("pos-password", client.authPassword());
+    }
+
+    /**
+     * BO-10-03-08: a NULL administered password keeps the deployment one.
+     */
+    @Test
+    void aNullAdministeredPasswordKeepsTheDeploymentProperty() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityPassword()).thenReturn(null);
+        assertEquals("pos-password", client.authPassword());
+    }
+
+    /**
+     * BO-10-03-08: an administered password authenticates even without a
+     * deployment one.
+     */
+    @Test
+    void anAdministeredPasswordAloneAuthenticates() {
+        client.password = Optional.empty();
+        org.mockito.Mockito.when(client.posSettingsService.fidelityPassword()).thenReturn("only-adm");
+        assertEquals("only-adm", client.authPassword());
+    }
+
+    /**
+     * BO-10-03-08: with NO settings service wired, the password falls back on
+     * the deployment property.
+     */
+    @Test
+    void authPasswordFallsBackToDeploymentWhenSettingsAreAbsent() {
+        ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = null;
+        bare.password = Optional.of("deploy-pass");
+        assertEquals("deploy-pass", bare.authPassword());
+    }
+
+    /**
+     * BO-10-03-10: the administered timeouts are the ones applied; a non-positive
+     * value, or no settings service, answers the historical 1500/2500 ms.
+     */
+    @Test
+    void timeoutsFollowTheAdministeredValues() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityConnectTimeoutMs()).thenReturn(800);
+        org.mockito.Mockito.when(client.posSettingsService.fidelityReadTimeoutMs()).thenReturn(1200);
+        assertEquals(800, client.connectTimeoutMs());
+        assertEquals(java.time.Duration.ofMillis(1200), client.readTimeout());
+        org.mockito.Mockito.when(client.posSettingsService.fidelityConnectTimeoutMs()).thenReturn(0);
+        org.mockito.Mockito.when(client.posSettingsService.fidelityReadTimeoutMs()).thenReturn(-1);
+        assertEquals(1500, client.connectTimeoutMs());
+        assertEquals(java.time.Duration.ofMillis(2500), client.readTimeout());
+        ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = null;
+        assertEquals(1500, bare.connectTimeoutMs());
+        assertEquals(java.time.Duration.ofMillis(2500), bare.readTimeout());
+    }
+
+    /**
+     * BO-10-03-10: the HTTP client is built once and reused while the connection
+     * timeout stands, and rebuilt with the new timeout as soon as it changes.
+     */
+    @Test
+    void theHttpClientIsRebuiltWhenTheConnectTimeoutChanges() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityConnectTimeoutMs()).thenReturn(700);
+        java.net.http.HttpClient first = client.http();
+        assertEquals(java.util.Optional.of(java.time.Duration.ofMillis(700)), first.connectTimeout());
+        assertSame(first, client.http());
+        org.mockito.Mockito.when(client.posSettingsService.fidelityConnectTimeoutMs()).thenReturn(900);
+        java.net.http.HttpClient second = client.http();
+        assertNotSame(first, second);
+        assertEquals(java.util.Optional.of(java.time.Duration.ofMillis(900)), second.connectTimeout());
+    }
+
+    /**
+     * BO-10-03-10: a call slower than the administered response timeout fails —
+     * the exception the caller's breaker turns into « service fidélité
+     * indisponible ».
+     */
+    @Test
+    void aCallSlowerThanTheReadTimeoutFails() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityReadTimeoutMs()).thenReturn(100);
+        server.createContext("/api/accounts/SLOW", exchange -> {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            respond(exchange, 200, "{}");
+        });
+        assertThrows(java.net.http.HttpTimeoutException.class, () -> client.account("SLOW"));
+    }
+
+    // --- lot 18 group G: holder identity and pots (BO-10-03-04, BO-10-02-33) ---
+
+    /**
+     * BO-10-03-04: the account answer carries the holder's name when the
+     * programme returns it.
+     */
+    @Test
+    void accountParsesTheHolderName() throws Exception {
+        stub("/api/accounts/C2", 200,
+                "{\"status\":\"ACTIVE\",\"lastName\":\"Durand\",\"firstName\":\"Anne\"}");
+        ImfidClient.AccountInfo account = client.account("C2");
+        assertEquals("Durand", account.lastName);
+        assertEquals("Anne", account.firstName);
+    }
+
+    /**
+     * BO-10-02-33: the pots request POSTs the transaction's earn and burn to the
+     * card's pots endpoint and reads each pot's balance.
+     */
+    @Test
+    void potsSendsTheTransactionAndParsesEachPot() throws Exception {
+        stub("/api/accounts/C3/pots", 200, "[{\"code\":\"CAG\",\"label\":\"Cagnotte\",\"balance\":12.5,"
+                + "\"extra\":1},{\"code\":\"PT2\",\"balance\":3}]");
+        java.util.List<ImfidClient.PotBalance> pots =
+                client.pots("C3", new BigDecimal("1.20"), new BigDecimal("4.00"));
+        assertEquals("POST /api/accounts/C3/pots", receivedRequestLine.get());
+        assertEquals("{\"earnAmount\":1.20,\"burnAmount\":4.00}", receivedBody.get());
+        assertEquals(2, pots.size());
+        assertEquals("Cagnotte", pots.get(0).getDisplayLabel());
+        assertEquals("12,50 \u20ac", pots.get(0).getBalanceFormatted());
+        assertEquals("PT2", pots.get(1).getDisplayLabel());
+        assertEquals("3,00 \u20ac", pots.get(1).getBalanceFormatted());
+    }
+
+    /**
+     * BO-10-02-33: absent amounts travel as zero.
+     */
+    @Test
+    void potsSendsZeroForAbsentAmounts() throws Exception {
+        stub("/api/accounts/C4/pots", 200, "[]");
+        assertTrue(client.pots("C4", null, null).isEmpty());
+        assertEquals("{\"earnAmount\":0,\"burnAmount\":0}", receivedBody.get());
+    }
+
+    /**
+     * BO-10-02-33: an unknown card has no pots (404 = empty list).
+     */
+    @Test
+    void potsOfAnUnknownCardIsEmpty() throws Exception {
+        stub("/api/accounts/C5/pots", 404, "");
+        assertTrue(client.pots("C5", BigDecimal.ONE, BigDecimal.ZERO).isEmpty());
+    }
+
+    /**
+     * BO-10-02-33: any other status throws, for the caller's breaker.
+     */
+    @Test
+    void potsThrowsOnUnexpectedStatus() {
+        stub("/api/accounts/C6/pots", 503, "");
+        assertThrows(ImfidUnavailableException.class,
+                () -> client.pots("C6", BigDecimal.ONE, BigDecimal.ZERO));
+    }
+
+    /**
+     * BO-10-02-33: a pot without label shows its code, a pot without code nor
+     * label shows nothing, a blank label falls back too, and a pot without
+     * balance formats as empty.
+     */
+    @Test
+    void potDisplayFallbacks() {
+        ImfidClient.PotBalance pot = new ImfidClient.PotBalance();
+        assertEquals("", pot.getDisplayLabel());
+        assertEquals("", pot.getBalanceFormatted());
+        pot.code = "X1";
+        pot.label = "  ";
+        assertEquals("X1", pot.getDisplayLabel());
+        pot.label = "Pot X";
+        assertEquals("Pot X", pot.getDisplayLabel());
+    }
+
+    /**
+     * BO-10-02-33: no pot to state — a null list and an empty one — freezes
+     * nothing on the ticket.
+     */
+    @Test
+    void encodeFreezesNothingWithoutPots() {
+        assertNull(ImfidClient.PotBalance.encode(null));
+        assertNull(ImfidClient.PotBalance.encode(new java.util.ArrayList<>()));
+    }
+
+    /**
+     * BO-10-02-33: two pots freeze as two lines, the label first (its tab and
+     * line breaks blanked, the code standing in for a missing label), then the
+     * plain balance, empty for a pot the programme sent without one.
+     */
+    @Test
+    void encodeWritesOneLinePerPot() {
+        ImfidClient.PotBalance first = new ImfidClient.PotBalance();
+        first.label = "Cagnotte\tPrincipale\r\n";
+        first.balance = new BigDecimal("12.50");
+        ImfidClient.PotBalance second = new ImfidClient.PotBalance();
+        second.code = "PT2";
+        assertEquals("Cagnotte Principale  \t12.50\nPT2\t",
+                ImfidClient.PotBalance.encode(java.util.List.of(first, second)));
+    }
+
+    /**
+     * BO-10-02-33: nothing frozen — null or blank — reads back as no pot.
+     */
+    @Test
+    void decodeReadsNoPotFromNothing() {
+        assertTrue(ImfidClient.PotBalance.decode(null).isEmpty());
+        assertTrue(ImfidClient.PotBalance.decode("  ").isEmpty());
+    }
+
+    /**
+     * BO-10-02-33: each frozen line reads back as a pot — a balance, an empty
+     * balance after the tab, and a line without any tab (no balance at all).
+     */
+    @Test
+    void decodeReadsEachFrozenLine() {
+        java.util.List<ImfidClient.PotBalance> pots =
+                ImfidClient.PotBalance.decode("Cagnotte\t12.50\nPT2\t\nBons");
+        assertEquals(3, pots.size());
+        assertEquals("Cagnotte", pots.get(0).label);
+        assertEquals(new BigDecimal("12.50"), pots.get(0).balance);
+        assertNull(pots.get(0).code);
+        assertEquals("PT2", pots.get(1).label);
+        assertNull(pots.get(1).balance);
+        assertEquals("Bons", pots.get(2).label);
+        assertNull(pots.get(2).balance);
+    }
+
+    /**
+     * BO-03-03-26 / -27: a projection without messages — or no projection at
+     * all — carries none, and freezes nothing.
+     */
+    @Test
+    void aProjectionWithoutMessagesCarriesNone() {
+        assertTrue(ImfidClient.LoyaltyMessages.of(null).isEmpty());
+        ImfidClient.LoyaltyMessages none = ImfidClient.LoyaltyMessages.of(new ImfidClient.EarnProjection());
+        assertTrue(none.isEmpty());
+        assertNull(none.encode());
+    }
+
+    /**
+     * BO-03-03-26 / -27: the programme's formats are enforced at reception —
+     * two lines of short message, five commercial messages of ten lines —, the
+     * blank and missing lines dropped, an empty message dropped, and the
+     * separators of the frozen text replaced.
+     */
+    @Test
+    void theMessagesAreKeptWithinTheProgrammesFormats() {
+        ImfidClient.EarnProjection projection = new ImfidClient.EarnProjection();
+        projection.shortMessage = java.util.Arrays.asList(" VOS AVANTAGES ", null, "  ", "A\tB", "TROISIEME");
+        java.util.List<java.util.List<String>> commercial = new java.util.ArrayList<>();
+        commercial.add(java.util.List.of(" "));
+        java.util.List<String> eleven = new java.util.ArrayList<>();
+        for (int line = 1; line <= 11; line++) {
+            eleven.add("LIGNE " + line);
+        }
+        commercial.add(eleven);
+        for (int message = 2; message <= 6; message++) {
+            commercial.add(java.util.List.of("MESSAGE " + message));
+        }
+        commercial.add(null);
+        projection.commercialMessages = commercial;
+        ImfidClient.LoyaltyMessages messages = ImfidClient.LoyaltyMessages.of(projection);
+        assertEquals(java.util.List.of("VOS AVANTAGES", "A B"), messages.shortLines);
+        assertEquals(5, messages.commercial.size());
+        assertEquals(10, messages.commercial.get(0).size());
+        assertEquals(java.util.List.of("MESSAGE 5"), messages.commercial.get(4));
+        assertFalse(messages.isEmpty());
+    }
+
+    /**
+     * BO-03-03-26 / -27: the frozen text reads back into the very messages it
+     * was written from, a short message alone or commercial messages alone
+     * included, and a row in no known shape is ignored.
+     */
+    @Test
+    void theMessagesReadBackFromTheFrozenText() {
+        ImfidClient.LoyaltyMessages messages = new ImfidClient.LoyaltyMessages();
+        messages.shortLines = java.util.List.of("COURT 1", "COURT 2");
+        messages.commercial = java.util.List.of(java.util.List.of("A1", "A2"), java.util.List.of("B1"));
+        String frozen = messages.encode();
+        assertEquals("S\tCOURT 1\nS\tCOURT 2\nC0\tA1\nC0\tA2\nC1\tB1", frozen);
+        ImfidClient.LoyaltyMessages back = ImfidClient.LoyaltyMessages.decode(frozen + "\nSANS TABULATION\n\tVIDE\nX\tINCONNU");
+        assertEquals(messages.shortLines, back.shortLines);
+        assertEquals(messages.commercial, back.commercial);
+        ImfidClient.LoyaltyMessages onlyCommercial = new ImfidClient.LoyaltyMessages();
+        onlyCommercial.commercial = java.util.List.of(java.util.List.of("PROMO"));
+        assertFalse(onlyCommercial.isEmpty());
+        assertEquals("C0\tPROMO", onlyCommercial.encode());
+        assertTrue(ImfidClient.LoyaltyMessages.decode(null).isEmpty());
+        assertTrue(ImfidClient.LoyaltyMessages.decode("  ").isEmpty());
+    }
+
+    /**
+     * A body the JSON library cannot write is an illegal state, never a
+     * half-written request; a written body keeps its decimals plain.
+     */
+    @Test
+    void anUnwritableBodyIsAnIllegalState() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> ImfidClient.json(
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.pojoNode(new Object())));
+        org.junit.jupiter.api.Assertions.assertEquals("{\"amount\":10}", ImfidClient.json(
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                        .put("amount", new java.math.BigDecimal("1E+1"))));
     }
 }

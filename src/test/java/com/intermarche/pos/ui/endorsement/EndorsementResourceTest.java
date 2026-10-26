@@ -112,7 +112,9 @@ class EndorsementResourceTest {
         resource.state.endorsement.requestedAction = "CANCEL_TICKET";
         resource.state.endorsement.scannedBadge = "MGR1";
         resource.state.endorsement.error = "BOOM";
+        resource.state.endorsement.remoteGrant = "Le Manager";
         Map<String, Object> data = resource.getEndorsementData();
+        assertEquals("Le Manager", data.get("granted"));
         assertEquals(true, data.get("active"));
         assertEquals("CANCEL_TICKET", data.get("action"));
         assertEquals("MGR1", data.get("scannedBadge"));
@@ -137,6 +139,58 @@ class EndorsementResourceTest {
         assertEquals("", data.get("action"));
         assertEquals("", data.get("scannedBadge"));
         assertEquals("", data.get("error"));
+        assertEquals("", data.get("granted"));
+    }
+
+    /**
+     * BO-10-02-31: the poll tells the panel which mode to ask and whether the
+     * reader delivered a Dallas key — code and password on a service that
+     * answers no mode.
+     */
+    @Test
+    void getEndorsementDataNamesTheModeAndTheDallasKey() {
+        EndorsementResource resource = newResource();
+        assertEquals("CODE_PASSWORD", resource.getEndorsementData().get("mode"));
+        assertEquals(false, resource.getEndorsementData().get("dallas"));
+        when(resource.endorsementService.validationMode()).thenReturn(SupervisorValidationMode.DALLAS);
+        resource.state.endorsement.presentedDallasKey = "0000000000ABCDEF";
+        Map<String, Object> data = resource.getEndorsementData();
+        assertEquals("DALLAS", data.get("mode"));
+        assertEquals(true, data.get("dallas"));
+    }
+
+    /**
+     * BO-10-02-31: in the explicit code-and-password mode the panel keeps the
+     * historical credential check.
+     */
+    @Test
+    void validateEndorsementInCodeModeKeepsTheCredentialCheck() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
+        when(resource.endorsementService.validationMode()).thenReturn(SupervisorValidationMode.CODE_PASSWORD);
+        when(resource.endorsementService.authorize("m", "1234", "CANCEL_TICKET")).thenReturn(true);
+        resource.validateEndorsement("m", null, "1234");
+        verify(resource.ticketService).cancelTicket(resource.state);
+    }
+
+    /**
+     * BO-10-02-31: a barcode mode hands the read proofs, the typed code and
+     * the password to the panel check; granted, the gesture runs, refused, it
+     * does not.
+     */
+    @Test
+    void validateEndorsementInBarcodeModeChecksThePanel() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
+        when(resource.endorsementService.validationMode())
+                .thenReturn(SupervisorValidationMode.BARCODE_CODE_PASSWORD);
+        when(resource.endorsementService.authorizePanel(resource.state,
+                SupervisorValidationMode.BARCODE_CODE_PASSWORD, "mcurie", "1111", "CANCEL_TICKET"))
+                .thenReturn(false, true);
+        resource.validateEndorsement("11111111", "mcurie", "1111");
+        verify(resource.ticketService, org.mockito.Mockito.never()).cancelTicket(resource.state);
+        resource.validateEndorsement("11111111", "mcurie", "1111");
+        verify(resource.ticketService).cancelTicket(resource.state);
     }
 
     // --- validateEndorsement: no pending action ---
@@ -219,6 +273,13 @@ class EndorsementResourceTest {
     void validateEndorsementGrantedCancelLine() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "CANCEL_LINE_ABC-42";
+        resource.state.ticket.pendingCancelReasonCode = "ERROR";
+        resource.state.ticket.pendingCancelReasonLabel = "Erreur";
+        org.mockito.Mockito.doAnswer(invocation -> {
+            assertEquals("ERROR", resource.state.ticket.pendingCancelReasonCode);
+            assertEquals("Erreur", resource.state.ticket.pendingCancelReasonLabel);
+            return null;
+        }).when(resource.ticketService).cancelItemById(resource.state, "ABC-42");
         when(resource.endorsementService.authorize("m", "1234", "CANCEL_LINE_ABC-42")).thenReturn(true);
         Response response = resource.validateEndorsement("m", "1234");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
@@ -500,6 +561,23 @@ class EndorsementResourceTest {
     }
 
     /**
+     * BO-03-06-64: the granted forcing of an expired GS1 article arms its code
+     * and reads it again.
+     */
+    @Test
+    void validateEndorsementGrantedGs1ExpiryForce() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = com.intermarche.pos.ui.scanner.Gs1ScanHandler.FORCE_EXPIRY_ACTION;
+        resource.state.endorsement.pendingForm.put("code", "(01)03017620422003(17)200101");
+        when(resource.endorsementService.authorize("m", "1234",
+                com.intermarche.pos.ui.scanner.Gs1ScanHandler.FORCE_EXPIRY_ACTION)).thenReturn(true);
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("(01)03017620422003(17)200101", resource.state.ticket.gs1ForcedCode);
+        verify(resource.ticketService).processScan("(01)03017620422003(17)200101");
+    }
+
+    /**
      * {@code validateEndorsement()} toggles training mode when the granted action
      * is {@code TRAINING_TOGGLE}.
      */
@@ -605,7 +683,7 @@ class EndorsementResourceTest {
     // --- cancelEndorsement ---
 
     /**
-     * {@code cancelEndorsement()} clears the pending request, touches the state
+     * {@code cancelEndorsement()} abandons the pending request (LC-01-05-08), touches the state
      * and redirects to the main page instead of rendering it, so the home
      * resource builds the page's data map.
      */
@@ -615,7 +693,7 @@ class EndorsementResourceTest {
         Response response = resource.cancelEndorsement();
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
-        verify(resource.endorsementService).clearRequest(resource.state);
+        verify(resource.endorsementService).abandonRequest(resource.state);
         verify(resource.state).touch();
     }
 
@@ -736,6 +814,28 @@ class EndorsementResourceTest {
         assertSame(own, response);
         verify(resource.cashMovementResource).performEndorsed(resource.state.endorsement.pendingForm, "MGR9");
         verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /**
+     * {@code selfEndorse} routes a granted forced drawer opening (LC-12-01-01) to
+     * the drawer resource, forwarding the parked reason and the endorsing badge.
+     */
+    @Test
+    void selfEndorseDispatchesForcedDrawerOpening() {
+        EndorsementResource resource = newResource();
+        resource.drawerOpenResource = mock(com.intermarche.pos.ui.cash.DrawerOpenResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.DrawerOpenResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        resource.state.endorsement.pendingForm.put("code", "ERR");
+        Response own = Response.seeOther(java.net.URI.create("/")).build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.drawerOpenResource.performEndorsed(
+                resource.state.endorsement.pendingForm, "MGR9")).thenReturn(own);
+        assertSame(own, resource.selfEndorse());
+        verify(resource.drawerOpenResource).performEndorsed(resource.state.endorsement.pendingForm, "MGR9");
     }
 
     /**
@@ -924,5 +1024,86 @@ class EndorsementResourceTest {
         assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).performReturnModeToggle();
         verify(resource.endorsementService).clearRequest(resource.state);
+    }
+    /** BO-04-02-02/BO-10-02-02: a remote approval replays payment cancellation and retains the approving identity. */
+    @Test
+    void remoteApprovalCancelsPaymentWithoutRequestingLocalCredentials() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CANCEL_PAYMENT";
+        when(resource.endorsementService.remotelyGranted(resource.state)).thenReturn("REMOTE-MANAGER");
+        assertEquals("/", resource.validateEndorsement(null, null).getLocation().toString());
+        verify(resource.endorsementService, never()).authorize(any(), any(), any());
+        verify(resource.endorsementService).openSupervisorSessionIfPerTicket(resource.state, "REMOTE-MANAGER");
+        verify(resource.paymentService).cancelPayments(resource.state);
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /** LC-03-02-10: an endorsed percentage discount can cumulate on a reduced line when the store allows it. */
+    @Test
+    void endorsedPercentageDiscountHonoursAllowedCumulation() {
+        EndorsementResource resource = newResource();
+        TicketState.TicketItem item = addItem(resource, "L1");
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = PriceModType.DISCOUNT;
+        resource.state.endorsement.pendingTargetUid = "L1";
+        resource.state.endorsement.pendingValue = BigDecimal.TEN;
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
+        when(resource.ticketService.isAlreadyReduced(item)).thenReturn(true);
+        resource.validateEndorsement("m", "1234");
+        verify(resource.ticketService).applyDiscount(item, BigDecimal.TEN);
+        verify(resource.ticketService).recalculateTotal(resource.state);
+    }
+
+    /** LC-03-06-01: absent and blank parked identifiers resolve to no ticket instead of numeric parsing. */
+    @Test
+    void parkedIdentifierParsingHandlesNullAndBlank() throws Exception {
+        EndorsementResource resource = newResource();
+        var method = EndorsementResource.class.getDeclaredMethod("longOf", String.class);
+        method.setAccessible(true);
+        assertNull(method.invoke(resource, (Object) null));
+        assertNull(method.invoke(resource, " "));
+    }
+
+    /** LC-01-05-01: generic continuation executes only after the existing credential check and journals normally. */
+    @Test
+    void approvedHttpFunctionUsesExactContinuation() {
+        EndorsementResource resource = newResource();
+        resource.functionApprovals = mock(FunctionApprovalService.class);
+        resource.state.endorsement.request(FunctionApprovalService.ACTION);
+        assertEquals("AUTORISATION DE LA FONCTION DEMANDÉE",resource.getEndorsementData().get("action"));
+        when(resource.endorsementService.authorize("manager","1234",FunctionApprovalService.ACTION)).thenReturn(true);
+        when(resource.functionApprovals.approve()).thenReturn(Response.seeOther(java.net.URI.create("/manual?_posApproval=once")).build());
+        assertEquals("/manual?_posApproval=once",resource.validateEndorsement("manager","1234").getLocation().toString());
+        verify(resource.functionApprovals).approve();
+    }
+
+    /** LC-02-12-05: only an accepted supervisor approval dispatches the captured group-article cancellation. */
+    @Test
+    void groupArticleCancellationUsesTheApprovedStableUid() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.request("CANCEL_GROUP_ARTICLE", java.util.Map.of("uid", "A"), null);
+        assertEquals(resource.i18n.get("op.annulationArticleGroupe"), resource.getEndorsementData().get("action"));
+        when(resource.endorsementService.authorize("manager", "pin", "CANCEL_GROUP_ARTICLE")).thenReturn(false);
+        resource.validateEndorsement("manager", "pin");
+        verify(resource.homeService, never()).performGroupArticleCancellation(any());
+        when(resource.endorsementService.authorize("manager", "pin", "CANCEL_GROUP_ARTICLE")).thenReturn(true);
+        resource.validateEndorsement("manager", "pin");
+        verify(resource.homeService).performGroupArticleCancellation("A");
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+
+    /**
+     * BO-04-03-09: a granted register alert resumes the scan or the article it held.
+     */
+    @Test
+    void validateEndorsementResumesAHeldAlert() {
+        EndorsementResource resource = newResource();
+        resource.controlGateService = mock(com.intermarche.pos.ui.control.ControlGateService.class);
+        resource.state.endorsement.requestedAction = com.intermarche.pos.ui.control.ControlGateService.ACTION;
+        when(resource.endorsementService.authorize("m", "1234", com.intermarche.pos.ui.control.ControlGateService.ACTION))
+                .thenReturn(true);
+        resource.validateEndorsement("m", "1234");
+        verify(resource.controlGateService).resumeAfterEndorsement();
     }
 }

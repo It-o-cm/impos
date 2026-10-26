@@ -462,6 +462,26 @@ class InvoiceDocumentTest {
     }
 
     /**
+     * The e-invoicing mention the back office administered follows the legal
+     * mentions; a blank or absent one adds nothing (BO-05-01-02).
+     */
+    @Test
+    void carriesTheEinvoicingMentionWhenAdministered() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        InvoiceDocument laid = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"), ticket, true,
+                TestMessages.french());
+        assertEquals(InvoiceDocument.LEGAL_MENTIONS, laid.getLegalMentions());
+        laid.einvoicingMention = " ";
+        assertEquals(InvoiceDocument.LEGAL_MENTIONS, laid.getLegalMentions());
+        laid.einvoicingMention = null;
+        assertEquals(InvoiceDocument.LEGAL_MENTIONS, laid.getLegalMentions());
+        laid.einvoicingMention = " Facture électronique. ";
+        assertEquals(InvoiceDocument.LEGAL_MENTIONS + " Facture électronique.", laid.getLegalMentions());
+    }
+
+    /**
      * Each of the first six named tenders is named as the customer reads it. The
      * loyalty tender is settled with no amount, which the document reads as zero,
      * the null arm of the amount guard.
@@ -535,6 +555,20 @@ class InvoiceDocumentTest {
             assertFalse(document.paymentMethods.contains(english),
                     "le nom de classe " + english + " ne doit plus figurer sur la facture");
         }
+    }
+
+    /**
+     * LC-08-01-06: the social purchase card is named on the invoice in words.
+     */
+    @Test
+    void namesTheSocialCard() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        ticket.payments.add(new com.intermarche.pos.domain.payment.SocialCardPayment(new BigDecimal("4.00")));
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, TestMessages.french());
+        assertEquals("Carte achat sociale", document.tenders.get(0).label());
     }
 
     /**
@@ -720,7 +754,7 @@ class InvoiceDocumentTest {
 
     /**
      * A customer carrying administered terms puts the due date in the layout
-     * description and answers {@code hasDueDate}; one carrying none answers the
+     * description and answers {@code statesDueDate}; one carrying none answers the
      * other way and leaves the field empty — the two arms {@code BO-02-04-08}
      * turns on, which the three renderings all test.
      */
@@ -734,7 +768,7 @@ class InvoiceDocumentTest {
         customer.dueDate = java.time.LocalDate.of(2026, 10, 31);
         InvoiceDocument dated = InvoiceDocument.of(
                 invoice(ticket, customer, "C04-F000042"), ticket, true, TestMessages.french());
-        assertTrue(dated.hasDueDate());
+        assertTrue(dated.statesDueDate());
         assertEquals("31/10/2026", dated.dueDate);
         @SuppressWarnings("unchecked")
         Map<String, Object> head = (Map<String, Object>) dated.asDocumentData().get("document");
@@ -742,7 +776,7 @@ class InvoiceDocumentTest {
         customer.dueDate = null;
         InvoiceDocument undated = InvoiceDocument.of(
                 invoice(ticket, customer, "C04-F000043"), ticket, true, TestMessages.french());
-        assertFalse(undated.hasDueDate());
+        assertFalse(undated.statesDueDate());
         assertEquals("", undated.dueDate);
     }
 
@@ -781,12 +815,12 @@ class InvoiceDocumentTest {
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, customer, "N"), ticket,
                 true, "CONSUMIDOR FINAL", TestMessages.french());
         assertEquals("CONSUMIDOR FINAL", document.customerTaxId);
-        assertTrue(document.hasCustomerTaxId());
+        assertTrue(document.statesCustomerTaxId());
     }
 
     /**
      * A customer carrying no fiscal identifier leaves the line off the paper —
-     * the false arm of {@code hasCustomerTaxId} — and the document block still
+     * the false arm of {@code statesCustomerTaxId} — and the document block still
      * carries the key, empty.
      */
     @Test
@@ -797,7 +831,7 @@ class InvoiceDocumentTest {
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
                 ticket, true, TestMessages.french());
         assertEquals("", document.customerTaxId);
-        assertFalse(document.hasCustomerTaxId());
+        assertFalse(document.statesCustomerTaxId());
         java.util.Map<String, Object> data = document.asDocumentData();
         java.util.Map<?, ?> customerData = (java.util.Map<?, ?>) data.get("customer");
         assertEquals("", customerData.get("taxId"));
@@ -865,6 +899,54 @@ class InvoiceDocumentTest {
     }
 
     /**
+     * BO-10-02-19 / BO-10-02-18: each article line states its total excluding
+     * tax on its administered decimals, and the tax-excluded figures follow the
+     * shop's rounding rule — 10,03 € at 20 % is a base of 8,35 € rounded down,
+     * 8,36 € half up, which is also what a document with no rule rounds to.
+     */
+    @Test
+    void theLineTotalExcludingTaxAndTheRoundingRuleAreAdministered() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "C04-00000418";
+        ticket.creationDate = LocalDateTime.of(2026, 9, 9, 16, 12);
+        ticket.lines.add(line("B", "3000", "1", "10.03", "10.03", "0.20", null, "EPICERIE"));
+        InvoiceDocument down = InvoiceDocument.of(
+                invoice(ticket, fullCustomer(), "C04-F000124"), ticket, true, null, TestMessages.french(),
+                new InvoiceDocument.Decimals(2, 2, 2, 2, 2, 3, java.math.RoundingMode.DOWN));
+        assertEquals("8,358", down.lines.get(0).totalExcludingTax());
+        assertEquals("8,35", down.lines.get(0).unitExcludingTax());
+        assertEquals("8,35", down.vatRows.get(0).excludingTax());
+        InvoiceDocument unset = InvoiceDocument.of(
+                invoice(ticket, fullCustomer(), "C04-F000125"), ticket, true, null, TestMessages.french(),
+                new InvoiceDocument.Decimals(2, 2, 2, 2, 2, 2, null));
+        assertEquals("8,36", unset.lines.get(0).totalExcludingTax());
+        assertEquals("8,36", unset.vatRows.get(0).excludingTax());
+        assertEquals("", new InvoiceDocument.Line("L", "", "", "1", "20 %", "1", "1", "1").totalExcludingTax());
+    }
+
+    /**
+     * BO-10-02-19: a VAT table administered on three decimals COMPUTES its bases on
+     * three — 10,03 € at 20 % is a base of 8,358 €, the figure of the line total
+     * on the same page, and not 8,36 € padded into 8,360 — and its tax on what is
+     * left, 1,672 € written on the two decimals of the tax column.
+     */
+    @Test
+    void theVatBaseIsComputedAtItsAdministeredDecimals() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "C04-00000419";
+        ticket.creationDate = LocalDateTime.of(2026, 9, 9, 16, 12);
+        ticket.lines.add(line("B", "3000", "1", "10.03", "10.03", "0.20", null, "EPICERIE"));
+        InvoiceDocument document = InvoiceDocument.of(
+                invoice(ticket, fullCustomer(), "C04-F000126"), ticket, true, null, TestMessages.french(),
+                new InvoiceDocument.Decimals(2, 3, 2, 3, 2, 3, java.math.RoundingMode.HALF_UP));
+        assertEquals("8,358", document.lines.get(0).totalExcludingTax());
+        assertEquals("8,358", document.vatRows.get(0).excludingTax());
+        assertEquals("1,67", document.vatRows.get(0).vat());
+    }
+
+    /**
      * BO-10-02-19: the standard counts are two everywhere, which is what the
      * shorter factory hands over and what every document stated before the keys
      * existed.
@@ -877,5 +959,268 @@ class InvoiceDocumentTest {
         assertEquals(2, standard.vatAmount());
         assertEquals(2, standard.totalExcludingTax());
         assertEquals(2, standard.totalIncludingTax());
+        assertEquals(2, standard.lineTotalExcludingTax());
+        assertEquals(java.math.RoundingMode.HALF_UP, standard.rounding());
+    }
+
+    /**
+     * BO-10-08-28 / BO-10-08-29: a document that hands over no writing of
+     * quantities — the seven-count constructor, an explicit null, the standard
+     * counts — writes them the register's historical way.
+     */
+    @Test
+    void aDocumentWithoutAwritingOfQuantitiesUsesTheHistoricalOne() {
+        assertEquals(com.intermarche.pos.domain.catalog.UnitFormat.DEFAULT,
+                new InvoiceDocument.Decimals(2, 2, 2, 2, 2, 2, null).units());
+        assertEquals(com.intermarche.pos.domain.catalog.UnitFormat.DEFAULT,
+                new InvoiceDocument.Decimals(2, 2, 2, 2, 2, 2, null, null).units());
+        assertEquals(com.intermarche.pos.domain.catalog.UnitFormat.DEFAULT,
+                InvoiceDocument.Decimals.standard().units());
+    }
+
+    /**
+     * BO-10-08-28 / BO-10-08-29: the quantities follow the administered
+     * writing, as on the receipt — a weight on its decimals with its symbol, a
+     * unit-of-measure quantity on its decimals with its unit, a whole count
+     * bare, a non-whole count on the unit-of-measure decimals.
+     */
+    @Test
+    void theQuantitiesFollowTheAdministeredWriting() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "C04-00000419";
+        ticket.creationDate = LocalDateTime.of(2026, 9, 9, 16, 12);
+        ticket.lines.add(line("TOMATES", null, "1.4805", "2.99", "4.43", "0.055", "2001", null));
+        TicketLine cable = line("CABLE", null, "2.3654", "1.50", "3.55", "0.20", null, null);
+        cable.unitName = " m ";
+        ticket.lines.add(cable);
+        ticket.lines.add(line("PAIN", null, "3", "1.00", "3.00", "0.055", null, null));
+        ticket.lines.add(line("VRAC", null, "0.5", "2.00", "1.00", "0.055", null, null));
+        TicketLine blank = line("SAC", null, "2", "0.10", "0.20", "0.20", null, null);
+        blank.unitName = "  ";
+        ticket.lines.add(blank);
+        InvoiceDocument document = InvoiceDocument.of(
+                invoice(ticket, fullCustomer(), "C04-F000126"), ticket, false, null, TestMessages.french(),
+                new InvoiceDocument.Decimals(2, 2, 2, 2, 2, 2, null,
+                        new com.intermarche.pos.domain.catalog.UnitFormat(3, 2, "KG")));
+        assertEquals("1,48 KG", document.lines.get(0).quantity());
+        assertEquals("2,365 m", document.lines.get(1).quantity());
+        assertEquals("3", document.lines.get(2).quantity());
+        assertEquals("0,500", document.lines.get(3).quantity());
+        assertEquals("2", document.lines.get(4).quantity());
+    }
+    /** BO-02-02-02: nullable, blank and populated legal mentions stay attached only to their own VAT row. */
+    @Test
+    void vatRowsCarryOnlyNonBlankLegalMentions() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T1";
+        ticket.lines.add(line("ARTICLE", "EAN", "1", "12", "12", "0.20", null, "GROUP"));
+        var regime = new com.intermarche.pos.domain.catalog.VatRate();
+        try (var rates = mockStatic(com.intermarche.pos.domain.catalog.VatRate.class)) {
+            rates.when(() -> com.intermarche.pos.domain.catalog.VatRate.findByRate(any())).thenReturn(regime);
+            for (String mention : new String[]{null, " ", " LEGAL MENTION "}) {
+                regime.legalMention = mention;
+                var document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "FA1"), ticket, true, TestMessages.french());
+                assertEquals(1, document.vatRows.size());
+                assertEquals(mention == null || mention.isBlank() ? null : "LEGAL MENTION", document.vatRows.get(0).legalMention());
+            }
+        }
+    }
+
+    /** BO-02-02-02: a legacy VAT row retains all four printed amounts without inventing a fiscal regime. */
+    @org.junit.jupiter.api.Test
+    void legacyVatRowPreservesItsAmountsWithoutARegime() {
+        var row = new InvoiceDocument.VatRow("20%", "10,00", "2,00", "12,00");
+        org.junit.jupiter.api.Assertions.assertEquals("20%", row.rate());
+        org.junit.jupiter.api.Assertions.assertEquals("10,00", row.excludingTax());
+        org.junit.jupiter.api.Assertions.assertEquals("2,00", row.vat());
+        org.junit.jupiter.api.Assertions.assertEquals("12,00", row.includingTax());
+        org.junit.jupiter.api.Assertions.assertNull(row.legalMention());
+    }
+
+
+    /**
+     * Builds an article carrying the given attributes.
+     *
+     * @param attributes the alternating codes and values
+     * @return the article
+     */
+    private com.intermarche.pos.domain.catalog.Product article(String... attributes) {
+        com.intermarche.pos.domain.catalog.Product product = new com.intermarche.pos.domain.catalog.Product();
+        for (int index = 0; index < attributes.length; index += 2) {
+            product.attributes.put(attributes[index], attributes[index + 1]);
+        }
+        return product;
+    }
+
+    /**
+     * BO-03-03-21: the administered attributes print under each live line —
+     * after the family, labelled from the catalog or by their code, the ones
+     * the article does not carry left out — and a line without article, or an
+     * article without attributes, keeps its family alone.
+     */
+    @Test
+    void theAdministeredAttributesPrintUnderTheLines() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T1";
+        TicketLine cancelled = line("ANNULE", "EAN0", "1", "1", "1", "0.20", null, "X");
+        cancelled.cancelled = true;
+        ticket.lines.add(cancelled);
+        TicketLine tomato = line("TOMATE", "EAN1", "1", "2", "2", "0.055", null, "LEGUMES");
+        tomato.product = article("ORIGINE", " FRANCE ", "LEGAL_WARRANTY", "true", "VARIETE", " ");
+        ticket.lines.add(tomato);
+        TicketLine plain = line("SEL", "EAN2", "1", "1", "1", "0.055", null, null);
+        ticket.lines.add(plain);
+        TicketLine bare = line("POIVRE", "EAN3", "1", "1", "1", "0.055", null, null);
+        bare.product = article();
+        bare.product.attributes = null;
+        ticket.lines.add(bare);
+        try (var rates = mockStatic(com.intermarche.pos.domain.catalog.VatRate.class)) {
+            var document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "FA1"), ticket, false, null,
+                    TestMessages.french(), InvoiceDocument.Decimals.standard(), null,
+                    new InvoiceDocument.Options(false, List.of("ORIGINE", "LEGAL_WARRANTY", "VARIETE", "ABSENT"),
+                            "", "", 0));
+            assertEquals(3, document.lines.size());
+            String expected = TestMessages.french().get("doc.famille") + "LEGUMES, ORIGINE : FRANCE, "
+                    + com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.def("LEGAL_WARRANTY").label()
+                    + " : true";
+            assertEquals(expected, document.lines.get(0).attributes());
+            assertEquals("", document.lines.get(1).attributes());
+            assertEquals("", document.lines.get(2).attributes());
+            assertEquals("", document.vatRows.get(0).code());
+        }
+    }
+
+    /**
+     * BO-03-03-04: where the shop states VAT codes, each row of the table
+     * carries its regime's letter — and a rate no regime carries, none.
+     */
+    @Test
+    void theVatTableStatesTheRegimeCodes() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T1";
+        ticket.lines.add(line("TOMATE", "EAN1", "1", "2", "2", "0.055", null, null));
+        ticket.lines.add(line("VIN", "EAN2", "1", "6", "6", "0.20", null, null));
+        var reduced = new com.intermarche.pos.domain.catalog.VatRate();
+        reduced.number = 1;
+        try (var rates = mockStatic(com.intermarche.pos.domain.catalog.VatRate.class)) {
+            rates.when(() -> com.intermarche.pos.domain.catalog.VatRate.findByRate(new BigDecimal("0.055")))
+                    .thenReturn(reduced);
+            var document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "FA1"), ticket, false, null,
+                    TestMessages.french(), InvoiceDocument.Decimals.standard(), null,
+                    new InvoiceDocument.Options(true, List.of(), "", "", 0));
+            assertEquals("B", document.vatRows.get(0).code());
+            assertEquals("", document.vatRows.get(1).code());
+            @SuppressWarnings("unchecked")
+            var table = (List<java.util.Map<String, Object>>) document.asDocumentData().get("vatRows");
+            assertEquals("B", table.get(0).get("code"));
+        }
+    }
+
+    /**
+     * BO-03-03-02 / BO-03-05-08 / BO-03-04-09: the order number, the address of
+     * the foot and its format, the page size and the administered name travel
+     * on the document and into its data; an address printed AUCUN, or none,
+     * is no address.
+     */
+    @Test
+    void theOrderNumberAndTheFootAddressTravelOnTheDocument() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T1";
+        ticket.lines.add(line("TOMATE", "EAN1", "1", "2", "2", "0.055", null, null));
+        Invoice invoice = invoice(ticket, fullCustomer(), "FA1");
+        invoice.orderNumber = " CMD-42 ";
+        invoice.documentTitle = "FACTURE PRO";
+        try (var rates = mockStatic(com.intermarche.pos.domain.catalog.VatRate.class)) {
+            var document = InvoiceDocument.of(invoice, ticket, false, null, TestMessages.french(),
+                    InvoiceDocument.Decimals.standard(), null,
+                    new InvoiceDocument.Options(false, List.of(), " https://im.fr ", "texte", -2));
+            assertEquals("FACTURE PRO", document.title);
+            assertTrue(document.statesOrderNumber());
+            assertEquals("CMD-42", document.orderNumber);
+            assertTrue(document.statesFooterUrl());
+            assertEquals("TEXTE", document.footerUrlFormat);
+            assertEquals(0, document.linesPerPage);
+            @SuppressWarnings("unchecked")
+            var data = (java.util.Map<String, Object>) document.asDocumentData().get("document");
+            assertEquals("CMD-42", data.get("orderNumber"));
+            assertEquals("https://im.fr", data.get("footerUrl"));
+            document.footerUrlFormat = "AUCUN";
+            assertFalse(document.statesFooterUrl());
+            @SuppressWarnings("unchecked")
+            var hidden = (java.util.Map<String, Object>) document.asDocumentData().get("document");
+            assertEquals("", hidden.get("footerUrl"));
+            var plain = InvoiceDocument.of(invoice(ticket, fullCustomer(), "FA2"), ticket, false, TestMessages.french());
+            assertFalse(plain.statesOrderNumber());
+            assertFalse(plain.statesFooterUrl());
+            assertEquals("", plain.templateCode);
+            assertEquals("", new InvoiceDocument.VatRow("5,50 %", "1", "2", "3", null).code());
+        }
+    }
+
+    /**
+     * No boolean accessor of the document is named after one of its public fields
+     * ({@code hasX} / {@code isX} beside a field {@code x}): the register's Qute
+     * page resolves {@code document.x} to such a method before the field, and
+     * printed "true" in place of the due date and of the order number.
+     */
+    @Test
+    void noBooleanAccessorShadowsAPublicFieldInTheTemplates() {
+        java.util.Set<String> fields = new java.util.HashSet<>();
+        for (java.lang.reflect.Field field : InvoiceDocument.class.getFields()) {
+            fields.add(field.getName());
+        }
+        List<String> shadowing = new java.util.ArrayList<>();
+        for (java.lang.reflect.Method method : InvoiceDocument.class.getMethods()) {
+            String name = method.getName();
+            int prefix = name.startsWith("has") ? 3 : name.startsWith("is") ? 2 : 0;
+            if (prefix > 0 && name.length() > prefix && method.getParameterCount() == 0
+                    && method.getReturnType() == boolean.class) {
+                String property = Character.toLowerCase(name.charAt(prefix)) + name.substring(prefix + 1);
+                if (fields.contains(property)) {
+                    shadowing.add(name);
+                }
+            }
+        }
+        assertEquals(List.of(), shadowing);
+    }
+    /**
+     * BO-02-02-01: a line that kept its regime number is ventilated under that
+     * regime, which names its code and its mention — two exemptions of one
+     * percentage stay apart.
+     */
+    @Test
+    void theVatTableNamesTheRegimeTheLinesKept() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T1";
+        var book = line("LIVRO", "EAN1", "1", "8", "8", "0", null, null);
+        book.vatNumber = 10;
+        var export = line("EXPORT", "EAN2", "1", "2", "2", "0", null, null);
+        export.vatNumber = 11;
+        ticket.lines.add(book);
+        ticket.lines.add(export);
+        var nine = new com.intermarche.pos.domain.catalog.VatRate(10, BigDecimal.ZERO, "Isento");
+        nine.legalMention = "Isento artigo 9.º";
+        var fourteen = new com.intermarche.pos.domain.catalog.VatRate(11, BigDecimal.ZERO, "Isento");
+        fourteen.legalMention = "Isento artigo 14.º";
+        try (var rates = mockStatic(com.intermarche.pos.domain.catalog.VatRate.class)) {
+            rates.when(() -> com.intermarche.pos.domain.catalog.VatRate.resolve(BigDecimal.ZERO, 10))
+                    .thenReturn(nine);
+            rates.when(() -> com.intermarche.pos.domain.catalog.VatRate.resolve(BigDecimal.ZERO, 11))
+                    .thenReturn(fourteen);
+            var document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "FA1"), ticket, false, null,
+                    TestMessages.french(), InvoiceDocument.Decimals.standard(), null,
+                    new InvoiceDocument.Options(true, List.of(), "", "", 0));
+            assertEquals(2, document.vatRows.size());
+            assertEquals("K", document.vatRows.get(0).code());
+            assertEquals("Isento artigo 9.º", document.vatRows.get(0).legalMention());
+            assertEquals("L", document.vatRows.get(1).code());
+            assertEquals("Isento artigo 14.º", document.vatRows.get(1).legalMention());
+        }
     }
 }

@@ -260,6 +260,19 @@ class MockHardwareResourceTest {
     }
 
     /**
+     * BO-03-04-14: the simulated slip station keeps its own sheets, apart from
+     * the roll's buffer.
+     */
+    @Test
+    void theSlipStationKeepsItsOwnSheets() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(200, resource.printSlip("SHEET 1").getStatus());
+        assertEquals(200, resource.printSlip("SHEET 2").getStatus());
+        assertEquals("SHEET 1\nSHEET 2\n", resource.getSlipContent().getEntity());
+        assertEquals("", resource.getPrintedContent().getEntity());
+    }
+
+    /**
      * With paper present, printTicket appends the content plus a newline and
      * answers 200; the buffer read shows the accumulated ticket.
      */
@@ -406,7 +419,7 @@ class MockHardwareResourceTest {
     void tpeAcceptAnswersOkWhenTerminalAccepts() {
         MockHardwareResource resource = new MockHardwareResource();
         VirtualTerminalClient terminal = Mockito.mock(VirtualTerminalClient.class);
-        Mockito.when(terminal.accept()).thenReturn(true);
+        Mockito.when(terminal.accept("")).thenReturn(true);
         try (MockedStatic<Arc> arc = Mockito.mockStatic(Arc.class)) {
             ArcContainer container = Mockito.mock(ArcContainer.class);
             @SuppressWarnings("unchecked")
@@ -414,7 +427,7 @@ class MockHardwareResourceTest {
             arc.when(Arc::container).thenReturn(container);
             Mockito.when(container.instance(VirtualTerminalClient.class)).thenReturn(handle);
             Mockito.when(handle.get()).thenReturn(terminal);
-            Response accept = resource.tpeAccept();
+            Response accept = resource.tpeAccept("");
             assertEquals(200, accept.getStatus());
         }
     }
@@ -427,7 +440,7 @@ class MockHardwareResourceTest {
     void tpeAcceptAnswersConflictWhenNothingPending() {
         MockHardwareResource resource = new MockHardwareResource();
         VirtualTerminalClient terminal = Mockito.mock(VirtualTerminalClient.class);
-        Mockito.when(terminal.accept()).thenReturn(false);
+        Mockito.when(terminal.accept("")).thenReturn(false);
         try (MockedStatic<Arc> arc = Mockito.mockStatic(Arc.class)) {
             ArcContainer container = Mockito.mock(ArcContainer.class);
             @SuppressWarnings("unchecked")
@@ -435,7 +448,7 @@ class MockHardwareResourceTest {
             arc.when(Arc::container).thenReturn(container);
             Mockito.when(container.instance(VirtualTerminalClient.class)).thenReturn(handle);
             Mockito.when(handle.get()).thenReturn(terminal);
-            Response accept = resource.tpeAccept();
+            Response accept = resource.tpeAccept("");
             assertEquals(409, accept.getStatus());
             assertEquals("Aucune demande en attente", accept.getEntity());
         }
@@ -598,5 +611,336 @@ class MockHardwareResourceTest {
     void catalogEscapesSpecialCharactersInLabel() {
         String body = runCatalog(1, 1, List.of(product("999", "a\\b\"c\nd", "12", false)));
         assertEquals("[{\"ean\":\"999\",\"label\":\"a\\\\b\\\"c d\",\"plu\":\"12\",\"forbidden\":false}]", body);
+    }
+    /** LC-13-02-01/-07: demo reset/test/status/stop actions preserve the bridge contract. */
+    @Test
+    void maintenanceSimulation() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertTrue(resource.maintenance("scanner", "reset", "").contains("code="));
+        assertTrue(resource.maintenance("handheld", "test", "").contains("code="));
+        assertTrue(resource.maintenance("scanner", "status", "").contains("code="));
+        assertTrue(resource.maintenance("scanner", "stop", "").contains("code="));
+        assertTrue(resource.maintenance("printer", "reset", "").contains("code="));
+        resource.maintenance("printer", "test", "MAINTENANCE TEST");
+        assertTrue(resource.getPrintedContent().getEntity().toString().contains("MAINTENANCE TEST"));
+    }
+
+    /** LC-13-02-01: the demo also refuses unknown roles and actions. */
+    @Test
+    void maintenanceRejectsUnknownRequests() {
+        MockHardwareResource resource = new MockHardwareResource();
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.maintenance("unknown", "test", ""));
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.maintenance("printer", "unknown", ""));
+    }
+
+    /** LC-13-02-03: a simulated out-of-paper state cannot report a successful test. */
+    @Test
+    void maintenancePrinterTestWithoutPaper() {
+        MockHardwareResource resource = new MockHardwareResource();
+        resource.togglePaper();
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.ServiceUnavailableException.class,
+                () -> resource.maintenance("printer", "test", "MAINTENANCE TEST"));
+    }
+
+    /**
+     * Builds a complete demo control form with already-validated supervisor evidence.
+     * @return a simulated application request (LC-13-03-01/-06)
+     */
+    private jakarta.ws.rs.core.MultivaluedMap<String, String> controlForm() {
+        jakarta.ws.rs.core.MultivaluedMap<String, String> form = new jakarta.ws.rs.core.MultivaluedHashMap<>();
+        form.putSingle("closed", "true");
+        form.putSingle("supervisor", "true");
+        form.putSingle("action", "APPLICATION");
+        form.putSingle("reason", "reason");
+        form.putSingle("title", "<application>");
+        form.putSingle("confirm", "confirm");
+        form.putSingle("cancel", "cancel");
+        form.putSingle("SIMULATED", "simulation");
+        form.putSingle("CANCELLED", "cancelled");
+        return form;
+    }
+
+    /** LC-13-03-01/-06: the demo rejects session-open and unapproved control forms. */
+    @Test
+    void workstationControlMandatoryGuards() {
+        MockHardwareResource resource = new MockHardwareResource();
+        jakarta.ws.rs.core.MultivaluedMap<String, String> form = controlForm();
+        form.putSingle("closed", "false");
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.WebApplicationException.class,
+                () -> resource.armWorkstation(form));
+        form.putSingle("closed", "true"); form.remove("supervisor");
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.ForbiddenException.class,
+                () -> resource.armWorkstation(form));
+    }
+
+    /** LC-13-03-04: null, unknown and blank control fields are refused in the simulator too. */
+    @Test
+    void workstationControlValidatesFields() {
+        MockHardwareResource resource = new MockHardwareResource();
+        jakarta.ws.rs.core.MultivaluedMap<String, String> form = controlForm();
+        form.remove("action");
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.armWorkstation(form));
+        form.putSingle("action", "OTHER");
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.armWorkstation(form));
+        form.putSingle("action", "REBOOT"); form.remove("reason");
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.armWorkstation(form));
+        form.putSingle("reason", " ");
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.armWorkstation(form));
+    }
+
+    /** LC-13-03-01/-06: a valid demo permit displays confirmation and simulates exactly once. */
+    @Test
+    void workstationControlSimulationIsOneShot() {
+        MockHardwareResource resource = new MockHardwareResource();
+        String token = resource.armWorkstation(controlForm());
+        assertTrue(resource.controlPage(token).contains("&lt;application&gt;"));
+        assertTrue(resource.executeWorkstation(token, true).contains("simulation"));
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.ForbiddenException.class,
+                () -> resource.executeWorkstation(token, true));
+    }
+
+    /** LC-13-03-01/-06: wrong tokens, cancellation and revocation cannot execute anything. */
+    @Test
+    void workstationControlCancellationAndRevocation() {
+        MockHardwareResource resource = new MockHardwareResource();
+        String token = resource.armWorkstation(controlForm());
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.ForbiddenException.class,
+                () -> resource.controlPage("wrong"));
+        assertTrue(resource.executeWorkstation(token, false).contains("cancelled"));
+        String second = resource.armWorkstation(controlForm());
+        resource.revokeWorkstation();
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.ForbiddenException.class,
+                () -> resource.controlPage(second));
+    }
+
+    /** LC-13-03-01/-06: an expired demo permit cannot be confirmed. */
+    @Test
+    void workstationControlExpiry() throws Exception {
+        MockHardwareResource resource = new MockHardwareResource();
+        String token = resource.armWorkstation(controlForm());
+        java.lang.reflect.Field expiry = MockHardwareResource.class.getDeclaredField("controlExpiry");
+        expiry.setAccessible(true); expiry.setLong(resource, 0);
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.ForbiddenException.class,
+                () -> resource.controlPage(token));
+    }
+
+
+    /** LC-13-02/LC-14-01: simulated terminal maintenance accepts its commands and an empty scale stays empty across reads. */
+    @Test
+    void terminalMaintenanceAndAnEmptyScaleAreSimulated() {
+        var resource = new MockHardwareResource();
+        assertTrue(resource.maintenance("terminal", "status", "").contains("state=DONE"));
+        org.junit.jupiter.api.Assertions.assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> resource.maintenance("terminal", "unknown", ""));
+        resource.setManualWeight("0");
+        assertEquals("0,000", resource.getWeight().getEntity());
+        assertEquals("0,000", resource.getWeight().getEntity());
+    }
+
+    /** LC-07-05-06: the cheque simulator acknowledges reading, supplies CMC7 and prints its front on the ordinary printer buffer. */
+    @Test
+    void chequeSimulationUsesTheVisiblePrinterAndCompletesReading() {
+        var resource = new MockHardwareResource();
+        resource.clearPrinter();
+        assertEquals(200, resource.printChequeFront("CHEQUE FRONT").getStatus());
+        assertTrue(resource.getPrintedContent().getEntity().toString().contains("CHEQUE FRONT"));
+        assertEquals(200, resource.startCheque("ENDORSEMENT").getStatus());
+        assertEquals("state=DONE\nraw=CMC7 0000000 0000000000 000000000000", resource.getChequeStatus().getEntity());
+    }
+
+    /**
+     * LC-07-15-01/02: the simulated deposit runs from its start, counts each
+     * insertion and closes by itself once the amount due is reached, giving
+     * back the difference; an insertion outside a deposit is refused.
+     */
+    @Test
+    void cashChangerDepositClosesItselfOnceTheAmountDueIsReached() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(409, resource.insertIntoCashChanger("100").getStatus());
+        assertEquals(400, resource.startCashChangerDeposit("abc").getStatus());
+        assertEquals(200, resource.startCashChangerDeposit(" 2372 ").getStatus());
+        assertEquals(400, resource.insertIntoCashChanger("x").getStatus());
+        assertEquals(200, resource.insertIntoCashChanger("2000").getStatus());
+        assertEquals("state=RUNNING\ndue=2372\ninserted=2000\nchange=0\ncancelled=false\nfailure=",
+                resource.getCashChangerDeposit().getEntity());
+        assertEquals(200, resource.insertIntoCashChanger("500").getStatus());
+        assertEquals("state=DONE\ndue=2372\ninserted=2500\nchange=128\ncancelled=false\nfailure=",
+                resource.getCashChangerDeposit().getEntity());
+        assertEquals(409, resource.insertIntoCashChanger("100").getStatus());
+    }
+
+    /**
+     * Fixing closes the running deposit on what was inserted, without change;
+     * outside a deposit it changes nothing.
+     */
+    @Test
+    void cashChangerFixClosesOnWhatWasInserted() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(200, resource.fixCashChangerDeposit().getStatus());
+        assertEquals("state=IDLE\ndue=0\ninserted=0\nchange=0\ncancelled=false\nfailure=",
+                resource.getCashChangerDeposit().getEntity());
+        resource.startCashChangerDeposit("1000");
+        resource.insertIntoCashChanger("500");
+        assertEquals(200, resource.fixCashChangerDeposit().getStatus());
+        assertEquals("state=DONE\ndue=1000\ninserted=500\nchange=0\ncancelled=false\nfailure=",
+                resource.getCashChangerDeposit().getEntity());
+    }
+
+    /**
+     * Cancelling gives back everything inserted; outside a deposit it changes
+     * nothing.
+     */
+    @Test
+    void cashChangerCancelGivesEverythingBack() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(200, resource.cancelCashChangerDeposit().getStatus());
+        resource.startCashChangerDeposit("1000");
+        resource.insertIntoCashChanger("500");
+        assertEquals(200, resource.cancelCashChangerDeposit().getStatus());
+        assertEquals("state=DONE\ndue=1000\ninserted=500\nchange=500\ncancelled=true\nfailure=",
+                resource.getCashChangerDeposit().getEntity());
+    }
+
+    /**
+     * LC-13-01-01: the simulated levels read back as set; nothing set is OK,
+     * and a null body clears them.
+     */
+    @Test
+    void cashChangerLevelsReadBackAsSet() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals("status=OK\nfull=OK\nlow=\nhigh=", resource.getCashChangerLevels().getEntity());
+        assertEquals(200, resource.setCashChangerLevels("low=100\nhigh=50").getStatus());
+        assertEquals("low=100\nhigh=50", resource.getCashChangerLevels().getEntity());
+        resource.setCashChangerLevels(null);
+        assertEquals("", resource.getCashChangerLevels().getEntity());
+    }
+
+    /**
+     * BO-11-03-03: the simulated machine dispenses a withdrawal and takes a
+     * loan in, highest denomination first, reports what it actually moved, and
+     * its cash level follows; an unreadable amount is refused.
+     */
+    @Test
+    void cashChangerDispensesAndTakesInWhileItsLevelFollows() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals("total=88200\n10=40\n20=40\n50=40\n100=50\n200=50\n500=20\n1000=20\n2000=10\n5000=4\n",
+                resource.getCashChangerInventory().getEntity());
+        assertEquals(400, resource.dispenseFromCashChanger("x").getStatus());
+        assertEquals(400, resource.replenishCashChanger(null).getStatus());
+        assertEquals("dispensed=12340", resource.dispenseFromCashChanger(" 12345 ").getEntity());
+        assertEquals("accepted=1230", resource.replenishCashChanger("1234").getEntity());
+        assertEquals("total=77090\n10=41\n20=39\n50=40\n100=49\n200=50\n500=20\n1000=21\n2000=9\n5000=2\n",
+                resource.getCashChangerInventory().getEntity());
+    }
+
+    /** The simulator keeps the driver configuration last handed over, a null block reading empty. */
+    @Test
+    void theSimulatorKeepsTheDriverConfiguration() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals("", resource.configuration().getEntity());
+        assertEquals(200, resource.configure("drawer.enabled=false\n").getStatus());
+        assertEquals("drawer.enabled=false\n", resource.configuration().getEntity());
+        resource.configure(null);
+        assertEquals("", resource.configuration().getEntity());
+    }
+
+    /** The simulated second printer accumulates the pages, each under its queue. */
+    @Test
+    void theSimulatedSecondPrinterAccumulatesThePages() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(200, resource.printOnSecondPrinter("usb0", "PAGE 1").getStatus());
+        resource.printOnSecondPrinter("usb1", "PAGE 2");
+        assertEquals("[usb0]\nPAGE 1\n[usb1]\nPAGE 2\n", resource.secondPrinterContent().getEntity());
+    }
+
+    /**
+     * Follows the simulated bridge payment as {@code HardwareBridgeTerminalClient}
+     * does — under way at the first reading, over at the next — and decodes its
+     * WCL answer into the outcome the register reads.
+     *
+     * @param resource the simulator
+     * @return the outcome read from the final status block
+     */
+    private com.intermarche.pos.ui.hardware.terminal.TerminalOutcome bridgeOutcome(MockHardwareResource resource) {
+        assertEquals("state=RUNNING\nline1=INSERER CARTE\nline2=\n", resource.paymentStatus());
+        String status = resource.paymentStatus();
+        assertTrue(status.startsWith("state=DONE\n"));
+        assertTrue(status.contains("approved=true"));
+        String encoded = status.substring(status.indexOf("answer64=") + "answer64=".length());
+        com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome =
+                new com.intermarche.pos.ui.hardware.terminal.TerminalOutcome();
+        outcome.readVerifone(new String(java.util.Base64.getDecoder().decode(encoded.trim()),
+                java.nio.charset.StandardCharsets.UTF_8));
+        return outcome;
+    }
+
+    /**
+     * BO-04-01-48: the simulated bridge terminal answers like the real one —
+     * the primary server for an ordinary debit or credit, the secondary server
+     * 4 it was asked to force for the degraded debit and credit — with the
+     * settled amount and an authorization number; nothing ran yet reads IDLE.
+     */
+    @Test
+    void theBridgePaymentAnswersTheServerItWasAskedFor() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals("state=IDLE\n", resource.paymentStatus());
+        assertEquals(200, resource.startPayment(" 1250 ").getStatus());
+        var debit = bridgeOutcome(resource);
+        assertEquals("1", debit.server);
+        assertEquals(new BigDecimal("12.50"), debit.amount);
+        assertTrue(debit.authorizationNumber.matches("\\d{6}"));
+        assertEquals(200, resource.startCredit("300").getStatus());
+        assertEquals("1", bridgeOutcome(resource).server);
+        assertEquals(200, resource.startDegradedPayment("400").getStatus());
+        assertEquals("4", bridgeOutcome(resource).server);
+        assertEquals(200, resource.startDegradedCredit("500").getStatus());
+        var credit = bridgeOutcome(resource);
+        assertEquals("4", credit.server);
+        assertEquals(new BigDecimal("5.00"), credit.amount);
+    }
+
+    /**
+     * BO-04-01-48: the combined debit answers on the server the degraded mode
+     * forced after the two amounts, on the primary server without forcing; an
+     * unreadable or absent amount is refused with 400 and changes nothing.
+     */
+    @Test
+    void theCombinedBridgePaymentAnswersItsServerAndBadAmountsAreRefused() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(200, resource.startCombinedPayment("2000;800;4").getStatus());
+        var forced = bridgeOutcome(resource);
+        assertEquals("4", forced.server);
+        assertEquals(new BigDecimal("20.00"), forced.amount);
+        assertEquals(200, resource.startCombinedPayment("2000;800").getStatus());
+        assertEquals("1", bridgeOutcome(resource).server);
+        assertEquals(400, resource.startCombinedPayment(null).getStatus());
+        assertEquals(400, resource.startPayment(null).getStatus());
+        Response refused = resource.startDegradedPayment("12,50");
+        assertEquals(400, refused.getStatus());
+        assertEquals("Montant illisible", refused.getEntity());
+        assertTrue(resource.paymentStatus().contains("approved=true"));
+    }
+
+    /**
+     * Lot 21: the simulated bridge terminal answers under way once by default,
+     * the realistic cardholder; switched to zero readings it decides at the
+     * very first reading, the instant decision of a real terminal, which
+     * replays the race between the payment follower and the payment screen.
+     */
+    @Test
+    void theBridgeTerminalCanDecideAtTheFirstReading() {
+        MockHardwareResource resource = new MockHardwareResource();
+        assertEquals(1, resource.paymentRunningReadings);
+        resource.paymentRunningReadings = 0;
+        assertEquals(200, resource.startPayment("1250").getStatus());
+        String status = resource.paymentStatus();
+        assertTrue(status.startsWith("state=DONE\n"));
+        assertTrue(status.contains("approved=true"));
     }
 }

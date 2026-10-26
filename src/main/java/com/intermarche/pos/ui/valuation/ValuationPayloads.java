@@ -54,6 +54,14 @@ public final class ValuationPayloads {
         public String createdAt;
         /** Always IN_STORE for a register sale. */
         public String deliveryMode = "IN_STORE";
+        /**
+         * The channel the basket comes from, as the promotion engine reads it
+         * for its card advantages and immediate discounts — POINT_OF_SALE, WEB
+         * or OTHER (BO-10-01-13, -22, -28, -31, -34) — or NULL when the store
+         * administers none for the external basket on the ticket: the field is
+         * then absent and the request is the one the engine always received.
+         */
+        public String promotionChannel;
         /** The eligible lines of the cart. */
         public List<ItemDto> items = new ArrayList<>();
         /**
@@ -78,6 +86,24 @@ public final class ValuationPayloads {
          * before this block existed, to the byte.
          */
         public List<String> scannedPromotions;
+        /**
+         * The barcodes scanned on this ticket for the promotion engine
+         * (BO-03-06-42), verbatim, or NULL when none was: the engine applies
+         * the promotion it associates with each. Null and not an empty list,
+         * so a ticket without such a scan sends the request the engine
+         * received before this block existed, to the byte.
+         */
+        public List<String> scannedBarcodes;
+        /**
+         * The date of the ORDER this ticket takes over, ISO-8601, or NULL
+         * (BO-10-03-17): sent only where the store administers it, so the
+         * promotion engine — and the loyalty programme, which receives this
+         * basket verbatim — triggers the advantages acquired on the day of the
+         * order, expired campaigns included. Null on any other ticket, so the
+         * field is absent and the request is the one the engine received
+         * before it existed, to the byte.
+         */
+        public String orderDate;
     }
 
     /**
@@ -154,6 +180,14 @@ public final class ValuationPayloads {
          * referential files it under — under the same rule (BO-10-03-19).
          */
         public String subFamilyCode;
+
+        /**
+         * TRUE when the article bans reductions (BO-02-03-09): the engine and the
+         * loyalty programme it feeds must leave the line out of any manual or
+         * loyalty advantage — local and central promotions are not concerned.
+         * Null, hence absent from the request, on every other line.
+         */
+        public Boolean discountForbidden;
     }
 
     // --------------------------------------------------

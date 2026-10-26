@@ -43,23 +43,93 @@ public class PosHardwareResource {
     @Inject
     PosState state;
 
+    /** EXP-67: the Resto Flash confirmation a token read on the payment screen goes to. */
+    @Inject
+    com.intermarche.pos.ui.payment.PaymentService paymentService;
+
     /**
-     * Handles a scanned code pushed by the scanner (or the simulator).
+     * Handles a scanned code pushed by the scanner (or the simulator), or a
+     * code the cashier KEYED on the sale screen's pad, which the pad marks
+     * with the {@code X-Entry: KEYED} header (BO-06-04-05): both walk the same
+     * chain, and the keyed one rings its articles as keyed.
      *
      * @param code the scanned code
+     * @param entry the entry marker, {@code KEYED} for a typed code, else null
      * @return 200, or 400 on an empty code
      */
     @POST
     @Path("/api/pos/scan")
     @Consumes("text/plain")
-    public Response handleScan(String code) {
+    public Response handleScan(String code, @jakarta.ws.rs.HeaderParam("X-Entry") String entry) {
         LOGGER.info("Entering method handleScan with code: " + code);
         if (code == null || code.isEmpty()) {
             LOGGER.info("Exiting method handleScan");
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        ticketService.processScan(code);
+        // LC-13-02-05/-07: diagnostic scans cannot register sale articles.
+        if (state.maintenanceScreenOpen) {
+            state.maintenanceScanCode = code;
+            state.touch();
+            return Response.ok().build();
+        }
+        if (state.scannerDisabled) {
+            return Response.noContent().build();
+        }
+        // EXP-67: the Resto Flash zone of the payment screen is open — what the
+        // scanner reads is the customer's token, and it is the Resto Flash
+        // confirmation that answers it, not the sale's chain ("CODE INCONNU").
+        if (state.payment.restoFlashScanArmed && state.payment.paymentInProgress) {
+            state.payment.restoFlashScanArmed = false;
+            paymentService.processRestoFlash(state,
+                    com.intermarche.pos.ui.scanner.Symbology.read(code).payload().trim(), java.math.BigDecimal.ZERO);
+            state.touch();
+            LOGGER.info("Exiting method handleScan");
+            return Response.ok().build();
+        }
+        if ("KEYED".equalsIgnoreCase(entry)) {
+            ticketService.processKeyed(code);
+        } else {
+            ticketService.processScan(code);
+        }
         LOGGER.info("Exiting method handleScan");
+        return Response.ok().build();
+    }
+
+    /**
+     * Handles a Dallas key (iButton) touched to the register's reader
+     * (BO-01-02-07): while the register is locked, the key is deposited for
+     * the lock page, which signs its holder in without a PIN; at any other
+     * moment it is ignored.
+     *
+     * @param key the key identifier the reader delivered
+     * @return 200 when deposited, 204 when ignored, 400 when it is not a key
+     */
+    @POST
+    @Path("/api/pos/dallas")
+    @Consumes("text/plain")
+    public Response handleDallasKey(String key) {
+        LOGGER.info("Entering method handleDallasKey");
+        String normalized = com.intermarche.pos.domain.people.Employee.normalizeDallasKey(key);
+        if (!com.intermarche.pos.domain.people.Employee.isDallasKey(normalized)) {
+            LOGGER.info("Exiting method handleDallasKey");
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        // BO-10-02-31: while the supervisor panel is open, the key answers IT —
+        // the more immediate gesture, exactly as a badge read over the
+        // cashier's shoulder endorses before it unlocks anything.
+        if (state.endorsement.active) {
+            state.endorsement.setPresentedDallasKey(normalized);
+            state.touch();
+            LOGGER.info("Exiting method handleDallasKey");
+            return Response.ok().build();
+        }
+        if (!state.auth.isLocked) {
+            LOGGER.info("Exiting method handleDallasKey");
+            return Response.noContent().build();
+        }
+        state.auth.setScannedDallasKey(normalized);
+        state.touch();
+        LOGGER.info("Exiting method handleDallasKey");
         return Response.ok().build();
     }
 
@@ -107,15 +177,18 @@ public class PosHardwareResource {
     /**
      * Applies the simulator's accept decision: the virtual terminal fires
      * the accept leg of the transaction callback, which registers the
-     * pending card payment.
+     * pending card payment. The body, when present, is the receipt the
+     * terminal returns with its decision (LC-08-05-07).
      *
+     * @param receipt the terminal receipt, customer then merchant copy after
+     *        {@code --/--}; empty for none
      * @return 200, or 409 when no request is pending
      */
     @POST
     @Path("/api/hardware/tpe/accept")
-    public Response tpeAccept() {
+    public Response tpeAccept(String receipt) {
         LOGGER.info("Entering method tpeAccept");
-        if (!virtualTerminalClient.accept()) {
+        if (!virtualTerminalClient.accept(receipt)) {
             LOGGER.info("Exiting method tpeAccept");
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }

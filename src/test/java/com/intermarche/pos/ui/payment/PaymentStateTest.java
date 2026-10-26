@@ -109,6 +109,21 @@ class PaymentStateTest {
     }
 
     /**
+     * LC-07-11-01: the card read on the hub shows its code masked to its last
+     * four characters (a short code whole), its balance and the proposed amount
+     * at two decimals.
+     */
+    @Test
+    void theCardReadOnTheHubAsTheScreenShowsIt() {
+        PaymentState.PendingGiftCard card = new PaymentState.PendingGiftCard("6299000000000017",
+                new BigDecimal("30"), "ILLICADO", new BigDecimal("12.4"));
+        assertEquals("****0017", card.getMasked());
+        assertEquals(String.format("%.2f", new BigDecimal("30.00")), card.getBalanceFormatted());
+        assertEquals(String.format("%.2f", new BigDecimal("12.40")), card.getSuggestedNumpad());
+        assertEquals("6299", new PaymentState.PendingGiftCard("6299", BigDecimal.ONE, null, BigDecimal.ONE).getMasked());
+    }
+
+    /**
      * reset clears every payment and transaction field back to its default.
      */
     @Test
@@ -118,6 +133,7 @@ class PaymentStateTest {
         state.ticketDbId = 42L;
         state.paymentInProgress = true;
         state.pendingCardAmount = new BigDecimal("5.00");
+        state.pendingGiftCard = new PaymentState.PendingGiftCard("6299", BigDecimal.TEN, null, BigDecimal.ONE);
         state.pendingCardAuthNumber = "123456";
         state.pendingCardDegraded = true;
         state.valuationStatus = "ENGINE";
@@ -141,6 +157,7 @@ class PaymentStateTest {
         assertNull(state.ticketDbId);
         assertFalse(state.paymentInProgress);
         assertNull(state.pendingCardAmount);
+        assertNull(state.pendingGiftCard);
         assertNull(state.pendingCardAuthNumber);
         assertFalse(state.pendingCardDegraded);
         assertNull(state.valuationStatus);

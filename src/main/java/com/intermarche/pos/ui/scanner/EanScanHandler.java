@@ -44,6 +44,12 @@ public class EanScanHandler implements ScanContext.ScanHandler {
     @jakarta.inject.Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /** The administered alerts on articles (BO-04-03-08). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.control.ControlGateService controlGateService;
+
+    /** An article code beyond the EAN shapes: 1 to 38 letters and digits (BO-03-06-01/-10). */
+    static final String ARTICLE_CODE = "[A-Za-z0-9]{1,38}";
 
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
     @ConfigProperty(name = "pos.vat.default-rate", defaultValue = "0.20")
@@ -61,7 +67,24 @@ public class EanScanHandler implements ScanContext.ScanHandler {
     public void handle(ScanContext ctx) {
         if (ctx.handled) return;
 
-        if (ctx.code.matches("\\d{8,13}")) {
+        // BO-03-06-01/-10: an article is named by an EAN-8 or EAN-13, or by an
+        // article code of up to 38 letters and digits — a Code 128 or the text of a
+        // 2D code. The longer codes are claimed only when the catalog carries them,
+        // so the vouchers and badges of the same shape keep walking the chain.
+        // BO-02-03-03/04: a code that is not an article's EAN may still be one of
+        // its additional sale codes or its internal code — an alphanumeric Code
+        // 128 included. Such a code was declared by the referential, so the EAN
+        // check-digit control does not apply to it.
+        // An EAN-shaped code is still checked BEFORE any lookup (LC-11-01-01);
+        // a longer article code is claimed only when the catalog carries it.
+        boolean numeric = ctx.code.matches("\\d{8,13}");
+        Product byEan = null;
+        Product alias = null;
+        if (!numeric && ctx.code.matches(ARTICLE_CODE)) {
+            byEan = Product.find("ean = ?1 and active = true", ctx.code).firstResult();
+            alias = byEan == null ? Product.findActiveByAlias(ctx.code) : null;
+        }
+        if (numeric || byEan != null || alias != null) {
             // BO-10-02-15: an article scanned while a settlement is under way,
             // where the shop forbids it. Said and consumed: a code refused here
             // must not walk on to the handlers behind, which would ring it by
@@ -70,18 +93,34 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 ctx.handled = true;
                 return;
             }
-            // BO-10-02-21: when the check-digit control is active, a 13-digit
-            // code whose EAN13 key is wrong is refused before any lookup.
-            if (posSettingsService.ean13CheckDigitEnabled() && ctx.code.length() == 13
+            // LC-11-01-01: EAN-8 keys are mandatory; BO-10-02-21 keeps the
+            // existing administered EAN-13 control. Reject before any lookup.
+            if ((ctx.code.length() == 8 || posSettingsService.ean13CheckDigitEnabled() && ctx.code.length() == 13)
                     && !hasValidChecksum(ctx.code)) {
                 ctx.state.ticket.setError(i18n.get("op.codeEanInvalide"));
                 ctx.handled = true;
                 return;
             }
-            Product p = Product.find("ean = ?1 and active = true", ctx.code).firstResult();
+            if (numeric) {
+                byEan = Product.find("ean = ?1 and active = true", ctx.code).firstResult();
+                alias = byEan == null ? Product.findActiveByAlias(ctx.code) : null;
+            }
+            Product p = byEan != null ? byEan : alias;
+            // The line names the article by its EAN whatever code was read.
+            String lineEan = alias != null ? p.ean : ctx.code;
             if (p != null) {
+                if (com.intermarche.pos.ui.ticket.ArticleMessageService.refuse(ctx.state, p)) {
+                    ctx.handled = true;
+                    return;
+                }
                 if (p.forbiddenToSale) {
-                    ctx.state.ticket.setError(i18n.get("op.produitInterditVente"));
+                    ctx.state.ticket.setError(com.intermarche.pos.ui.ticket.ForbiddenSaleMessage.forbidden(i18n, posSettingsService, p));
+                    ctx.handled = true;
+                    return;
+                }
+                // BO-02-03-24: an article that must be weighed goes to the scale
+                // (a price-embedded label never reaches this handler).
+                if (ticketService.routeWeighed(ctx.state, p)) {
                     ctx.handled = true;
                     return;
                 }
@@ -97,15 +136,31 @@ public class EanScanHandler implements ScanContext.ScanHandler {
 
                 // BO-02-03-11: a recalled article is refused at scan, no line.
                 if (ProductAttributes.recall(p)) {
-                    ctx.state.ticket.setError(i18n.get("op.articleRetraitRappel"));
+                    ctx.state.ticket.setError(com.intermarche.pos.ui.ticket.ForbiddenSaleMessage.recall(i18n, posSettingsService, p));
                     ctx.handled = true;
                     return;
                 }
 
+                // LC-02-13-03/04: a decimal quantity armed before a unit article
+                // is refused, and the article is not rung.
+                if (ctx.state.ticket.armedDecimalRefused(ProductAttributes.decimalQuantityToEnter(p))) {
+                    ctx.state.ticket.setError(i18n.get("op.quantiteInvalide"));
+                    ctx.handled = true;
+                    return;
+                }
                 // Age gate: a restricted product parks the scan behind the
                 // ID-check prompt; the confirmation replays this very code
                 // through the chain (phase: age control).
                 if (ticketService.suspendForAgeCheck(ctx.state, p, "SCAN", ctx.code, null)) {
+                    ctx.handled = true;
+                    return;
+                }
+                // BO-04-03-08: an administered alert on this article (or its
+                // family) decides before the line is rung; its replay re-reads
+                // this very code through the chain.
+                if (controlGateService.onArticle(p, null,
+                        com.intermarche.pos.ui.control.ControlGateService.Kind.SCAN, ctx.code)
+                        == com.intermarche.pos.ui.control.ControlGateService.Outcome.STOP) {
                     ctx.handled = true;
                     return;
                 }
@@ -118,17 +173,19 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 }
 
                 Price price = Price.findCurrentPrice(p.id);
-                BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-                BigDecimal vatRate = (price != null && price.vatRate() != null)
-                        ? price.vatRate() : defaultVatRate;
-                // BO-02-03-26/27: VAT-exempt article ventilated at rate 0; the
-                // amount due is unchanged, only its VAT breakdown.
-                if (ProductAttributes.vatExempt(p)) {
-                    vatRate = BigDecimal.ZERO;
+                // BO-02-03-05: an "appel prix" article without a price is refused.
+                if (ticketService.priceCallRefused(ctx.state, p, price)) {
+                    ctx.handled = true;
+                    return;
                 }
-
-                // Line label is the checkout label when set, else the name.
-                ctx.state.ticket.addItem(ctx.code, null, translatedLabel(p), finalPrice, BigDecimal.ONE, vatRate);
+                BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
+                // BO-02-03-26/27: VAT-exempt article ventilated at rate 0 under its
+                // own heading; the amount due is unchanged, only its VAT breakdown.
+                com.intermarche.pos.domain.catalog.ArticleVat.Resolution vat =
+                        com.intermarche.pos.domain.catalog.ArticleVat.resolve(p, price, defaultVatRate);
+                // Line label is the checkout label when set, else the name. The
+                // line names the article by its EAN whatever code was read.
+                ctx.state.ticket.addItem(lineEan, null, translatedLabel(p), finalPrice, BigDecimal.ONE, vat.rate());
                 // Only reach into the line when there is a snapshot to carry —
                 // a plain product leaves the freshly added line untouched.
                 com.intermarche.pos.ui.ticket.TicketState.TicketItem line =
@@ -141,8 +198,13 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 }
                 // LC-09-01-11 to -18: what this article may be paid with, snapshotted
                 // on the line so the eligible bases can be totalled without a lookup.
-                line.restrictedTenders = com.intermarche.pos.domain.catalog.attribute
-                        .RestrictedTender.snapshot(p);
+                ctx.state.ticket.snapshotMealVoucherEligibility(p.ean, ProductAttributes.mealVoucherEligible(p));
+                com.intermarche.pos.ui.ticket.LinkedArticleService.snapshot(ctx.state.ticket, p);
+                // LC-10-01-09/11: by article, since a repeated scan may merge into an
+                // earlier line while another article stays last.
+                ctx.state.ticket.snapshotRestrictedTenders(lineEan, com.intermarche.pos.domain
+                        .catalog.attribute.RestrictedTender.snapshot(p));
+                ticketService.stampArticle(ctx.state, p, vat);
                 // LC-02-03-13: a plain EAN names no lot, so the register cannot tell
                 // whether this pack is one of the recalled ones. It lists them and lets
                 // the sale go on — the cashier reads the lot printed on the pack.
@@ -168,21 +230,21 @@ public class EanScanHandler implements ScanContext.ScanHandler {
     }
 
     /**
-     * Verifies the EAN13 check digit of a 13-digit code (same algorithm as the
-     * in-store weighted-label handler): the twelve data digits are weighted
-     * 1-3-1-3..., the complement to the next ten is the expected key.
+     * Verifies EAN-8 and EAN-13 keys (LC-11-01-01, BO-10-02-21). Starting
+     * at the last data digit gives weights 3,1 for both symbol lengths.
      *
-     * @param code the 13-digit code
+     * @param code the numeric EAN-8 or EAN-13 code
      * @return true when the check digit matches
      */
     private boolean hasValidChecksum(String code) {
         int sum = 0;
-        for (int i = 0; i < 12; i++) {
-            int digit = code.charAt(i) - '0';
-            sum += (i % 2 == 0) ? digit : digit * 3;
+        int weight = 3;
+        for (int i = code.length() - 2; i >= 0; i--) {
+            sum += (code.charAt(i) - '0') * weight;
+            weight = 4 - weight;
         }
         int expected = (10 - (sum % 10)) % 10;
-        return expected == (code.charAt(12) - '0');
+        return expected == (code.charAt(code.length() - 1) - '0');
     }
 
     /**

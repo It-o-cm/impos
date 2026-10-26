@@ -3,8 +3,8 @@ package com.intermarche.pos.ui.hardware;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import javax.imageio.ImageIO;
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,8 +15,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Base64;
+import javax.imageio.ImageIO;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
@@ -72,6 +76,12 @@ class ReceiptLogoTest {
 
     /** Bytes a 384x384 raster packs: (384 + 7) / 8 dots-per-byte times 384 rows. */
     private static final int SQUARE_BITS = ((384 + 7) / 8) * 384;
+
+    /** Prefix of a raster directive for a square logo scaled to a 192-dot head. */
+    private static final String NARROW_PREFIX = "[[IMAGE 192 192 ";
+
+    /** Bytes a 192x192 raster packs: (192 + 7) / 8 dots-per-byte times 192 rows. */
+    private static final int NARROW_BITS = ((192 + 7) / 8) * 192;
 
     /**
      * Sets a private static field of {@link ReceiptLogo} by reflection.
@@ -198,6 +208,8 @@ class ReceiptLogoTest {
                     directive.length() - DIRECTIVE_SUFFIX.length());
             byte[] bits = Base64.getDecoder().decode(payload);
             assertEquals(SQUARE_BITS, bits.length);
+            assertEquals(directive, ReceiptLogo.directive());
+            imageIo.verify(() -> ImageIO.read(any(InputStream.class)), org.mockito.Mockito.times(1));
         }
     }
 
@@ -403,6 +415,74 @@ class ReceiptLogoTest {
         }
     }
 
+    // --------------------------------------------------
+    // directive(int)
+    // --------------------------------------------------
+
+    /**
+     * Proves (width ternary true arm) a width below one packed byte falls back to
+     * the default: {@code directive(4)} rasterises the readable logo at the 384-dot
+     * paper exactly as the no-argument call does.
+     *
+     * @throws Exception when a cache reset fails
+     */
+    @Test
+    void directiveFallsBackToDefaultWhenWidthTooSmall() throws Exception {
+        resetCaches();
+        try (MockedStatic<ImageIO> imageIo = mockStatic(ImageIO.class)) {
+            imageIo.when(() -> ImageIO.read(any(InputStream.class))).thenReturn(mixedInkImage());
+            String directive = ReceiptLogo.directive(4);
+            assertTrue(directive.startsWith(SQUARE_PREFIX));
+            assertTrue(directive.endsWith(DIRECTIVE_SUFFIX));
+            String payload = directive.substring(SQUARE_PREFIX.length(),
+                    directive.length() - DIRECTIVE_SUFFIX.length());
+            assertEquals(SQUARE_BITS, Base64.getDecoder().decode(payload).length);
+        }
+    }
+
+    /**
+     * Proves (width ternary false arm, cached absent arm) an administered head
+     * width flows through the rasteriser: {@code directive(192)} scales the readable
+     * square logo to a 192x192 raster whose decoded payload is exactly 4608 bytes.
+     *
+     * @throws Exception when a cache reset fails
+     */
+    @Test
+    void directiveRasterisesAtAdministeredWidth() throws Exception {
+        resetCaches();
+        try (MockedStatic<ImageIO> imageIo = mockStatic(ImageIO.class)) {
+            imageIo.when(() -> ImageIO.read(any(InputStream.class))).thenReturn(mixedInkImage());
+            String directive = ReceiptLogo.directive(192);
+            assertTrue(directive.startsWith(NARROW_PREFIX));
+            assertTrue(directive.endsWith(DIRECTIVE_SUFFIX));
+            String payload = directive.substring(NARROW_PREFIX.length(),
+                    directive.length() - DIRECTIVE_SUFFIX.length());
+            assertEquals(NARROW_BITS, Base64.getDecoder().decode(payload).length);
+        }
+    }
+
+    /**
+     * Proves the directive cache is keyed on the width: two distinct widths are each
+     * decoded once, and a repeat of the first width is served from the cache without
+     * a third read.
+     *
+     * @throws Exception when a cache reset fails
+     */
+    @Test
+    void directiveCachesPerWidth() throws Exception {
+        resetCaches();
+        try (MockedStatic<ImageIO> imageIo = mockStatic(ImageIO.class)) {
+            imageIo.when(() -> ImageIO.read(any(InputStream.class))).thenReturn(mixedInkImage());
+            String narrow = ReceiptLogo.directive(192);
+            String wide = ReceiptLogo.directive(384);
+            String narrowAgain = ReceiptLogo.directive(192);
+            assertTrue(narrow.startsWith(NARROW_PREFIX));
+            assertTrue(wide.startsWith(SQUARE_PREFIX));
+            assertEquals(narrow, narrowAgain);
+            imageIo.verify(() -> ImageIO.read(any(InputStream.class)), times(2));
+        }
+    }
+
     /**
      * BO-03-03-15: an administered image is rasterised to the paper exactly
      * as the installation's file is — cropped to its ink, scaled to the
@@ -506,4 +586,63 @@ class ReceiptLogoTest {
         assertEquals(uri, ReceiptLogo.dataUri(uri));
         assertEquals("data:image/png;base64,ABC", ReceiptLogo.dataUri("ABC"));
     }
+    /** BO-03-03-15: malformed data URIs without a comma cannot become a printable logo. */
+    @Test
+    void dataUriWithoutPayloadSeparatorPrintsNothing() throws Exception {
+        resetCaches();
+        assertEquals("", ReceiptLogo.directive("data:image/png;base64", 384));
+    }
+
+    /** BO-03-03-15: a failing resource close, alone or during decoding failure, never prevents a receipt. */
+    @Test
+    void resourceCloseFailuresLeaveBothLogoOutputsEmpty() throws Exception {
+        for (String entry : new String[]{"directive", "dataUri"}) {
+            for (boolean decodeFails : new boolean[]{false, true}) {
+                InputStream stream = org.mockito.Mockito.mock(InputStream.class);
+                org.mockito.Mockito.doThrow(new IOException("close failed")).when(stream).close();
+                Class<?> isolated = logoWithResource(stream);
+                try (var images = mockStatic(ImageIO.class)) {
+                    if (decodeFails) images.when(() -> ImageIO.read(stream)).thenThrow(new IOException("decode failed"));
+                    else images.when(() -> ImageIO.read(stream)).thenReturn(mixedInkImage());
+                    assertEquals("", isolated.getMethod(entry).invoke(null));
+                }
+                org.mockito.Mockito.verify(stream).close();
+            }
+        }
+    }
+
+    /**
+     * Loads a fresh logo utility whose classpath resource is the supplied stream.
+     * The original code source keeps normal instrumentation active without changing global caches.
+     * @param stream mocked classpath resource
+     * @return independently initialized logo class
+     * @throws Exception when the class bytes cannot be loaded
+     */
+    private Class<?> logoWithResource(InputStream stream) throws Exception {
+        String name = ReceiptLogo.class.getName();
+        ClassLoader parent = ReceiptLogo.class.getClassLoader();
+        byte[] bytes;
+        try (var original = parent.getResourceAsStream(name.replace('.', '/') + ".class")) {
+            bytes = original.readAllBytes();
+        }
+        ClassLoader loader = new ClassLoader(parent) {
+            /** Defines only the logo utility locally so all ImageIO collaborators retain their identity. */
+            @Override
+            protected Class<?> loadClass(String requested, boolean resolve) throws ClassNotFoundException {
+                if (!name.equals(requested)) return super.loadClass(requested, resolve);
+                Class<?> loaded = findLoadedClass(requested);
+                if (loaded == null) loaded = defineClass(requested, bytes, 0, bytes.length, ReceiptLogo.class.getProtectionDomain());
+                if (resolve) resolveClass(loaded);
+                return loaded;
+            }
+
+            /** Supplies the failure-controlled classpath logo and delegates every other resource. */
+            @Override
+            public InputStream getResourceAsStream(String resource) {
+                return "print/logo.png".equals(resource) ? stream : super.getResourceAsStream(resource);
+            }
+        };
+        return Class.forName(name, true, loader);
+    }
+
 }

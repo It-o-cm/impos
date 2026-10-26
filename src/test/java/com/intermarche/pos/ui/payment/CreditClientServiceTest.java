@@ -900,6 +900,22 @@ class CreditClientServiceTest {
     }
 
     /**
+     * LC-03-02-09: whether the discount APPLIES does not depend on whether the shop
+     * announces it — a shop that hides the announcement still grants the rate,
+     * within the administered segment.
+     */
+    @Test
+    void theDiscountAppliesWhetherOrNotItIsAnnounced() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(false);
+        when(service.posSettingsService.customerDiscountSegment()).thenReturn("PRO");
+        assertTrue(service.discountApplies(discounted("5.00", "pro")));
+        assertFalse(service.discountApplies(discounted("5.00", "ASSOC")));
+        assertFalse(service.discountApplies(discounted("0", "PRO")));
+        assertFalse(service.discountApplies(null));
+    }
+
+    /**
      * An account belonging to NO segment is not of the administered one — the null
      * arm of the segment guard, which must not throw.
      */

@@ -5,7 +5,7 @@
  ! (customer's device has a real keyboard) and the QR under the same key.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -51,7 +51,7 @@
       {#for line in ticket.lines}
         {#if !line.cancelled}
         <div class="line">
-          <span class="qty">{line.formattedQuantity}</span>
+          <span class="qty">{inject:units.line(line)}</span>
           <span class="lbl">{line.productLabel}</span>
           <span class="amt">{line.getTotalFormatted()} €</span>
         </div>
@@ -83,18 +83,18 @@
       <div class="total"><span>{inject:i18n.get('digitalticket.totalTtc')}</span><span>{ticket.getTotalFormatted()} €</span></div>
       {#for bucket in buckets}
         <div class="vat">
-          <span>TVA {bucket.rateFormatted}</span>
-          <span>HT {bucket.totalExcludingTax} — TVA {bucket.vatAmount}</span>
+          <span>{inject:i18n.get('digitalticket.x21Tva')} {bucket.rateFormatted}</span>
+          <span>{inject:i18n.get('digitalticket.x21Ht')} {inject:units.money(bucket.totalExcludingTax)} — {inject:i18n.get('digitalticket.x21Tva')} {inject:units.money(bucket.vatAmount)}</span>
         </div>
       {/for}
       <hr>
       {#for payment in ticket.payments}
-        <div class="pay"><span>{payment.methodKey}</span><span>{payment.amount} €</span></div>
+        <div class="pay"><span>{inject:i18n.code('ticketsearch.payment.', payment.methodKey)}</span><span>{inject:units.money(payment.amount)} €</span></div>
       {/for}
       <hr>
 
       {#if sent}
-        <div class="sent">✓ Ticket envoyé à {ticket.customerEmail}</div>
+        <div class="sent">✓ {inject:i18n.get('digitalticket.x21TicketEnvoye')} {ticket.customerEmail}</div>
       {#else}
         <div class="email-box">
           <form action="{path}/email" method="POST">

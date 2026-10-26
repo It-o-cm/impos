@@ -379,4 +379,18 @@ class AuthScanHandlerTest {
         assertFalse(prefixed.handled);
         verify(otherAuth, never()).setScannedBadge(anyString());
     }
+    /** LC-01-06: a badge equal to the prefix alone is unprefixed and cannot identify a supervisor. */
+    @Test
+    void prefixAloneCannotSatisfyASupervisorPrompt() {
+        AuthScanHandler handler = newHandler();
+        when(handler.posSettingsService.supervisorBadgePrefix()).thenReturn("1234");
+        EndorsementState endorsement = mock(EndorsementState.class);
+        AuthState auth = mock(AuthState.class);
+        when(auth.supervisorBadgeArmed()).thenReturn(true);
+        ScanContext context = new ScanContext("1234", newState(endorsement, auth));
+        handler.handle(context);
+        assertFalse(context.handled);
+        verify(auth, never()).setSupervisorBadge(any());
+    }
+
 }

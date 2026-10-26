@@ -1324,4 +1324,23 @@ class CouponCheckServiceTest {
         assertOnly(check(type, "0 0129", BigDecimal.ZERO),
                 CouponControl.Kind.STORE_CHECK, "CLE MAGASIN INCORRECTE");
     }
+
+    /** BO-03-06-40: the checkout's own island is authoritative, and an unadministered control uses its named default message. */
+    @Test
+    void checkoutIslandAndDefaultControlMessageAreUsed() throws Exception {
+        when(service.checkoutPointService.ownIslandCode()).thenReturn("A");
+        var type = mock(CouponType.class);
+        when(type.levelOf(CouponControl.Kind.OTHER_ISLAND)).thenReturn(AlertLevel.INFO);
+        when(type.acceptedOnIsland("A")).thenReturn(true);
+        var findings = new java.util.ArrayList<CouponCheckService.Finding>();
+        var island = CouponCheckService.class.getDeclaredMethod("addOtherIsland", java.util.List.class, CouponType.class);
+        island.setAccessible(true);
+        island.invoke(service, findings, type);
+        Assertions.assertTrue(findings.isEmpty());
+        verify(type).acceptedOnIsland("A");
+        var wording = CouponCheckService.class.getDeclaredMethod("messageOf", CouponType.class, CouponControl.Kind.class);
+        wording.setAccessible(true);
+        Assertions.assertEquals(CouponControl.Kind.OTHER_ISLAND.getDefaultMessage(), wording.invoke(service, type, CouponControl.Kind.OTHER_ISLAND));
+    }
+
 }

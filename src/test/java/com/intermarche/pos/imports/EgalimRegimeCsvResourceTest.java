@@ -5,13 +5,16 @@ import io.quarkus.hibernate.orm.panache.Panache;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.persistence.EntityManager;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
+import java.io.ByteArrayInputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -442,6 +445,20 @@ class EgalimRegimeCsvResourceTest {
     }
 
     /**
+     * {@code importEgalimRegimes} logs and forwards the stream to the base
+     * importer with the CODE key and no required column; a header-only body
+     * produces a zero-count JSON with a 200 status, exercising the entry
+     * method's log-and-delegate body.
+     */
+    @Test
+    void importEgalimRegimesDelegatesToTheBaseImporter() {
+        Response response = resource.importEgalimRegimes(new ByteArrayInputStream(
+                "CODE|LABEL|CAP_RATE\n".getBytes(StandardCharsets.UTF_8)));
+        assertEquals(200, response.getStatus());
+        assertEquals("{\"createdCount\":0,\"updatedCount\":0}", response.getEntity());
+    }
+
+    /**
      * The public entry point delegates to the base import with the CODE key and
      * the required columns: an empty stream carries no header and no row, so it
      * imports nothing and answers a 200 with zero counts.
@@ -452,7 +469,7 @@ class EgalimRegimeCsvResourceTest {
             java.io.InputStream stream = new java.io.ByteArrayInputStream(new byte[0]);
             jakarta.ws.rs.core.Response response = resource.importEgalimRegimes(stream);
             assertEquals(200, response.getStatus());
-            assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+            assertEquals("{\"createdCount\":0,\"updatedCount\":0}", response.getEntity());
         }
     }
 }

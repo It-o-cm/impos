@@ -12,6 +12,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('invoicerequest.facture')}</title>
     <style>
         {#include theme /}
@@ -108,8 +109,8 @@
             {#if hasDocumentStep}
             <span class="s {#if state.invoice.onDocumentStep}on{/if}">{inject:i18n.get('invoicerequest.2Type')}</span>
             {/if}
-            <span class="s {#if state.invoice.onCustomerStep}on{/if}">{#if hasDocumentStep}3{#else}2{/if}. Client</span>
-            <span class="s {#if state.invoice.onPreviewStep}on{/if}">{#if hasDocumentStep}4{#else}3{/if}. Document</span>
+            <span class="s {#if state.invoice.onCustomerStep}on{/if}">{#if hasDocumentStep}3{#else}2{/if}. {inject:i18n.get('invoicerequest.etapeClient')}</span>
+            <span class="s {#if state.invoice.onPreviewStep}on{/if}">{#if hasDocumentStep}4{#else}3{/if}. {inject:i18n.get('invoicerequest.etapeDocument')}</span>
         </div>
 
         {#if state.invoice.error}
@@ -124,7 +125,7 @@
                     {#for t in state.invoice.visibleTickets}
                     <a href="/invoice/ticket/{t.ticketNumber}">
                         <span>{t.ticketNumber}</span>
-                        <span class="sub">{t.creationDate.format('dd/MM/yyyy')} · caisse {t.terminalId} · {t.totalIncludingTax} €</span>
+                        <span class="sub">{t.creationDate.format('dd/MM/yyyy')} · {inject:i18n.get('invoicerequest.caisse')} {t.terminalId} · {inject:units.money(t.totalIncludingTax)} €</span>
                     </a>
                     {/for}
                 </div>
@@ -148,15 +149,23 @@
         <div class="centered">
             <h2>{inject:i18n.get('invoicerequest.quelDocument')}</h2>
             <div class="recap doc-types">
+                {! BO-03-04-06/09 : les documents créés et activés au back-office,
+                 ! à la place des natures intégrées tant que le magasin en a créé. !}
+                {#if state.invoice.documents.size > 0}
+                {#for d in state.invoice.documents}
+                <a class="btn btn-primary doc-type" href="/invoice/type/{d.code}">{d.label}</a>
+                {/for}
+                {#else}
                 {#for t in state.invoice.documentTypes}
                 <a class="btn btn-primary doc-type" href="/invoice/type/{t}">{t.title}</a>
                 {/for}
+                {/if}
             </div>
         </div>
         {/if}
 
         {#if state.invoice.onCustomerStep}
-        <div class="chosen">Ticket : <strong>{state.invoice.ticket.ticketNumber}</strong>{#if hasDocumentStep} · <strong>{state.invoice.documentTitle}</strong>{/if}</div>
+        <div class="chosen">{inject:i18n.get('invoicerequest.ticket')} <strong>{state.invoice.ticket.ticketNumber}</strong>{#if hasDocumentStep} · <strong>{state.invoice.documentTitle}</strong>{/if}</div>
 
         {! BO-10-04-03 : le masque de correction est le masque de création, rempli.
          ! Un seul mécanisme de saisie, deux destinations : une nouvelle ligne ou
@@ -207,7 +216,7 @@
                 {#if state.invoice.searchWithoutMatch}
                 <div class="side-title">{inject:i18n.get('invoicerequest.resultat')}</div>
                 <div class="empty-state">
-                    Aucun client ne correspond à « {state.invoice.customerSearch} ».<br>
+                    {inject:i18n.get('invoicerequest.x21AucunClient')} « {state.invoice.customerSearch} ».<br>
                     {inject:i18n.get('invoicerequest.creezAvec')} <strong>{inject:i18n.get('invoicerequest.nouveau')}</strong>.
                 </div>
                 {#else}
@@ -228,7 +237,7 @@
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
                 <div class="hint">{inject:i18n.get('invoicerequest.quelquesLettresSuffisentN')}</div>
                 <div class="actions">
-                    <a class="btn btn-muted" href="/invoice/customer/new">NOUVEAU</a>
+                    <a class="btn btn-muted" href="/invoice/customer/new">{inject:i18n.get('invoicerequest.nouveau')}</a>
                     <button class="btn btn-primary" type="submit">{inject:i18n.get('invoicerequest.rechercher')}</button>
                 </div>
                 {#for f in fields}
@@ -239,7 +248,29 @@
         {/if}
         {/if}
 
-        {#if state.invoice.onPreviewStep}
+        {#if state.invoice.onPreviewStep && state.invoice.enteringOrderNumber}
+        {! BO-03-03-02 : le n° de commande du client, saisi en caisse et imprimé
+         ! dans l'entête du document. !}
+        <div class="work">
+            <div class="side">
+                <div class="side-title">{inject:i18n.get('invoicerequest.numeroCommande')}</div>
+                <div class="hint">{inject:i18n.get('invoicerequest.numeroCommandeAide')}</div>
+            </div>
+            <form class="entry" method="post" action="{formAction}" id="entryForm">
+                <div class="fields compact" id="fieldList"></div>
+                <div id="kbDisplay" class="display pad-display"></div>
+                <div class="keyboard pos-kb-compact" id="kbArea"></div>
+                <div class="actions">
+                    <button class="btn btn-primary" type="submit">{inject:i18n.get('common.validate')}</button>
+                </div>
+                {#for f in fields}
+                <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
+                {/for}
+            </form>
+        </div>
+        {/if}
+
+        {#if state.invoice.onPreviewStep && !state.invoice.enteringOrderNumber}
         <div class="centered">
             <h2>{inject:i18n.get('invoicerequest.verifiezAvantDEmettre')}</h2>
             <div class="recap">
@@ -256,14 +287,22 @@
                         <span class="recap-label">{inject:i18n.get('invoicerequest.typeDocument')}</span>
                         <span class="recap-value">{state.invoice.documentTitle}</span>
                     </span>
-                    <a class="btn btn-sm btn-muted" href="/invoice/back/type">CHANGER</a>
+                    <a class="btn btn-sm btn-muted" href="/invoice/back/type">{inject:i18n.get('invoicerequest.changer')}</a>
                 </div>
                 {/if}
                 <div class="recap-row">
                     <span>
                         <span class="recap-label">{inject:i18n.get('invoicerequest.clientFacture')}</span>
                         <span class="recap-value">{state.invoice.customer.companyName}</span>
-                        <span class="recap-label">Compte {state.invoice.customer.accountNumber}</span>
+                        <span class="recap-label">{inject:i18n.get('invoicerequest.compte')} {state.invoice.customer.accountNumber ?: '—'}{#if accountRequired} *{/if}</span>
+                        {! BO-03-04-18 : les données du client, affichées pour être
+                         ! validées ou corrigées avant l'impression. !}
+                        {#if state.invoice.customer.address}
+                        <span class="recap-label">{state.invoice.customer.address.streetLine1 ?: ''} {state.invoice.customer.address.postalCode ?: ''} {state.invoice.customer.address.city ?: ''}</span>
+                        {/if}
+                        {#if state.invoice.customer.siret}<span class="recap-label">{inject:i18n.get('invoicerequest.siret')} {state.invoice.customer.siret}</span>{/if}
+                        {#if state.invoice.customer.vatNumber}<span class="recap-label">{inject:i18n.get('invoicerequest.tvaIntra')} {state.invoice.customer.vatNumber}</span>{/if}
+                        {#if state.invoice.customer.taxId}<span class="recap-label">{inject:i18n.get('invoicerequest.nif')} {state.invoice.customer.taxId}</span>{/if}
                     </span>
                     <span>
                         {! BO-10-04-03 : corriger la fiche avant l'impression, si le
@@ -271,11 +310,18 @@
                         {#if customerUpdateEnabled}
                         <a class="btn btn-sm btn-muted" href="/invoice/customer/edit">{inject:i18n.get('invoicerequest.corriger')}</a>
                         {/if}
-                        <a class="btn btn-sm btn-muted" href="/invoice/back/customer">CHANGER</a>
+                        <a class="btn btn-sm btn-muted" href="/invoice/back/customer">{inject:i18n.get('invoicerequest.changer')}</a>
                     </span>
                 </div>
+                <div class="recap-row">
+                    <span>
+                        <span class="recap-label">{inject:i18n.get('invoicerequest.numeroCommande')}</span>
+                        <span class="recap-value">{#if state.invoice.orderNumber}{state.invoice.orderNumber}{#else}—{/if}</span>
+                    </span>
+                    <a class="btn btn-sm btn-muted" href="/invoice/order">{inject:i18n.get('invoicerequest.saisir')}</a>
+                </div>
             </div>
-            <a class="btn btn-success" href="/invoice/preview">{inject:i18n.get('invoicerequest.voirDocument')}</a>
+            <a class="btn btn-success" href="/invoice/preview">{inject:i18n.get('invoicerequest.validerVoirDocument')}</a>
         </div>
         {/if}
 
@@ -286,8 +332,8 @@
         !}
         {#if state.invoice.onInsertStep}
         <div class="centered">
-            <h2>Insérez la feuille {state.invoice.slipPageNumber} sur {state.invoice.slipPageCount}</h2>
-            <div class="slip-count">Ce document occupe {state.invoice.slipPageCount} feuille(s) à insérer une par une dans l'imprimante de caisse.</div>
+            <h2>{inject:i18n.get('invoicerequest.x21InserezFeuille')} {state.invoice.slipPageNumber} {inject:i18n.get('invoicerequest.x21Sur')} {state.invoice.slipPageCount}</h2>
+            <div class="slip-count">{inject:i18n.format('invoicerequest.x21DocumentOccupe', state.invoice.slipPageCount)}</div>
             <form method="post" action="/invoice/slip">
                 <button class="btn btn-success" type="submit">{inject:i18n.get('invoicerequest.feuilleInsereeImprimer')}</button>
             </form>
@@ -329,7 +375,7 @@
      */
     const FIELDS = [
         {#for f in fields}
-        { name: '{f.name}', label: '{f.displayLabel}', kb: '{f.keyboard}', up: {f.uppercase}, max: {f.maxLength} }{#if f_hasNext},{/if}
+        { name: '{f.name}', label: '{inject:i18n.get(f.labelKey)}{#if f.required} *{/if}', kb: '{f.keyboard}', up: {f.uppercase}, max: {f.maxLength} }{#if f_hasNext},{/if}
         {/for}
     ];
 

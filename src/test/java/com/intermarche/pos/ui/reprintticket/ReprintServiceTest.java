@@ -451,4 +451,53 @@ class ReprintServiceTest {
         assertEquals("1", parked.get("ticketId"));
         assertEquals("2990000000019", parked.get("card"));
     }
+
+    /** LC-03-06: entering and cancelling reassignment resets its mask; absent ids and cards keep an empty endorsement payload. */
+    @Test
+    void reassignmentMaskAndAbsentInputsAreHandled() {
+        var service = newService();
+        service.beginReassign(1L);
+        assertTrue(service.state.reprint.reassignMaskOpen);
+        service.cancelReassignMask();
+        assertFalse(service.state.reprint.reassignMaskOpen);
+        when(service.endorsementService.gestureAuthorized(service.state, "ticket-reassign")).thenReturn(false);
+        service.applyReassign(null, null);
+        assertEquals("", service.state.reprint.reassignCard);
+        org.mockito.Mockito.verify(service.endorsementService).requestAuthorization(service.state,
+                "TICKET_REASSIGN", java.util.Map.of("ticketId", "", "card", ""), "/reprint/view/");
+        org.mockito.Mockito.verifyNoInteractions(service.reassignmentService);
+    }
+
+
+    /** LC-03-06: a missing search pattern in reassignment mode reloads only eligible tickets rather than the ordinary history. */
+    @Test
+    void missingReassignmentSearchUsesItsOwnHistory() {
+        var service = newService();
+        service.state.reprint.reassignMode = true;
+        var query = mock(PanacheQuery.class);
+        when(query.list()).thenReturn(List.of());
+        try (var base = mockStatic(PanacheEntityBase.class)) {
+            base.when(() -> PanacheEntityBase.find("status = ?1 and fidelityCard is null ORDER BY creationDate DESC", Ticket.TicketStatus.CLOSED)).thenReturn(query);
+            service.search(null);
+        }
+        verify(service.state.reprint).setTickets(org.mockito.ArgumentMatchers.any());
+        assertTrue(service.state.reprint.reassignMode);
+    }
+
+    /** LC-04-05-01 and LC-03-06-02: advanced criteria retain the reassignment restriction and reset the result list through its ordinary setter. */
+    @Test
+    void combinedSearchKeepsItsCriteriaAndReassignmentBoundary() {
+        var service = newService();
+        service.ticketSearchService = mock(com.intermarche.pos.ui.ticket.TicketSearchService.class);
+        var criteria = new com.intermarche.pos.ui.ticket.TicketSearchCriteria();
+        criteria.terminalId = "C04";
+        var results = List.of(new Ticket());
+        when(service.ticketSearchService.searchCriteria(criteria, true)).thenReturn(results);
+        service.state.reprint.reassignMode = true;
+        service.searchCriteria(criteria);
+        org.junit.jupiter.api.Assertions.assertSame(criteria, service.state.reprint.searchCriteria);
+        verify(service.state.reprint).setTickets(results);
+        verify(service.state).touch();
+    }
+
 }

@@ -70,6 +70,14 @@ public class TicketParkingService {
     @Inject
     InterTillResumeClient interTillResumeClient;
 
+    /** The signed trace of every ticket put on hold, resumed or purged (LC-04-01-03). */
+    @Inject
+    com.intermarche.pos.service.ParkedTicketArchiveService parkedTicketArchiveService;
+
+    /** Queues the push of a training cart put on hold (BO-06-06-01). */
+    @Inject
+    com.intermarche.pos.service.sync.register.SyncOutboxService syncOutboxService;
+
     /**
      * Parks the current cart: synchronizes the draft one last time, flips it
      * to PARKED and clears the in-memory state.
@@ -86,6 +94,10 @@ public class TicketParkingService {
         if (state.payment.paymentInProgress || state.payment.paidAmount.signum() > 0) {
             LOGGER.info("Exiting method parkCurrent");
             return i18n.get("op.paiementCoursMiseAttente");
+        }
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method parkCurrent (training)");
+            return parkTraining();
         }
         // EXP-45: a single ticket may wait at a time. Several used to be allowed;
         // the register now refuses a second park until the first is resumed.
@@ -108,10 +120,13 @@ public class TicketParkingService {
         draft.parkedAt = java.time.LocalDateTime.now();
         draft.persist();
         technicalEventService.log(TechnicalEvent.EventType.TICKET_PARKED, draft.ticketNumber);
+        // LC-04-01-03: what the ticket on hold carried is frozen, signed and chained.
+        parkedTicketArchiveService.record(draft, com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.PARKED,
+                state.auth.operatorBadgeId);
         // LC-04-01-02: the parked receipt carries the ticket number — the
         // code the resume scan (or a manual entry) recognizes. Printing is
         // administered on the back office.
-        if (posSettingsService.parkingPrintReceipt()) {
+        if (posSettingsService.parkingPrintReceipt() && !posSettingsService.parkingPrintOnRequest()) {
             ticketPrinterService.printParkedTicket(draft);
         }
         LOGGER.infof("Ticket mis en attente ID: %d (%s)", draft.id, draft.ticketNumber);
@@ -122,6 +137,33 @@ public class TicketParkingService {
         return null;
     }
 
+    /** LC-04-01-02: expose the administered print activation to the parked list.
+     * A training cart on hold is no ticket of the register and has no receipt
+     * (BO-06-06-01): nothing is printed in training mode.
+     *
+     * @return true when the operator may print a waiting receipt
+     */
+    public boolean canPrintReceipt() {
+        return !state.trainingMode && posSettingsService.parkingPrintReceipt();
+    }
+
+    /**
+     * Prints a still-parked local ticket at the operator's request.
+     * @param id local draft identifier
+     * @return null on success, otherwise a localized refusal
+     */
+    @Transactional
+    public String printParked(Long id) {
+        if (!canPrintReceipt()) return i18n.get("parked.printDisabled");
+        Ticket draft = Ticket.findById(id);
+        if (draft == null || draft.status != Ticket.TicketStatus.PARKED
+                || !ticketNumberService.getTerminalId().equals(draft.terminalId)) {
+            return i18n.get("op.ticketAttenteIntrouvable");
+        }
+        ticketPrinterService.printParkedTicket(draft);
+        return null;
+    }
+
     /**
      * Lists the parked tickets of this register, oldest first.
      *
@@ -129,6 +171,10 @@ public class TicketParkingService {
      */
     public List<Ticket> listParked() {
         LOGGER.info("Entering method listParked");
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method listParked (training)");
+            return trainingParked();
+        }
         LOGGER.info("Exiting method listParked");
         return Ticket.list("terminalId = ?1 and status = ?2 order by id",
                 ticketNumberService.getTerminalId(), Ticket.TicketStatus.PARKED);
@@ -145,6 +191,10 @@ public class TicketParkingService {
     @Transactional
     public String resume(Long ticketId) {
         LOGGER.info("Entering method resume with ticketId: " + ticketId);
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method resume (training)");
+            return resumeTraining(ticketId);
+        }
         if (!state.ticket.items.isEmpty()) {
             LOGGER.info("Exiting method resume");
             return i18n.get("op.ticketCoursMettezAttente");
@@ -164,6 +214,9 @@ public class TicketParkingService {
         draft.persist();
         ticketRecoveryService.restoreDraft(draft);
         technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, draft.ticketNumber);
+        // LC-04-01-03: the resumption is traced too, with what was resumed.
+        parkedTicketArchiveService.record(draft, com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.RESUMED,
+                state.auth.operatorBadgeId);
         // BO-03-03-07: the resume ticket, where the store administers it. A
         // local resume keeps its number, so the document's two numbers are the
         // same one — it states both anyway, because it is the SAME document
@@ -234,9 +287,100 @@ public class TicketParkingService {
         foreign.persist();
         ticketRecoveryService.restoreDraft(foreign);
         technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, foreign.ticketNumber);
+        // LC-04-01-03: traced in THIS register's chain, which now holds the ticket.
+        parkedTicketArchiveService.record(foreign, com.intermarche.pos.domain.sale.ParkedTicketRecord.Event.RESUMED,
+                state.auth.operatorBadgeId);
         ticketPrinterService.printResumeTicket(foreign, parkedNumber);
         LOGGER.infof("Ticket repris inter-caisses ID: %d (%s)", foreign.id, foreign.ticketNumber);
         LOGGER.info("Exiting method resumeForeign");
+        return null;
+    }
+
+    /**
+     * Puts a TRAINING cart on hold (BO-06-06-01): school mode writes nothing
+     * fiscal, so the cart waits in memory and a training row records the
+     * parking — pushed to the store node, whose state of pending tickets lists
+     * it with its school mode. One cart may wait at a time, as in a real sale.
+     *
+     * @return null on success, or an error message shown to the cashier
+     */
+    String parkTraining() {
+        if (state.trainingParkedId != null) {
+            return i18n.get("op.ticketDejaAttenteReprenez");
+        }
+        com.intermarche.pos.domain.people.Employee operator = state.auth.operatorId == null ? null
+                : com.intermarche.pos.domain.people.Employee.findById(state.auth.operatorId);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        com.intermarche.pos.domain.sale.TrainingTicket parked = new com.intermarche.pos.domain.sale.TrainingTicket();
+        parked.terminalId = ticketNumberService.getTerminalId();
+        parked.cashierLogin = operator == null ? null : operator.loginName;
+        parked.issuedAt = now;
+        parked.parkedAt = now;
+        parked.parkedBy = state.auth.operatorBadgeId;
+        parked.itemCount = state.ticket.items.size();
+        parked.totalIncludingTax = state.ticket.getTotalAmount();
+        parked.persist();
+        syncOutboxService.enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.TRAINING, parked.id);
+        state.trainingParkedItems = new java.util.ArrayList<>(state.ticket.items);
+        state.trainingParkedId = parked.id;
+        state.trainingParkedAt = now;
+        LOGGER.infof("Ticket de formation mis en attente (%d)", parked.id);
+        state.clearTicket();
+        state.touch();
+        return null;
+    }
+
+    /**
+     * Lists the training cart on hold, as the parked list shows it.
+     *
+     * @return the cart, as an unsaved ticket, or nothing when none waits
+     */
+    List<Ticket> trainingParked() {
+        if (state.trainingParkedId == null) {
+            return List.of();
+        }
+        Ticket shown = new Ticket();
+        shown.id = state.trainingParkedId;
+        shown.ticketNumber = i18n.get("parked.r21v-formation");
+        shown.creationDate = state.trainingParkedAt;
+        shown.itemCount = state.trainingParkedItems.size();
+        java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+        for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : state.trainingParkedItems) {
+            total = total.add(item.getTotalPrice());
+        }
+        shown.totalIncludingTax = total;
+        return List.of(shown);
+    }
+
+    /**
+     * Recalls the training cart on hold (BO-06-06-01): the cart comes back in
+     * memory and the training row records the recall, pushed again.
+     *
+     * @param ticketId the training row's id
+     * @return null on success, or an error message shown to the cashier
+     */
+    String resumeTraining(Long ticketId) {
+        if (!state.ticket.items.isEmpty()) {
+            return i18n.get("op.ticketCoursMettezAttente");
+        }
+        if (state.trainingParkedId == null || !state.trainingParkedId.equals(ticketId)) {
+            return i18n.get("op.ticketAttenteIntrouvable");
+        }
+        com.intermarche.pos.domain.sale.TrainingTicket parked =
+                com.intermarche.pos.domain.sale.TrainingTicket.findById(ticketId);
+        if (parked != null) {
+            parked.resumedAt = java.time.LocalDateTime.now();
+            parked.resumedTerminalId = ticketNumberService.getTerminalId();
+            parked.resumedBy = state.auth.operatorBadgeId;
+            parked.persist();
+            syncOutboxService.enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.TRAINING, parked.id);
+        }
+        state.ticket.items.addAll(state.trainingParkedItems);
+        state.ticket.recomputeTotal();
+        state.trainingParkedItems = new java.util.ArrayList<>();
+        state.trainingParkedId = null;
+        state.trainingParkedAt = null;
+        state.touch();
         return null;
     }
 }

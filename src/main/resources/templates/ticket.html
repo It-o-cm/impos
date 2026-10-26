@@ -7,6 +7,9 @@
  ! gesture through and only asks the operator to look. Keep this fragment self-contained: it is
  ! replaced wholesale on every version change.
 !}
+{#if state.ticket.customerTaxId}
+<div class="receipt-item notice-line"><div class="item-details"><strong>{inject:i18n.get('doc.nif')}{state.ticket.customerTaxId}</strong></div></div>
+{/if}
 {#if state.ticket.transientError}
     {#if state.ticket.transientOk}
     <div class="receipt-item notice-line">
@@ -68,14 +71,20 @@
         <a href="{#if item.cancelled}#{#else}/action/select/{item.uid}{/if}" class="receipt-item-link">
             <div class="receipt-item {#if item.cancelled}cancelled{/if} {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
                 <div class="item-details">
-                    {item.html.raw}
+                    {inject:units.html(item).raw}
+                    {#if !item.cancelled && item.promotionLabel}
+                    <div class="promotion-label" style="font-size:var(--fs-row-sub); color:var(--success);">{item.promotionLabel}</div>
+                    {/if}
                     {#if item.toCollect}
                     <!-- LC-02-08-04 : l'indicateur. Sur la ligne elle-même et non dans
                          une colonne à part : ce que l'opérateur cherche du regard,
                          c'est « laquelle de ces lignes », pas « combien ». -->
                     <span class="to-collect-badge">{inject:i18n.get('ticket.enlever')}</span>
                     {/if}
-                    {#if showEan && item.ean}
+                    {#if item.codeShown}
+                    <!-- BO-10-02-35 : le code article, selon le drapeau de l'article
+                         (CODE_ARTICLE_ON_SCREEN), le parametre display.show-ean
+                         initialisant celui des articles qui n'en portent pas. -->
                     <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
                     {/if}
                     {#if item.tareFormatted}
@@ -84,13 +93,24 @@
                          client qui conteste un poids net, et elle vaut pour les deux
                          chemins — la tare envoyee a la balance comme celle deduite d'un
                          poids saisi a la main. -->
-                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{inject:i18n.get('ticket.tare')} {item.tareFormatted} kg</div>
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{inject:i18n.get('ticket.tare')} {inject:units.weight(item.appliedTareKg)}</div>
+                    {/if}
+                    {#if item.orderedQuantityFormatted}
+                    <!-- LC-06-02-02 / -12 : le document rappelé énonce la quantité
+                         commandée ET la quantité livrée ; la ligne vend la livrée et
+                         montre les deux. -->
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{inject:i18n.get('ticket.qteCommandee')} {item.orderedQuantityFormatted} · {inject:i18n.get('ticket.qteLivree')} {item.deliveredQuantityFormatted}</div>
+                    {/if}
+                    {#if item.activationCode}
+                    <!-- LC-02-09-01 : le code d'activation de l'article dematerialise,
+                         affiche sous sa ligne. -->
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{inject:i18n.get('ticket.codeActivation')} : {item.activationCode}</div>
                     {/if}
                     {#if item.detailLine}
                     <!-- P3-5 / LC-02-05-04 : la décomposition qté × PU sous le libellé,
                          une seule ligne pour les quatre cas (pièces, unité de mesure,
                          pesée, poids déduit d'un prix embarqué). -->
-                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.detailLine}</div>
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{inject:units.detail(item)}</div>
                     {/if}
                 </div>
                 <span class="price">
@@ -148,7 +168,7 @@
             <div></div>
         {/if}
 
-        <span class="nav-info">Page {state.ticketCurrentPageDisplay} / {state.ticketTotalPages}</span>
+        <span class="nav-info">{inject:i18n.get('ticket.page')} {state.ticketCurrentPageDisplay} / {state.ticketTotalPages}</span>
 
         {#if state.hasNextPage}
             <a href="/action/ticket/next" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>

@@ -42,6 +42,10 @@ import java.util.Objects;
 )
 public class Refund extends BaseEntity {
 
+    /** LC-07-07-03: actual WCL server for this card credit, never a receipt archive. */
+    @jakarta.persistence.Column(name = "monetic_server", length = 16)
+    public String moneticServer;
+
     /** Lifecycle status of a refund document. */
     public enum RefundStatus {
         /** Being built (unused since lot 4: refunds are created closed). */
@@ -112,10 +116,12 @@ public class Refund extends BaseEntity {
 
     /**
      * The return reason chosen by the cashier, from the administered list
-     * (LC-05-05-01/02), or null when none was chosen. It applies to the WHOLE
-     * refund (all returned lines at once), is journaled and — when the store
-     * administers it — printed on the return ticket, so it is exploitable in
-     * the back-office reports.
+     * ({@code LC-05-05-01/02}, {@code BO-06-06-05}), or null when none was
+     * chosen. It applies to the WHOLE refund (all returned lines at once), is
+     * journaled and — when the store administers it — printed on the return
+     * ticket, so it is exploitable in the back-office reports. Stored verbatim
+     * from the payload: the node states what the register recorded, it never
+     * re-derives it.
      */
     @Column(name = "return_reason", length = 255)
     public String returnReason;
@@ -211,7 +217,16 @@ public class Refund extends BaseEntity {
     @Column(name = "loyalty_recalculation_sent", nullable = false)
     public boolean loyaltyRecalculationSent;
 
-    /** The refunded lines. */
+    /**
+     * The loyalty advantages the return takes back, line by line (LC-05-07-02):
+     * the décagnottage and the vouchers and coupons withdrawn, as the loyalty
+     * programme computes them; empty when the programme could not say.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "refund_fidelity_lines", joinColumns = @JoinColumn(name = "refund_id"))
+    public List<RefundFidelityLine> fidelityLines = new ArrayList<>();
+
+    /** The refunded lines; association annotations belong here, never on the reason text (LC-07 credit sync). */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "refund_id", nullable = false)
     public List<RefundLine> lines = new ArrayList<>();

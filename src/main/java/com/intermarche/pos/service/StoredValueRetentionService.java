@@ -24,10 +24,13 @@ import java.time.LocalDateTime;
  * absence of a delay and not a delay of nothing — nothing is deleted.
  *
  * <p>Run at the CLOSE OF A SESSION and nowhere else: the register has no
- * scheduler, and the close is the one moment it is certainly not selling.
+ * scheduler, and the close is the one moment it is certainly not selling. It
+ * is plugged into the shared {@link CashSessionService} as a
+ * {@link SessionLifecycleHook}, so the store node — which declares no such
+ * hook — never sweeps the instruments it received from its registers.
  */
 @ApplicationScoped
-public class StoredValueRetentionService {
+public class StoredValueRetentionService implements SessionLifecycleHook {
 
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(StoredValueRetentionService.class);
@@ -35,6 +38,31 @@ public class StoredValueRetentionService {
     /** The administered delays. */
     @Inject
     PosSettingsService posSettingsService;
+
+    /**
+     * Nothing to do when a session opens: the sweep belongs to the close.
+     */
+    @Override
+    public void onSessionOpened() {
+        LOGGER.info("Entering method onSessionOpened");
+        LOGGER.info("Exiting method onSessionOpened");
+    }
+
+    /**
+     * Sweeps the stale instruments when a session closes (BO-10-08-13/-14/-15).
+     * A sweep that fails must not fail a close: the session is already written,
+     * so the failure is journalised here and swallowed.
+     */
+    @Override
+    public void onSessionClosed() {
+        LOGGER.info("Entering method onSessionClosed");
+        try {
+            sweep();
+        } catch (Exception purgeFailed) {
+            LOGGER.warnf("Purge des codes-barres impossible (%s)", purgeFailed.getMessage());
+        }
+        LOGGER.info("Exiting method onSessionClosed");
+    }
 
     /**
      * Deletes every instrument the administered delays have made stale.

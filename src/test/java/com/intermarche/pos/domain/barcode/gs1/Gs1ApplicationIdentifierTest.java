@@ -90,7 +90,7 @@ class Gs1ApplicationIdentifierTest {
      */
     @Test
     void atReturnsNullForUnknownCode() {
-        assertNull(Gs1ApplicationIdentifier.at("9999", 0));
+        assertNull(Gs1ApplicationIdentifier.at("2999", 0));
     }
 
     /**
@@ -155,5 +155,65 @@ class Gs1ApplicationIdentifierTest {
     @Test
     void ofReturnsNullForUnknownCode() {
         assertNull(Gs1ApplicationIdentifier.of("ZZ"));
+    }
+
+    /**
+     * Lot-19 defect: the additional product identification 240 is found by its
+     * true three-digit code, not taken for the two-digit 24 that does not exist.
+     */
+    @Test
+    void atFindsTheAdditionalProductIdentificationByItsTrueCode() {
+        Gs1ApplicationIdentifier found = Gs1ApplicationIdentifier.at("240ABC", 0);
+        assertEquals("240", found.code());
+        assertEquals("Identification complémentaire du produit", found.label());
+        assertEquals(30, found.maxLength());
+        assertFalse(found.isFixedLength());
+    }
+
+    /**
+     * The location numbers 410 to 417 are three-digit identifiers of thirteen
+     * fixed digits, so the payload's data starts after the third digit.
+     */
+    @Test
+    void theLocationNumbersAreThreeDigitFixedLengthIdentifiers() {
+        for (int code = 410; code <= 417; code++) {
+            Gs1ApplicationIdentifier found = Gs1ApplicationIdentifier.at(code + "3012345678901", 0);
+            assertEquals(String.valueOf(code), found.code());
+            assertEquals(13, found.dataLength());
+            assertTrue(found.isFixedLength());
+        }
+        assertNull(Gs1ApplicationIdentifier.of("41"));
+    }
+
+    /**
+     * Every standard identifier commonly found on retail items is known under
+     * its own code, so no administered alert or rule on it can miss.
+     */
+    @Test
+    void everyCommonRetailIdentifierIsKnownByItsCode() {
+        String[] codes = {"00", "01", "02", "10", "11", "13", "15", "16", "17", "20", "21", "22",
+            "240", "241", "242", "243", "250", "251", "253", "254", "255", "30", "37",
+            "400", "401", "402", "403", "420", "421", "422", "423", "424", "425", "426", "427",
+            "7001", "7002", "7003", "7004", "7005", "7006", "7007", "7008", "7009", "7010",
+            "8001", "8002", "8003", "8004", "8005", "8006", "8007", "8008", "8012",
+            "8017", "8018", "8019", "8020", "8110", "8111", "8112", "8200"};
+        for (String code : codes) {
+            assertEquals(code, Gs1ApplicationIdentifier.at(code + "1", 0).code(), code);
+        }
+    }
+
+    /**
+     * The decimal families 310n to 369n and 390n to 395n are found by their
+     * three-digit stem whatever the decimal digit that follows.
+     */
+    @Test
+    void everyDecimalFamilyIsFoundByItsStem() {
+        String[] stems = {"310", "316", "320", "329", "330", "337", "340", "349", "350", "357",
+            "360", "369", "390", "391", "392", "393", "394", "395"};
+        for (String stem : stems) {
+            Gs1ApplicationIdentifier found = Gs1ApplicationIdentifier.at(stem + "2" + "000100", 0);
+            assertEquals(stem, found.code(), stem);
+            assertTrue(found.decimal(), stem);
+        }
     }
 }

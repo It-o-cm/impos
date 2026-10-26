@@ -125,4 +125,20 @@ class EmployeeBootstrapTest {
             verify(admin).persist();
         }
     }
+
+    /**
+     * Lot 21: the bootstrap observes the startup event after the default
+     * observers — the dev and demo seed among them — so it never reports an
+     * empty employee table the seed is about to fill.
+     *
+     * @throws NoSuchMethodException never: the observer exists
+     */
+    @Test
+    void observesStartupAfterTheDefaultObservers() throws NoSuchMethodException {
+        java.lang.reflect.Parameter event = EmployeeBootstrap.class
+                .getDeclaredMethod("onStart", StartupEvent.class).getParameters()[0];
+        jakarta.annotation.Priority priority = event.getAnnotation(jakarta.annotation.Priority.class);
+        assertNotNull(priority);
+        assertTrue(priority.value() > jakarta.interceptor.Interceptor.Priority.APPLICATION + 500);
+    }
 }

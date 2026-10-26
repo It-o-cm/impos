@@ -22,10 +22,10 @@ import jakarta.enterprise.context.ApplicationScoped;
  * a decision and not an accident — the register asked a question and treats the
  * next scan as the answer.
  *
- * <p>The code is STORED and the sale goes on. Transmitting it to the provider
- * is the provider's protocol, which these repositories do not carry: the line
- * keeps the code and the provider name it owes, so the settlement is possible
- * the moment that protocol exists, and nothing is invented in the meantime.
+ * <p>The code is STORED on the line. Where a payment hub is administered, it is
+ * then sent to the hub for activation (LC-02-09-01): the line stays only if the
+ * hub accepts, and is cancelled with the hub's refusal otherwise. Without a hub,
+ * and in training mode, the code is kept and the sale goes on.
  */
 @ApplicationScoped
 @Priority(-1)
@@ -38,6 +38,14 @@ public class ActivationCodeScanHandler implements ScanContext.ScanHandler {
      */
     @jakarta.inject.Inject
     com.intermarche.pos.ui.Messages i18n;
+
+    /** Activates the dematerialised article on the payment hub (LC-02-09-01). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.ticket.DematerialisedService dematerialisedService;
+
+    /** Cancels the line the hub refused to activate. */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.ticket.TicketService ticketService;
 
     /**
      * Claims the scan that answers a pending activation request.
@@ -63,6 +71,34 @@ public class ActivationCodeScanHandler implements ScanContext.ScanHandler {
             // and the operator is told rather than left with a code that went
             // nowhere.
             ctx.state.ticket.setError(i18n.get("op.ligneActivationIntrouvable"));
+            ctx.handled = true;
+            return;
+        }
+        // BO-03-02-37: a type of prepaid card that forbids the activation
+        // refuses the article, struck like a refusal of the hub.
+        String forbidden = dematerialisedService.activationRefusal(code);
+        if (forbidden != null) {
+            ticketService.cancelItemById(ctx.state, line.uid);
+            ctx.state.ticket.setError(forbidden);
+            ctx.handled = true;
+            return;
+        }
+        // BO-03-02-37: the prepaid range of the code says whether the hub activates it.
+        if (dematerialisedService.thirdPartyActivation(ctx.state, code)) {
+            // BO-11-03-04: where the exchange is administered at payment, the
+            // article is registered now and activated on entering payment.
+            if (dematerialisedService.activationAtPayment()) {
+                ctx.state.ticket.setNotice(i18n.get("op.t21ActivationAuPaiement"));
+                ctx.handled = true;
+                return;
+            }
+            String refusal = dematerialisedService.activate(ctx.state, line);
+            if (refusal != null) {
+                // LC-02-09-01: the line is registered only if the hub accepts —
+                // a refused article leaves the cart, kept struck as a witness.
+                ticketService.cancelItemById(ctx.state, line.uid);
+                ctx.state.ticket.setError(refusal);
+            }
             ctx.handled = true;
             return;
         }
