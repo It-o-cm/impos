@@ -287,13 +287,12 @@ class ControlGateServiceTest {
         ControlGateService.Held gesture = held(ControlGateService.Kind.HTTP, "POST", profiled.key(), null);
         assertEquals(ControlGateService.Outcome.STOP, http.fire(profiled, gesture));
         verify(http.functionApprovals).hold("POST", "/action/x", "a=1");
-        verify(http.endorsementService).requestAuthorization(http.state, FunctionApprovalService.ACTION);
+        verify(http.endorsementService).requestAuthorization(http.state, FunctionApprovalService.ACTION, List.of("Chef"));
         assertSame(gesture, http.passed);
-        assertEquals(List.of("Chef"), http.state.endorsement.requiredProfiles);
         ControlGateService scan = gate("", "");
         ControlGateService.Held code = held(ControlGateService.Kind.SCAN, null, plain.key(), null);
         assertEquals(ControlGateService.Outcome.STOP, scan.fire(plain, code));
-        verify(scan.endorsementService).requestAuthorization(scan.state, ControlGateService.ACTION);
+        verify(scan.endorsementService).requestAuthorization(scan.state, ControlGateService.ACTION, List.of());
         assertSame(code, scan.passed);
     }
 

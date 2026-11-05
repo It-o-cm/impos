@@ -274,6 +274,7 @@ wait_ready store-node 8070 180
 # l'injection au nœud sans attendre les 300s de production.
 start_app impos "$IMPOS_DIR" 8080 -Dpos.valuation.feed-delivery-seconds=5 \
     -Dpos.sync.store-url=http://localhost:8070 \
+    -Dquarkus.transaction-manager.default-transaction-timeout=$NODE_TX_TIMEOUT \
     -Dpos.referential.pull-seconds=$PULL_SECONDS \
     -Dpos.referential.request-timeout-seconds=$PULL_REQUEST_TIMEOUT
 wait_ready impos 8080 180

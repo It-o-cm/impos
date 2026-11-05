@@ -125,6 +125,44 @@ class DepositControlResourceTest {
     }
 
     /**
+     * LS-01-05-05 / LS-01-05-06: a line of an article sold by weight whose
+     * quantity is NOT a weight expects the weight the sale states, never its
+     * quantity as kilograms — a price-embedded sticker its deduced weight (or
+     * nothing when the referential could not deduce it), a counter-ticket line
+     * the weight the counter reported, a GS1 count line its reference weight
+     * times its count.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void controlExpectsTheStatedWeightNeverAQuantityAsKilograms() {
+        TicketState.TicketItem sticker = item("P", "230", "1", "8.99");
+        sticker.priceEmbedded = true;
+        sticker.embeddedWeight = new BigDecimal("0.897");
+        sticker.embeddedUnitPrice = new BigDecimal("10.02");
+        TicketState.TicketItem unconverted = item("Q", "230", "1", "8.99");
+        unconverted.priceEmbedded = true;
+        TicketState.TicketItem counter = item("C", "4021", "1", "3.10");
+        counter.embeddedWeight = new BigDecimal("0.512");
+        TicketState.TicketItem counted = item("G", null, "2", "1.50");
+        counted.referenceWeightKg = new BigDecimal("0.250");
+        TicketState.TicketItem weightOnly = item("E", null, "1", "2.00");
+        weightOnly.embeddedWeight = new BigDecimal("0.300");
+        Map<String, Object> answer = DepositControlResource.control(
+                List.of(sticker, unconverted, counter, counted, weightOnly), true, true);
+        List<Map<String, Object>> lines = (List<Map<String, Object>>) answer.get("lines");
+        assertEquals(Boolean.TRUE, lines.get(0).get("weighed"));
+        assertEquals(new BigDecimal("0.897"), lines.get(0).get("expectedKg"));
+        assertEquals(Boolean.TRUE, lines.get(1).get("weighed"));
+        assertNull(lines.get(1).get("expectedKg"));
+        assertEquals(new BigDecimal("0.512"), lines.get(2).get("expectedKg"));
+        assertEquals(Boolean.FALSE, lines.get(3).get("weighed"));
+        assertEquals(new BigDecimal("0.500"), lines.get(3).get("expectedKg"));
+        assertEquals(Boolean.TRUE, lines.get(4).get("weighed"));
+        assertEquals(new BigDecimal("0.300"), lines.get(4).get("expectedKg"));
+        assertEquals(new BigDecimal("2.209"), answer.get("expectedTotalKg"));
+    }
+
+    /**
      * The switch off controls no line and expects nothing.
      */
     @Test

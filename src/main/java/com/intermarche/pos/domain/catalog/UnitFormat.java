@@ -37,6 +37,22 @@ public record UnitFormat(int measureDecimals, int weightDecimals, String weightS
     }
 
     /**
+     * Whether the QUANTITY of a line is a weight in kilograms: a line of an
+     * article sold by its PLU that was weighed — at the scale, on a weighed-EAN
+     * label, keyed, or from a GS1 net weight. A price-embedded line counts one
+     * sticker, and a line whose weight is stated beside its quantity (a deduced
+     * weight, a counter line) counts one article: their quantity is not a weight.
+     *
+     * @param plu the PLU code the line carries, or null
+     * @param priceEmbedded whether the line was rung at a read total
+     * @param statedWeight the weight stated beside the quantity, or null
+     * @return true when the quantity is the weight
+     */
+    public static boolean weighedQuantity(String plu, boolean priceEmbedded, BigDecimal statedWeight) {
+        return plu != null && !plu.isEmpty() && !priceEmbedded && statedWeight == null;
+    }
+
+    /**
      * Writes a weight with its decimals, French comma, without its symbol.
      *
      * @param kilograms the weight

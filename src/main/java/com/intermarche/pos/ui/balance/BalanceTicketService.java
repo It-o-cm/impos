@@ -243,9 +243,8 @@ public class BalanceTicketService {
         // the weight it reported — which is what a shop wants when its promotions
         // live in the register and not in the scale.
         boolean counterPrice = posSettingsService.balanceCounterPrice();
-        BigDecimal total = counterPrice || product == null
-                ? counterTotal(line)
-                : catalogTotal(line, product);
+        BigDecimal catalog = counterPrice || product == null ? null : catalogTotal(line, product);
+        BigDecimal total = catalog == null ? counterTotal(line) : catalog;
         // Quantity one at the resolved total: the register's total then equals the
         // figure it just decided, which a unit price times a weight cannot guarantee
         // once either has been rounded. LC-14-01-06 non-cumulation: the counter
@@ -262,10 +261,16 @@ public class BalanceTicketService {
         }
         TicketState.TicketItem added = state.ticket.items.get(state.ticket.items.size() - 1);
         // The flag follows the SOURCE, not the line. A counter price is the line's
-        // own truth and the valuation engine must leave it alone; a catalog price is
-        // an ordinary price, and flagging it would lock the line out of the very
-        // promotions the shop turned this option on to get.
-        added.priceEmbedded = counterPrice || product == null;
+        // own truth and the valuation engine must leave it alone — and so is the
+        // counter's total booked because the catalog could not re-price it; a
+        // catalog price is an ordinary price, and flagging it would lock the line
+        // out of the very promotions the shop turned this option on to get.
+        added.priceEmbedded = catalog == null;
+        // LS-03-04-04: the quantity is ONE counter line; the weight the counter
+        // reported travels beside it, the weight a security scale expects.
+        if (line.quantity != null && line.quantity.signum() > 0) {
+            added.embeddedWeight = line.quantity.setScale(3, RoundingMode.HALF_UP);
+        }
         // BO-02-03-09: snapshot the discount ban onto the freshly added line.
         if (product != null && ProductAttributes.discountForbidden(product)) {
             added.discountForbidden = true;
@@ -291,19 +296,19 @@ public class BalanceTicketService {
      * The line total recomputed from the catalog: the weight the counter reported,
      * at the register's own price per kilogram ({@code LC-06-01-04}).
      *
-     * <p>Falls back to the counter's total when the catalog has no current price or
-     * the counter reported no weight — half a rule applied is worse than the rule
-     * the operator can read off the paper.
+     * <p>Answers nothing when the catalog has no current price or the counter
+     * reported no weight: the caller then books the counter's total — half a rule
+     * applied is worse than the rule the operator can read off the paper.
      *
      * @param line the counter line as the scale priced it
      * @param product the catalog article behind the EAN
-     * @return the total to book, two decimals
+     * @return the total to book, two decimals, or null when the catalog cannot price it
      */
     private BigDecimal catalogTotal(SyncPayloads.BalanceTicketLineDto line, Product product) {
         Price price = Price.findCurrentPrice(product.id);
         if (price == null || price.priceIncludingTax == null
                 || line.quantity == null || line.quantity.signum() <= 0) {
-            return counterTotal(line);
+            return null;
         }
         return price.priceIncludingTax.multiply(line.quantity).setScale(2, RoundingMode.HALF_UP);
     }

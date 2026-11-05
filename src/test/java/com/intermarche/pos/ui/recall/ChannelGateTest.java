@@ -381,6 +381,34 @@ class ChannelGateTest {
     }
 
     /**
+     * DG-03-01-05: an e-commerce order paid short restates the platform's
+     * settlements and leaves the remainder due at the till — never covered by
+     * the mobility's fictitious tender; one deposited without settlement
+     * restates nothing.
+     */
+    @Test
+    void anEcommerceOrderPaidShortLeavesTheRemainderDue() {
+        ChannelGate gate = gate();
+        when(gate.rules.mobilityFictitiousTender()).thenReturn("VOUCHER");
+        PosState state = new PosState();
+        state.payment.ticketDbId = 7L;
+        state.ticket.totalAmount = new BigDecimal("5.52");
+        RecalledDocument order = doc(RecalledDocument.Kind.ECOMMERCE, "1");
+        order.payments = List.of(new RecalledDocument.Payment("CARD", new BigDecimal("2.00")));
+        gate.afterLoad(state, order);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CARD", state.payment.payments.get(0).method);
+        assertEquals(new BigDecimal("2.00"), state.payment.paidAmount);
+        assertEquals("ECOMMERCE", state.ticket.recalledChannel);
+        verify(gate.ticketPersistenceService).addPaymentToTicket(eq(7L), any(PaymentState.PaymentEntry.class));
+        PosState unpaid = new PosState();
+        RecalledDocument basket = doc(RecalledDocument.Kind.ECOMMERCE, "1");
+        basket.payments = null;
+        gate.afterLoad(unpaid, basket);
+        assertTrue(unpaid.payment.payments.isEmpty());
+    }
+
+    /**
      * In training mode the mobility settlements are taken but never persisted.
      */
     @Test

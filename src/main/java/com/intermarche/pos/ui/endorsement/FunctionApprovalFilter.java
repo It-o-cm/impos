@@ -76,9 +76,10 @@ public class FunctionApprovalFilter implements ContainerRequestFilter {
             }
             if (endorsements.selfAuthorized(state)) return;
             approvals.hold(method, target, body);
-            endorsements.requestAuthorization(state, FunctionApprovalService.ACTION);
-            // BO-04-02-01: a rule naming its validating profiles keeps the aval to them.
-            state.endorsement.requiredProfiles = approvals.profiles(policyMethod, path);
+            // BO-04-02-01: a rule naming its validating profiles keeps the aval to
+            // them — at the till and, LS-04-03-13, at the back office too.
+            endorsements.requestAuthorization(state, FunctionApprovalService.ACTION,
+                    approvals.profiles(policyMethod, path));
             context.abortWith(Response.seeOther(URI.create("/")).build());
         }
     }

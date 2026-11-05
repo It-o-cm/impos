@@ -111,7 +111,7 @@ public class EcommerceTicketClient {
             line.totalPrice = amount(row.totalPrice);
             ticket.addLine(line);
         }
-        ticket.itemCount = ticket.lines.size();
+        ticket.itemCount = ticket.countArticles();
         save(ticket);
         LOGGER.info("Exiting method importTicket (imported " + ticket.ticketNumber + ")");
         return ticket;

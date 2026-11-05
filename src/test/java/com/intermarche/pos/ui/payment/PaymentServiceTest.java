@@ -1384,6 +1384,106 @@ class PaymentServiceTest {
         verify(hardwareService, never()).openDrawer();
     }
 
+    /**
+     * LS-02-02-06: in training no card request leaves the register — the card is
+     * simulated like the cash changer: accepted at once for the amount asked,
+     * nothing persisted, the terminal never touched, the sale complete.
+     */
+    @Test
+    void aTrainingCardIsSimulatedAndNeverReachesTheTerminal() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("1.08");
+        state.payment.ticketDbId = 3L;
+        service.processCard(state, new BigDecimal("1.08"));
+        verifyNoInteractions(terminal);
+        assertNull(state.payment.pendingCardAmount);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CARD", state.payment.payments.get(0).method);
+        assertEquals(0, new BigDecimal("1.08").compareTo(state.payment.paidAmount));
+        assertTrue(state.payment.transactionComplete);
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
+    }
+
+    /**
+     * LS-02-02-06: the combined meal-voucher debit is simulated in training too.
+     */
+    @Test
+    void aTrainingCombinedCardIsSimulatedToo() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("12.00");
+        service.processCard(state, null, true);
+        verifyNoInteractions(terminal);
+        assertEquals(0, new BigDecimal("12.00").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * LS-02-02-06: a net refund paid back by card in training credits no real
+     * card: the settlement is recorded at once and the terminal stays silent.
+     */
+    @Test
+    void aTrainingCardRefundIsSimulated() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        assertTrue(service.processNetRefund(state, "CARD"));
+        verifyNoInteractions(terminal);
+        assertEquals(0, new BigDecimal("-5.00").compareTo(state.payment.paidAmount));
+        assertTrue(state.payment.transactionComplete);
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
+    }
+
+    /**
+     * LS-02-02-06: in training the loyalty pot is never asked for a lease nor a
+     * slip printed: the payment is simulated under the administered tender, the
+     * remaining due when no amount is given.
+     */
+    @Test
+    void aTrainingLoyaltyPaymentIsSimulated() {
+        state.trainingMode = true;
+        state.fidelity.active = true;
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        service.processFidelity(state, new BigDecimal("4"));
+        assertEquals(0, new BigDecimal("4").compareTo(state.payment.paidAmount));
+        assertEquals("FIDELITY", state.payment.payments.get(0).method);
+        verify(hardwareService).displayMessage("FIDELITE  4,00 E");
+        service.processFidelity(state, null);
+        assertEquals(0, new BigDecimal("10.00").compareTo(state.payment.paidAmount));
+        assertTrue(state.payment.transactionComplete);
+        verifyNoInteractions(fidelityService, ticketPrinterService);
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
+    }
+
+    /**
+     * LS-02-02-06: a training loyalty payment with no amount settles the
+     * remaining due; without a card attached it is refused as a real one is.
+     */
+    @Test
+    void aTrainingLoyaltyPaymentNeedsACardAndDefaultsToTheRemaining() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("6.00");
+        service.processFidelity(state, null);
+        assertEquals("CARTE FIDÉLITÉ REQUISE", state.ticket.transientError);
+        assertTrue(state.payment.payments.isEmpty());
+        state.fidelity.active = true;
+        service.processFidelity(state, BigDecimal.ZERO);
+        assertEquals(0, new BigDecimal("6.00").compareTo(state.payment.paidAmount));
+        verifyNoInteractions(fidelityService);
+    }
+
+    /**
+     * LS-02-02-06: Resto Flash is not asked to confirm a training payment.
+     */
+    @Test
+    void aTrainingRestoFlashIsNotConfirmedWithTheService() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("1000");
+        state.payment.valuationMealThreshold = null;
+        service.processRestoFlash(state, "TOK", new BigDecimal("5"));
+        verifyNoInteractions(restoFlashClient);
+        assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
+    }
+
     // --------------------------------------------------
     // cash changer (LC-07-15-01 to -04, LC-13-01-01)
     // --------------------------------------------------
@@ -3195,7 +3295,7 @@ class PaymentServiceTest {
      * the store node, after the fiscal moment and tolerantly — the sale is
      * closed whatever the node answers, and the order cannot be recalled and
      * paid twice. A sale with no recalled order tells nothing (both arms of
-     * the settle guard).
+     * the settle guard). The settling ticket rides along (DG-03-02-01, -03).
      */
     @Test
     void finalizeTransactionSettlesTheRecalledOrder() {
@@ -3204,13 +3304,19 @@ class PaymentServiceTest {
         service.documentClient = documentClient;
         state.payment.ticketDbId = 9L;
         state.recalledOrderCode = "C04-CMD000001";
+        com.intermarche.pos.domain.sale.Ticket sold =
+                org.mockito.Mockito.mock(com.intermarche.pos.domain.sale.Ticket.class);
+        sold.ticketNumber = "C04-000009";
         try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
                      org.mockito.Mockito.mockStatic(
                              io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L)).thenReturn(sold);
             service.finalizeTransaction(state);
         }
-        verify(documentClient).settleOrder("C04-CMD000001");
+        // DG-03-02-01/03: the settling ticket is named, and the codes recorded on it.
+        verify(documentClient).settleOrder("C04-CMD000001", "C04-000009");
+        verify(ticketPersistenceService).storeRecalledOrderCodes(9L, java.util.Set.of("C04-CMD000001"));
         assertNull(state.recalledOrderCode);
     }
 
@@ -3233,8 +3339,8 @@ class PaymentServiceTest {
             stubNoGiftCards(panache, 9L);
             service.finalizeTransaction(state);
         }
-        verify(documentClient).settleOrder("BV-1");
-        verify(documentClient).settleOrder("BV-2");
+        verify(documentClient).settleOrder("BV-1", null);
+        verify(documentClient).settleOrder("BV-2", null);
         assertTrue(state.recalledDocumentCodes.isEmpty());
     }
 
@@ -3273,7 +3379,8 @@ class PaymentServiceTest {
             stubNoGiftCards(panache, 9L);
             service.finalizeTransaction(state);
         }
-        verify(documentClient, org.mockito.Mockito.never()).settleOrder(org.mockito.ArgumentMatchers.any());
+        verify(documentClient, org.mockito.Mockito.never()).settleOrder(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     /**

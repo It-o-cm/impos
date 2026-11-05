@@ -83,6 +83,10 @@
         /* LC-09-01-12/14/16/18 : les assiettes éligibles, au pied de la zone ticket
            et au-dessus de la pagination — c'est une propriété du panier entier, pas
            d'une page de lignes. */
+        /* LC-09-01-11/13/15/17 : la marque d'éligibilité, sur la ligne de l'article. */
+        .tender-marks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+        .tender-mark { display: inline-block; padding: 0 6px; border-radius: 3px; border: 1px solid var(--accent);
+                       color: var(--accent); font-size: var(--fs-row-sub); font-weight: bold; }
         .tender-bases { border-top: 1px solid var(--border-strong); padding: 6px 10px 2px; }
         .tender-base { display: flex; justify-content: space-between; font-size: var(--fs-row-sub); }
         .tender-base .tender-label { color: var(--text-muted); }

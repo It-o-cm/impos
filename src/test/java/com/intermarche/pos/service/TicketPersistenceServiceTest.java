@@ -2699,4 +2699,27 @@ class TicketPersistenceServiceTest {
         assertEquals(first, stamped.paymentStartedAt);
         verify(stamped, never()).persist();
     }
+
+    /**
+     * DG-03-02-01, -03: the codes of the orders a sale settles are recorded
+     * on its ticket, joined, cut at the column's 200 characters; a sale
+     * settling none reads nothing, and a vanished ticket is left alone.
+     */
+    @Test
+    void storeRecalledOrderCodesRecordsTheSettledOrders() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = new Ticket();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            mocked.when(() -> Ticket.findById(6L)).thenReturn(null);
+            service.storeRecalledOrderCodes(5L, List.of());
+            assertNull(ticket.recalledOrderCode);
+            service.storeRecalledOrderCodes(5L, List.of("W4", "BV-1"));
+            assertEquals("W4;BV-1", ticket.recalledOrderCode);
+            service.storeRecalledOrderCodes(5L, List.of("A".repeat(150), "B".repeat(150)));
+            assertEquals(200, ticket.recalledOrderCode.length());
+            service.storeRecalledOrderCodes(6L, List.of("W5"));
+            mocked.verify(() -> Ticket.findById(6L));
+        }
+    }
 }

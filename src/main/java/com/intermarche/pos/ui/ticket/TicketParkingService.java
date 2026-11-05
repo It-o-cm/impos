@@ -317,7 +317,7 @@ public class TicketParkingService {
         parked.issuedAt = now;
         parked.parkedAt = now;
         parked.parkedBy = state.auth.operatorBadgeId;
-        parked.itemCount = state.ticket.items.size();
+        parked.itemCount = com.intermarche.pos.ui.ticket.TicketState.articleCount(state.ticket.items);
         parked.totalIncludingTax = state.ticket.getTotalAmount();
         parked.persist();
         syncOutboxService.enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.TRAINING, parked.id);
@@ -343,7 +343,7 @@ public class TicketParkingService {
         shown.id = state.trainingParkedId;
         shown.ticketNumber = i18n.get("parked.r21v-formation");
         shown.creationDate = state.trainingParkedAt;
-        shown.itemCount = state.trainingParkedItems.size();
+        shown.itemCount = com.intermarche.pos.ui.ticket.TicketState.articleCount(state.trainingParkedItems);
         java.math.BigDecimal total = java.math.BigDecimal.ZERO;
         for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : state.trainingParkedItems) {
             total = total.add(item.getTotalPrice());

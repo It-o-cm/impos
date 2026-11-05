@@ -253,7 +253,22 @@ public class BackOfficeDocumentClient {
      *         when it could not be told
      */
     public boolean settleOrder(String code) {
-        LOGGER.info("Entering method settleOrder with code: " + code);
+        return settleOrder(code, null);
+    }
+
+    /**
+     * Tells the store node that the order a recall loaded has been settled at
+     * this till (LC-06-03-07), naming the ticket that settled it, which the
+     * node keeps so the e-commerce platform reads the payments of that ticket
+     * with the order (DG-03-02-01, -03).
+     *
+     * @param code the code of the settled order
+     * @param ticketNumber the settling ticket, or null when none is known
+     * @return true when the node settled it or had already settled it, false
+     *         when it could not be told
+     */
+    public boolean settleOrder(String code, String ticketNumber) {
+        LOGGER.info("Entering method settleOrder with code: " + code + ", ticketNumber: " + ticketNumber);
         if (code == null || code.isBlank()) {
             LOGGER.info("Exiting method settleOrder (no code)");
             return false;
@@ -268,7 +283,10 @@ public class BackOfficeDocumentClient {
                     .uri(URI.create(documentUrl.get().trim() + "/api/orders/" + encoded
                             + "/settled"))
                     .timeout(Duration.ofSeconds(3))
-                    .POST(HttpRequest.BodyPublishers.noBody());
+                    .header("Content-Type", "application/json")
+                    .POST(ticketNumber == null ? HttpRequest.BodyPublishers.noBody()
+                            : HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(
+                                    java.util.Map.of("ticketNumber", ticketNumber))));
             token.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
             HttpResponse<String> response = httpClient.send(builder.build(),
                     HttpResponse.BodyHandlers.ofString());

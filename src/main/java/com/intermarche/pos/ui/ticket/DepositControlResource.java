@@ -27,9 +27,11 @@ import java.util.Map;
  * one entry per line with the weight it expects and whether the line is
  * controlled at all.
  * <ul>
- *   <li>a WEIGHED line expects its own measured weight — the product's weight
- *       is deduced from the deposit, which is what BO-02-03-24 asks of a
- *       self-service lane;</li>
+ *   <li>a WEIGHED line expects the weight the sale states — the weighing, or
+ *       the weight a price-embedded label, a GS1 code or a counter ticket
+ *       carries beside a quantity of one — and no weight at all when the sale
+ *       does not state it: the product's weight is deduced from the deposit,
+ *       which is what BO-02-03-24 asks of a self-service lane;</li>
  *   <li>a unit line expects the article's reference weight times its
  *       quantity, or nothing measurable when the referential carries none;</li>
  *   <li>a BULKY article is not controlled (BO-02-03-25): the customer cannot
@@ -86,7 +88,7 @@ public class DepositControlResource {
         List<Map<String, Object>> lines = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         for (TicketState.TicketItem item : items) {
-            boolean weighed = item.plu != null && !item.plu.isEmpty();
+            boolean weighed = item.plu != null && !item.plu.isEmpty() || item.embeddedWeight != null;
             BigDecimal expected = expectedWeight(item, weighed);
             boolean controlled = enabled && !item.bulky && item.getTotalPrice().signum() > 0;
             Map<String, Object> line = new LinkedHashMap<>();
@@ -111,16 +113,20 @@ public class DepositControlResource {
     }
 
     /**
-     * The weight one line puts down: its measured weight when weighed, its
-     * reference weight times its quantity otherwise, null when unknown.
+     * The weight one line puts down: for an article sold by weight, the weight
+     * the sale states — the weighing, the weight a label or a counter ticket
+     * carries — and nothing when the sale does not state it (a price-embedded
+     * sticker the referential cannot convert): its quantity counts stickers, not
+     * kilograms. Otherwise the reference weight times the quantity, null when
+     * unknown.
      *
      * @param item the line
-     * @param weighed whether the line is a weighing
+     * @param weighed whether the line sells an article by weight
      * @return the weight in kilograms, or null
      */
     private static BigDecimal expectedWeight(TicketState.TicketItem item, boolean weighed) {
         if (weighed) {
-            return item.quantity;
+            return item.getStatedWeightKg();
         }
         if (item.referenceWeightKg == null) {
             return null;

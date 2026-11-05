@@ -312,7 +312,7 @@ class RangePurposeScanHandlerTest {
         }
         assertTrue(ctx.handled);
         assertEquals(new BigDecimal("0.250"), ticket.pendingTareKg);
-        verify(ticket).setNotice("TARE 0.250 KG PRISE EN COMPTE");
+        verify(ticket).setNotice("TARE 0,250 KG PRISE EN COMPTE");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 

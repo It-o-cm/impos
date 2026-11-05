@@ -434,6 +434,7 @@ class RemoteCommandServiceTest {
         assertEquals(2, found.size());
         assertEquals("Pas de remise au-dela de 10 \"euros\"", found.get(0)[2]);
         assertNull(found.get(1)[2]);
+        assertNull(found.get(0)[3]);
     }
 
     /**
@@ -469,7 +470,7 @@ class RemoteCommandServiceTest {
         service.collectOnce();
         assertEquals("Demande refusée par le back-office", service.state.ticket.transientError);
         service.state.ticket.transientError = null;
-        service.refuse("u-8", "   ");
+        service.refuse("u-8", "   ", null);
         assertEquals("Demande refusée par le back-office", service.state.ticket.transientError);
     }
 
@@ -486,16 +487,21 @@ class RemoteCommandServiceTest {
         route(service, 200, "{}");
         service.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         service.state.endorsement = null;
-        service.refuse("u-1", "Non");
+        service.refuse("u-1", "Non", null);
         service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
-        service.refuse("u-2", "Non");
+        service.refuse("u-2", "Non", null);
         service.state.endorsement.request("CANCEL_TICKET");
-        service.refuse("u-3", "Non");
+        service.refuse("u-3", "Non", null);
         verify(service.endorsementService, never()).clearRequest(any());
         service.state.endorsement.remoteRequested = true;
-        service.refuse("u-4", "Geste refuse");
+        service.state.endorsement.remoteRequestId = "req-B";
+        service.refuse("u-5", "Ancienne demande", "req-A");
+        verify(service.endorsementService, never()).clearRequest(any());
+        service.refuse("u-4", "Geste refuse", "req-B");
         verify(service.endorsementService).clearRequest(service.state);
         assertEquals("Geste refuse", service.state.ticket.transientError);
+        service.refuse("u-6", "Sans reference", null);
+        verify(service.endorsementService, org.mockito.Mockito.times(2)).clearRequest(service.state);
     }
 
     /**
@@ -594,10 +600,11 @@ class RemoteCommandServiceTest {
         assertTrue(service.orders("[{\"type\":\"CLOSE_SESSION\"}]").isEmpty());
         assertTrue(service.orders("[{\"uid\":\"u-1\",\"type\":3}]").isEmpty());
         List<String[]> found = service.orders(
-                "[{\"reason\":\"ligne\\nsuivante\",\"type\":\"SUPERVISOR_REFUSED\",\"uid\":\"u-9\"}]");
+                "[{\"reason\":\"ligne\\nsuivante\",\"type\":\"SUPERVISOR_REFUSED\",\"uid\":\"u-9\",\"ref\":\"req-9\"}]");
         assertEquals(1, found.size());
         assertEquals("u-9", found.get(0)[0]);
         assertEquals("ligne\nsuivante", found.get(0)[2]);
+        assertEquals("req-9", found.get(0)[3]);
     }
 
     /**
@@ -612,8 +619,10 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
         service.state.endorsement.request("CANCEL_LINE");
+        service.state.endorsement.remoteRequested = true;
+        service.state.endorsement.remoteRequestId = "req-1";
         route(service, 200, "[{\"uid\":\"u-5\",\"type\":\"SUPERVISOR_GRANTED\","
-                + "\"issuedBy\":\"Marie Curie\",\"reason\":\"Autorisé par Marie Curie\"}]");
+                + "\"issuedBy\":\"Marie Curie\",\"reason\":\"Autorisé par Marie Curie\",\"ref\":\"req-1\"}]");
         service.collectOnce();
         assertEquals("Autorisé par Marie Curie", service.state.endorsement.remoteGrant);
         assertNotNull(service.state.ticket.transientError);
@@ -651,9 +660,43 @@ class RemoteCommandServiceTest {
         RemoteCommandService service = newService("007");
         service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
         service.state.endorsement.request("CANCEL_LINE");
+        service.state.endorsement.remoteRequested = true;
+        service.state.endorsement.remoteRequestId = "req-7";
         route(service, 200, "[]");
-        service.grant("u-7", "   ");
+        service.grant("u-7", "   ", "req-7");
         assertEquals("le back-office", service.state.endorsement.remoteGrant);
+    }
+
+    /**
+     * LS-04-03-13: an authorisation is armed only on the request it answers. One
+     * naming another request (the gesture the cashier abandoned before the order
+     * was collected), one naming none, one reaching a request kept local or an
+     * abandoned one arms nothing — and every one of them is acknowledged.
+     *
+     * @throws Exception never, the mocked client declares it
+     */
+    @Test
+    void anAuthorisationIsArmedOnlyOnTheRequestItAnswers() throws Exception {
+        RemoteCommandService service = newService("007");
+        route(service, 200, "[]");
+        service.state.endorsement = new com.intermarche.pos.ui.endorsement.EndorsementState();
+        service.state.endorsement.request("CANCEL_LINE");
+        service.grant("u-1", "Le Manager", "req-B");
+        assertNull(service.state.endorsement.remoteGrant);
+        service.state.endorsement.remoteRequested = true;
+        service.state.endorsement.remoteRequestId = "req-B";
+        service.grant("u-2", "Le Manager", "req-A");
+        assertNull(service.state.endorsement.remoteGrant);
+        service.grant("u-3", "Le Manager", null);
+        assertNull(service.state.endorsement.remoteGrant);
+        service.state.endorsement.active = false;
+        service.grant("u-4", "Le Manager", "req-B");
+        assertNull(service.state.endorsement.remoteGrant);
+        service.state.endorsement.active = true;
+        service.grant("u-5", "Le Manager", "req-B");
+        assertEquals("Le Manager", service.state.endorsement.remoteGrant);
+        assertEquals(5, sent(service).stream()
+                .filter(request -> request.uri().getPath().endsWith("/ack")).count());
     }
     /** BO-04-02: blank acknowledgement reasons and a missing endorsement mailbox still acknowledge the node order. */
     @Test
@@ -663,7 +706,7 @@ class RemoteCommandServiceTest {
         when(service.httpClient.send(any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(response);
         service.acknowledgeRequest("u1", " ");
         service.state.endorsement = null;
-        service.grant("u2", "MANAGER");
+        service.grant("u2", "MANAGER", "req-1");
         verify(service.httpClient, org.mockito.Mockito.times(2)).send(any(), any());
     }
 

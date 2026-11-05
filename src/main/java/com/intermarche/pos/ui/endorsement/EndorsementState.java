@@ -63,6 +63,13 @@ public class EndorsementState implements Serializable {
      */
     public boolean remoteRequested = false;
 
+    /**
+     * The identity this request was sent to the back office under
+     * ({@code LS-04-03-13}), or null when it was not sent: an authorisation
+     * coming back is applied to the request it names and to no other.
+     */
+    public String remoteRequestId = null;
+
     /** The current endorsement error, or null. */
     public String error = null;
 
@@ -131,6 +138,7 @@ public class EndorsementState implements Serializable {
         this.pendingForm = new java.util.LinkedHashMap<>(form != null ? form : java.util.Map.of());
         this.returnPath = returnPath;
         this.remoteRequested = false;
+        this.remoteRequestId = null;
         this.requiredProfiles = new java.util.ArrayList<>();
         clearPendingPrice();
     }
@@ -155,6 +163,7 @@ public class EndorsementState implements Serializable {
         this.presentedBadge = null;
         this.presentedDallasKey = null;
         this.remoteRequested = false;
+        this.remoteRequestId = null;
         this.requiredProfiles = new java.util.ArrayList<>();
     }
 
@@ -170,6 +179,7 @@ public class EndorsementState implements Serializable {
         this.presentedDallasKey = null;
         this.remoteGrant = null;
         this.remoteRequested = false;
+        this.remoteRequestId = null;
         this.pendingForm = new java.util.LinkedHashMap<>();
         this.returnPath = null;
         this.requiredProfiles = new java.util.ArrayList<>();

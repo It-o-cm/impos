@@ -206,6 +206,7 @@ public class HomeResource {
         LOGGER.info("Exiting method home");
         return main.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
+                .data("tenderMarks", homeService.restrictedTenderMarks())
                 .data("waitingLabel", homeService.waitingLabel())
                 .data("drawerAlert", homeService.drawerCapAlert())
                 .data("discountPresets", homeService.discountPresets())
@@ -359,6 +360,7 @@ public class HomeResource {
         resolveArticleCodes();
         result.put("html", ticket.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
+                .data("tenderMarks", homeService.restrictedTenderMarks())
                 .data("waitingLabel", homeService.waitingLabel())
                 .render());
         result.put("total", state.ticket.getTotalFormatted());

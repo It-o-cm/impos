@@ -267,6 +267,11 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             BigDecimal unitPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
             ctx.state.ticket.addItem(product.ean, articleCode, translatedLabel(product),
                     unitPrice, quantityKg, vatRate);
+            // LC-14-02-03/07/11: the tare deducted is RECORDED on the line, like the
+            // tare of the scale and of a keyed weight, so the cashier display, the
+            // customer display and the receipt state it — a weighed line never
+            // merges, so the last line is the one just added.
+            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).appliedTareKg = tare;
         }
         com.intermarche.pos.ui.ticket.TicketState.TicketItem added =
                 ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);

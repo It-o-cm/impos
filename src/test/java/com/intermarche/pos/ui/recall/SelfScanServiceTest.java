@@ -190,7 +190,7 @@ class SelfScanServiceTest {
         assertTrue(state.selfScan.isTotal());
         assertTrue(state.selfScan.provoked);
         assertTrue(state.selfScan.messageOk);
-        assertEquals("CONTRÔLE TOTAL PROVOQUÉ : RE-SCANNER TOUS LES ARTICLES", state.selfScan.message);
+        assertNull(state.selfScan.message);
     }
 
     /**
@@ -259,6 +259,25 @@ class SelfScanServiceTest {
         }
         assertTrue(state.selfScan.isTotal());
         assertEquals("CAFE", state.selfScan.labels.get("777"));
+    }
+
+    /**
+     * LS-07-01-03: an undeclared article is named by its CHECKOUT label in
+     * capitals — the wording of the sale ticket — never by its commercial name.
+     */
+    @Test
+    void anUndeclaredArticleIsNamedByItsCheckoutLabel() {
+        SelfScanService service = service(99);
+        PosState state = new PosState();
+        service.start(state, basket("PARTIAL"));
+        Product coffee = product(7L, "Café Grains 500g");
+        coffee.checkoutLabel = "Café grains 500g";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            catalog(panache, "3300000000004", coffee);
+            assertTrue(service.rescan(state, "3300000000004"));
+        }
+        assertEquals("CAFÉ GRAINS 500G", state.selfScan.labels.get("3300000000004"));
+        assertEquals("ÉCART SUR CAFÉ GRAINS 500G : CONTRÔLE TOTAL", state.selfScan.message);
     }
 
     /**

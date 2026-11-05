@@ -5,7 +5,7 @@
 set -u
 
 PASS='Stine*Dear132!?'
-HOST='root@10.63.31.153'
+HOST='root@10.63.31.150'
 REMOTE_DIR='/root/Henri'
 # Back-office password of the ADMIN account, used for the HTTP Basic pushes
 # below. It appears TWICE and the two must agree: it is exported as

@@ -6056,4 +6056,21 @@ class PosSettingsServiceTest {
         }
     }
 
+    // ---- DG: C ----
+
+    /**
+     * The fate of an e-commerce order paid short (DG-03-01-05): RECALL by
+     * default, the administered word read trimmed and upper-cased.
+     */
+    @Test
+    void dgCPartialPaymentGetter() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("RECALL", new PosSettingsService().ecommercePartialPayment());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("channel.ecommerce.partial-payment", " reject ")));
+            assertEquals("REJECT", new PosSettingsService().ecommercePartialPayment());
+        }
+    }
 }

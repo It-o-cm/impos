@@ -17,6 +17,7 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -1137,6 +1138,30 @@ class WeightedEanScanHandlerTest {
         verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
                 eq(new BigDecimal("9.99")), eq(new BigDecimal("0.250")),
                 eq(new BigDecimal("0.055")));
+        // LC-14-02-03/07/11: the deducted tare is recorded on the line it lightened.
+        assertEquals(new BigDecimal("0.250"), ticket.items.get(0).appliedTareKg);
+        assertEquals("0,250", ticket.items.get(0).getTareFormatted());
+    }
+
+    /**
+     * Without an announced tare the weighed line records none, so no surface states a
+     * tare that was never deducted (LC-14-02-03/07/11).
+     */
+    @Test
+    void aWeighingWithoutAnnouncedTareRecordsNone() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        assertNull(ticket.items.get(0).appliedTareKg);
+        assertNull(ticket.items.get(0).getTareFormatted());
     }
 
     /**

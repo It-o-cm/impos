@@ -600,6 +600,26 @@ public class EndorsementService {
     }
 
     /**
+     * Opens an endorsement request for an action whose rule reserves the aval
+     * to named profiles ({@code BO-04-02-01}): the profiles are set BEFORE the
+     * request goes to the back office, which checks them on the account that
+     * authorises at a distance ({@code LS-04-03-13}).
+     *
+     * @param state the current POS state
+     * @param actionCode the action code requiring authorization
+     * @param profiles the profiles one of which the endorser must hold, empty for the usual rule
+     */
+    public void requestAuthorization(PosState state, String actionCode, java.util.List<String> profiles) {
+        LOGGER.info("Entering method requestAuthorization with state: " + state + ", actionCode: " + actionCode
+                + ", profiles: " + profiles);
+        state.endorsement.request(actionCode);
+        state.endorsement.requiredProfiles = new java.util.ArrayList<>(profiles);
+        sendToBackOffice(state);
+        state.touch();
+        LOGGER.info("Exiting method requestAuthorization");
+    }
+
+    /**
      * Opens an endorsement request for a gesture that carries a form and
      * belongs to a screen of its own.
      *
@@ -675,8 +695,13 @@ public class EndorsementService {
      */
     private void sendToBackOffice(PosState state) {
         if (supervisorSettleService != null) {
+            // LS-04-03-13: the request goes up with its identity and the profiles
+            // its function requires; the answer is accepted for it alone.
+            String requestId = java.util.UUID.randomUUID().toString();
             state.endorsement.remoteRequested = supervisorSettleService.authorizationRequested(
-                    describe(state.endorsement), state.getOperatorName());
+                    describe(state.endorsement), state.getOperatorName(), requestId,
+                    state.endorsement.requiredProfiles);
+            state.endorsement.remoteRequestId = state.endorsement.remoteRequested ? requestId : null;
         }
     }
 
@@ -708,7 +733,7 @@ public class EndorsementService {
         LOGGER.info("Entering method abandonRequest");
         if (state.endorsement.remoteRequested
                 && state.serviceRequest == PosState.ServiceRequestStatus.NONE) {
-            supervisorSettleService.authorizationWithdrawn();
+            supervisorSettleService.authorizationWithdrawn(state.endorsement.remoteRequestId);
         }
         clearRequest(state);
         LOGGER.info("Exiting method abandonRequest");

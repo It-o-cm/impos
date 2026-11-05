@@ -75,6 +75,13 @@
                     {#if !item.cancelled && item.promotionLabel}
                     <div class="promotion-label" style="font-size:var(--fs-row-sub); color:var(--success);">{item.promotionLabel}</div>
                     {/if}
+                    {#if !item.cancelled && tenderMarks.get(item.uid)}
+                    <!-- LC-09-01-11/13/15/17 : l'article payable en titre-restaurant,
+                         éco-chèque, carte achat sociale ou autre moyen restreint
+                         administré (tender.restricted) le dit SUR SA LIGNE — le total
+                         éligible dit combien, la marque dit lesquels. -->
+                    <div class="tender-marks">{#for mark in tenderMarks.get(item.uid)}<span class="tender-mark">{inject:i18n.get('ticket.eligible')} {mark}</span>{/for}</div>
+                    {/if}
                     {#if item.toCollect}
                     <!-- LC-02-08-04 : l'indicateur. Sur la ligne elle-même et non dans
                          une colonne à part : ce que l'opérateur cherche du regard,

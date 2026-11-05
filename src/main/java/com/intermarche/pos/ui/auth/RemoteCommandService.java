@@ -181,11 +181,11 @@ public class RemoteCommandService {
         LOGGER.info("Entering method collectOnce");
         for (String[] order : orders(get("/api/commands/" + terminalId))) {
             if (SUPERVISOR_REFUSED.equals(order[1])) {
-                refuse(order[0], order[2]);
+                refuse(order[0], order[2], order[3]);
                 continue;
             }
             if (SUPERVISOR_GRANTED.equals(order[1])) {
-                grant(order[0], order[2]);
+                grant(order[0], order[2], order[3]);
                 continue;
             }
             if (SUPERVISOR_ACK.equals(order[1])) {
@@ -288,11 +288,16 @@ public class RemoteCommandService {
      * for this cashier — and an order carrying none says the least that is
      * still true.
      *
+     * <p>LS-04-03-13: the gesture is cancelled only when the refusal answers the
+     * request this lane holds now — a refusal of a request already abandoned
+     * must not take the next gesture with it.
+     *
      * @param uid the order's token
      * @param reason the wording the back office sent, possibly null or blank
+     * @param ref the request the refusal answers, possibly null
      * @throws Exception when the acknowledgement cannot be sent
      */
-    void refuse(String uid, String reason) throws Exception {
+    void refuse(String uid, String reason, String ref) throws Exception {
         String wording = reason == null || reason.isBlank()
                 ? i18n.get("op.demandeRefuseeParBackOffice") : reason.trim();
         LOGGER.infof("Refus du back-office reçu sur %s : %s", terminalId, wording);
@@ -303,7 +308,7 @@ public class RemoteCommandService {
         state.serviceRequestReason = null;
         // LC-01-05-08: a refused authorisation request takes its gesture with it —
         // the function is not authorised, so nothing is left waiting for a code.
-        if (state.endorsement != null && state.endorsement.active && state.endorsement.remoteRequested) {
+        if (answersHeldRequest(ref)) {
             endorsementService.clearRequest(state);
         }
         state.ticket.setError(wording);
@@ -351,14 +356,20 @@ public class RemoteCommandService {
      * when no gesture is pending arms nothing and is still acknowledged —
      * the back office answered a question the lane has stopped asking.
      *
+     * <p>LS-04-03-13: armed only on the request it answers — the one this lane
+     * sent and still holds. An authorisation of a request the cashier abandoned
+     * meanwhile, or of another lane's gesture, arms nothing: the gesture held
+     * now was never authorised.
+     *
      * @param uid the order's token
      * @param reason who granted it, possibly null or blank
+     * @param ref the request the authorisation answers, possibly null
      * @throws Exception when the acknowledgement cannot be sent
      */
-    void grant(String uid, String reason) throws Exception {
+    void grant(String uid, String reason, String ref) throws Exception {
         String by = reason == null || reason.isBlank()
                 ? i18n.get("op.backOffice") : reason.trim();
-        if (state.endorsement != null && state.endorsement.active) {
+        if (ref != null && answersHeldRequest(ref)) {
             state.endorsement.remoteGrant = by;
             state.ticket.setNotice(i18n.format("op.autorisationAccordeePar", by));
             LOGGER.infof("Autorisation du back-office armée sur %s (%s)", terminalId, by);
@@ -367,6 +378,21 @@ public class RemoteCommandService {
         }
         state.touch();
         post("/api/commands/" + uid + "/ack");
+    }
+
+    /**
+     * Whether an answer of the back office concerns the request this lane holds
+     * now ({@code LS-04-03-13}): a request sent to the back office, still
+     * pending, under the identity the answer names. An answer naming no request
+     * concerns the request held, as the back office answered before requests
+     * were named.
+     *
+     * @param ref the request the answer names, possibly null
+     * @return true when it answers the request held now
+     */
+    boolean answersHeldRequest(String ref) {
+        return state.endorsement != null && state.endorsement.active && state.endorsement.remoteRequested
+                && (ref == null || ref.equals(state.endorsement.remoteRequestId));
     }
 
     /**
@@ -379,8 +405,9 @@ public class RemoteCommandService {
      * order's own object, unescaped by the parser.
      *
      * @param body the JSON array the node returned
-     * @return one {@code {uid, type, reason}} triplet per order, in the order
-     *         received; the reason is null when the order carries none
+     * @return one {@code {uid, type, reason, ref}} quadruplet per order, in the
+     *         order received; the reason and the request reference are null
+     *         when the order carries none
      */
     List<String[]> orders(String body) {
         List<String[]> found = new ArrayList<>();
@@ -396,8 +423,10 @@ public class RemoteCommandService {
             JsonNode type = order.path("type");
             if (uid.isTextual() && type.isTextual()) {
                 JsonNode reason = order.path("reason");
+                JsonNode ref = order.path("ref");
                 found.add(new String[]{uid.asText(), type.asText(),
-                        reason.isTextual() ? reason.asText() : null});
+                        reason.isTextual() ? reason.asText() : null,
+                        ref.isTextual() ? ref.asText() : null});
             }
         }
         return found;

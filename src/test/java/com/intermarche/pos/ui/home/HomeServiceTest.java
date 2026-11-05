@@ -2857,6 +2857,57 @@ class HomeServiceTest {
     }
 
     /**
+     * Each line is marked with the default tenders covering it, in administered order and
+     * worded from the bundle; a line no tender covers carries no mark
+     * ({@code LC-09-01-11/13/15}).
+     */
+    @Test
+    void eachLineIsMarkedWithTheTendersCoveringIt() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn("");
+        lineWithTenders("2.50",
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE
+                        + "," + com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+        lineWithTenders("7.00", null);
+        lineWithTenders("3.00",
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.SOCIAL_CARD_ELIGIBLE);
+        java.util.Map<String, java.util.List<String>> marks = service.restrictedTenderMarks();
+        assertEquals(2, marks.size());
+        assertEquals(java.util.List.of("Titre-restaurant", "Éco-chèque"),
+                marks.get(service.state.ticket.items.get(0).uid));
+        assertFalse(marks.containsKey(service.state.ticket.items.get(1).uid));
+        assertEquals(java.util.List.of("Carte achat sociale"),
+                marks.get(service.state.ticket.items.get(2).uid));
+    }
+
+    /**
+     * A tender the shop administered under its own wording is marked with that wording,
+     * and a tender the shop does not show marks nothing ({@code LC-09-01-17}).
+     */
+    @Test
+    void anAdministeredTenderMarksWithItsOwnWording() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn(
+                "TRX:" + com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE
+                        + ":Ticket Resto");
+        lineWithTenders("4.00",
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+        lineWithTenders("5.00",
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
+        java.util.Map<String, java.util.List<String>> marks = service.restrictedTenderMarks();
+        assertEquals(1, marks.size());
+        assertEquals(java.util.List.of("Ticket Resto"), marks.get(service.state.ticket.items.get(0).uid));
+        assertEquals("Ticket Resto", service.restrictedTenderRows().get(0).label());
+    }
+
+    /**
+     * An empty basket carries no mark.
+     */
+    @Test
+    void anEmptyBasketCarriesNoMark() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn("");
+        assertTrue(service.restrictedTenderMarks().isEmpty());
+    }
+
+    /**
      * {@code waitingLabel} (EXP-03) delegates to the administered waiting label.
      */
     @Test

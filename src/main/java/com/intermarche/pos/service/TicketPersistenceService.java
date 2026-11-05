@@ -380,7 +380,9 @@ public class TicketPersistenceService {
         ticket.globalDiscountType = state.ticket.globalDiscountType;
         ticket.globalDiscountValue = state.ticket.globalDiscountValue;
         ticket.globalDiscountApplied = state.ticket.globalDiscountApplied;
-        ticket.itemCount = state.ticket.items.size();
+        // LS-03-04-04: the ARTICLES sold, not the lines — two baguettes on one line
+        // are two articles, a weighing is one.
+        ticket.itemCount = TicketState.articleCount(state.ticket.items);
 
         RoundingMode rule = roundingMode();
         VatBreakdown breakdown = new VatBreakdown(rule);
@@ -823,6 +825,26 @@ public class TicketPersistenceService {
         syncOutboxService.enqueue(SyncOutbox.EntityType.STORED_VALUE, note.id);
         LOGGER.info("Exiting method issueChangeCreditNote");
         return note.number;
+    }
+
+    /**
+     * Records on a ticket the codes of the recalled orders its sale settles
+     * (DG-03-02-01, -03), before the ticket is closed and pushed, so the
+     * store node links each order to the ticket that paid it. A sale that
+     * settles none records nothing.
+     *
+     * @param ticketId the ticket's database id
+     * @param codes the codes of the settled orders, possibly empty
+     */
+    @Transactional
+    public void storeRecalledOrderCodes(Long ticketId, java.util.Collection<String> codes) {
+        LOGGER.info("Entering method storeRecalledOrderCodes with ticketId: " + ticketId);
+        Ticket ticket = codes.isEmpty() ? null : Ticket.findById(ticketId);
+        if (ticket != null) {
+            String joined = String.join(";", codes);
+            ticket.recalledOrderCode = joined.length() > 200 ? joined.substring(0, 200) : joined;
+        }
+        LOGGER.info("Exiting method storeRecalledOrderCodes");
     }
 
     /**

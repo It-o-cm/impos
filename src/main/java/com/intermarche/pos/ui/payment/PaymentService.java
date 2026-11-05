@@ -1526,6 +1526,15 @@ public class PaymentService {
         state.payment.terminalLine2 = "";
         hardwareService.displayMessage(String.format(i18n.get("display.carte"), df.format(requested)));
         state.touch();
+        // LS-02-02-06: no real payment request leaves a register in training —
+        // the card is SIMULATED, as the cash changer and the cheque are, and the
+        // customer's card is never debited for a sale recorded nowhere.
+        if (state.trainingMode) {
+            registerAcceptedCard(state,
+                    com.intermarche.pos.ui.hardware.terminal.TerminalOutcome.ofAmount(requested));
+            LOGGER.info("Exiting method processCard");
+            return;
+        }
 
         // The decision arrives asynchronously on the callback: the virtual
         // terminal fires it from the simulator's accept/refuse endpoint,
@@ -2026,7 +2035,8 @@ public class PaymentService {
                     hardwareService.displayMessage(String.format(i18n.get("display.restoFlashPlafonne"), df.format(amount)));
                 }
             }
-            if (!restoFlashClient.confirm(token, amount)) {
+            // LS-02-02-06: a training register confirms nothing with Resto Flash.
+            if (!state.trainingMode && !restoFlashClient.confirm(token, amount)) {
                 hardwareService.displayMessage(i18n.both("display.restoFlashRefuse"));
                 LOGGER.info("Exiting method processRestoFlash");
                 return;
@@ -2899,6 +2909,13 @@ public class PaymentService {
                 return;
             }
             state.payment.clearPendingVoucher();
+            // LS-02-02-06: a training register reserves nothing on the customer's
+            // pot — the loyalty payment is simulated, like the card.
+            if (state.trainingMode) {
+                registerTrainingFidelity(state, amount);
+                LOGGER.info("Exiting method processFidelity");
+                return;
+            }
 
             // Reservation protocol (imfid spec §5): the lease is granted for
             // min(requested, remaining, burnableBase, availableBalance); no euro
@@ -2917,6 +2934,31 @@ public class PaymentService {
             state.touch();
         }
         LOGGER.info("Exiting method processFidelity");
+    }
+
+    /**
+     * Settles a SIMULATED loyalty payment on a training register: the card must
+     * be attached, as for a real one, but the programme is never asked for a
+     * lease and no slip is printed — nothing leaves the register.
+     *
+     * @param state the current POS state, in training
+     * @param amount the amount asked, or zero/negative for the remaining due
+     */
+    private void registerTrainingFidelity(PosState state, BigDecimal amount) {
+        if (!state.fidelity.active) {
+            state.ticket.setError(i18n.get("op.carteFideliteRequise"));
+            state.touch();
+            return;
+        }
+        BigDecimal remaining = state.getRemaining();
+        BigDecimal settled = amount == null || amount.signum() <= 0 ? remaining : amount.min(remaining);
+        String tender = com.intermarche.pos.ui.fidelity.FidelityService.tenderOrDefault(
+                posSettingsService.fidelityPaymentTender());
+        state.payment.addPayment(tender, settled);
+        savePayment(state, tender);
+        hardwareService.displayMessage(String.format(i18n.get("display.fidelite"), df.format(settled)));
+        checkCompletion(state);
+        state.touch();
     }
 
     /**
@@ -3198,8 +3240,19 @@ public class PaymentService {
                 return false;
             }
             Long ticketId = state.payment.ticketDbId;
+            // LC-06-03-07 / LC-06-02-12: every document the sale was loaded
+            // from — several sale vouchers may be settled in one transaction —
+            // and the order a recovered draft remembers.
+            java.util.Set<String> settledCodes = new java.util.LinkedHashSet<>(state.recalledDocumentCodes);
+            if (state.recalledOrderCode != null) {
+                settledCodes.add(state.recalledOrderCode);
+            }
+            // DG-03-02-01/03: the ticket that settles a recalled order says so,
+            // so the store node links the order to the payments of this sale.
+            String settlingNumber = null;
 
             if (ticketId != null) {
+                ticketPersistenceService.storeRecalledOrderCodes(ticketId, settledCodes);
                 ticketPersistenceService.validateTicket(ticketId);
                 state.lastClosedTicketId = ticketId;
                 state.lastClosedTicketEmail = state.fidelity.holderEmail;
@@ -3277,6 +3330,7 @@ public class PaymentService {
                 com.intermarche.pos.domain.sale.Ticket sold =
                         com.intermarche.pos.domain.sale.Ticket.findById(ticketId);
                 if (sold != null) {
+                    settlingNumber = sold.ticketNumber;
                     // LC-13-06-14: frozen in the customer's language, as the
                     // customer's paper reads it.
                     ticketPersistenceService.storeFormattedContent(ticketId,
@@ -3373,15 +3427,9 @@ public class PaymentService {
             // order. Told AFTER the fiscal moment and tolerantly — the sale is
             // closed whatever the node answers, and the push exists so the
             // same code cannot be recalled and paid twice.
-            // LC-06-02-12: every document the sale was loaded from — several sale
-            // vouchers may be settled in one transaction — and the order a
-            // recovered draft remembers.
-            java.util.Set<String> settledCodes = new java.util.LinkedHashSet<>(state.recalledDocumentCodes);
-            if (state.recalledOrderCode != null) {
-                settledCodes.add(state.recalledOrderCode);
-            }
+            // The settling ticket rides along (DG-03-02-01/03).
             for (String settledCode : settledCodes) {
-                documentClient.settleOrder(settledCode);
+                documentClient.settleOrder(settledCode, settlingNumber);
             }
 
             // LC-03-07-02: the transaction is ending — ask for the survey
@@ -3568,6 +3616,14 @@ public class PaymentService {
             if ("CARD".equals(methodKey)) {
                 if (state.payment.pendingCardAmount != null) {
                     return false;
+                }
+                // LS-02-02-06: a training register credits no real card either.
+                if (state.trainingMode) {
+                    state.payment.addCardPayment(remaining, null, false, null);
+                    savePayment(state, "CARD");
+                    checkCompletion(state);
+                    state.touch();
+                    return true;
                 }
                 state.payment.pendingCardAmount = remaining;
                 state.touch();

@@ -64,7 +64,7 @@ public class TrainingTicketService {
                 training.terminalId = ticketNumberService.getTerminalId();
                 training.cashierLogin = operator == null ? null : operator.loginName;
                 training.issuedAt = LocalDateTime.now();
-                training.itemCount = state.ticket.items.size();
+                training.itemCount = com.intermarche.pos.ui.ticket.TicketState.articleCount(state.ticket.items);
                 training.totalIncludingTax = state.ticket.getTotalAmount();
                 training.content = content;
                 training.persist();

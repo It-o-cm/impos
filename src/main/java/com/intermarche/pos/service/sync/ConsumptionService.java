@@ -148,7 +148,8 @@ public class ConsumptionService {
 
     /**
      * Reads the engine advantages of a valuation response into the declaration
-     * shape, keeping only those that name an offer and carry an amount.
+     * shape, keeping only those that name an offer (explicitly or in their
+     * label) and carry an amount.
      *
      * @param valuationJson the raw engine valuation JSON, possibly null
      * @return the advantages to declare, never null, empty when there are none
@@ -172,17 +173,42 @@ public class ConsumptionService {
             return declared;
         }
         for (ValuationPayloads.AdvantageDto advantage : response.advantages) {
-            if (advantage.offerCode == null || advantage.discountAmount == null
+            String offerCode = offerCodeOf(advantage);
+            if (offerCode == null || advantage.discountAmount == null
                     || advantage.discountAmount.amountIncludingTax == null) {
                 continue;
             }
-            declared.add(new DeclaredAdvantage(advantage.offerCode,
+            declared.add(new DeclaredAdvantage(offerCode,
                     advantage.discountAmount.amountIncludingTax.abs(),
                     advantage.accountingCode,
                     deriveLines(response, advantage)));
         }
         LOGGER.info("Exiting method parseAdvantages");
         return declared;
+    }
+
+    /**
+     * The offer code of an engine advantage, read as the engine itself reads
+     * it: its {@code offerCode} when it carries one, else the first word after
+     * {@code ": "} in its {@code type} label — the discounts (ticket, card,
+     * immediate voucher...) name their offer only there.
+     *
+     * @param advantage the advantage
+     * @return the offer code, or null when the advantage names none
+     */
+    static String offerCodeOf(ValuationPayloads.AdvantageDto advantage) {
+        if (advantage.offerCode != null && !advantage.offerCode.isBlank()) {
+            return advantage.offerCode.trim();
+        }
+        String type = advantage.type == null ? "" : advantage.type;
+        int colon = type.indexOf(": ");
+        if (colon < 0) {
+            return null;
+        }
+        String rest = type.substring(colon + 2).trim();
+        int space = rest.indexOf(' ');
+        String code = space < 0 ? rest : rest.substring(0, space);
+        return code.isEmpty() ? null : code;
     }
 
     /**

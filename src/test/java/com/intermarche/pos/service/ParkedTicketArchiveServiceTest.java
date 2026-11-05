@@ -97,7 +97,7 @@ class ParkedTicketArchiveServiceTest {
             assertEquals(ParkedTicketRecord.Event.PARKED, first.event);
             assertEquals(first.eventDate.truncatedTo(ChronoUnit.SECONDS), first.eventDate);
             assertEquals("12341234", first.operator);
-            assertEquals(2, first.itemCount);
+            assertEquals(3, first.itemCount);
             assertEquals(new BigDecimal("2.30"), first.totalAmount);
             assertEquals("2 x LAIT UHT 1L @ 1.15 = 2.3\n1 x CAFE @ 0 = 0\n", first.content);
             assertEquals(ParkedTicketRecord.GENESIS, first.previousSignature);
@@ -108,6 +108,31 @@ class ParkedTicketArchiveServiceTest {
             ParkedTicketRecord second = service.record(ticket, ParkedTicketRecord.Event.RESUMED, "12341234");
             assertEquals(first.signature, second.previousSignature);
             assertEquals(second.computeSignature(), second.signature);
+        }
+    }
+
+    /**
+     * LS-03-04-04: the record counts the ARTICLES on hold — a returned line is
+     * not one — while its content still lists every live line.
+     */
+    @Test
+    void aReturnedLineIsNotAnArticleOnHold() {
+        ParkedTicketArchiveService service = new ParkedTicketArchiveService();
+        service.syncOutboxService = mock(SyncOutboxService.class);
+        Ticket ticket = new Ticket();
+        ticket.terminalId = "POS01";
+        ticket.lines.add(line("BAGUETTE", "2", "1.08", "2.16", false));
+        TicketLine returned = line("CAFE", "-1", "4.00", "-4.00", false);
+        returned.returnLine = true;
+        ticket.lines.add(returned);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<ParkedTicketRecord> rows = mockConstruction(ParkedTicketRecord.class,
+                     withSettings().defaultAnswer(CALLS_REAL_METHODS),
+                     (row, context) -> doNothing().when(row).persist())) {
+            lastRecord(panache, null);
+            ParkedTicketRecord record = service.record(ticket, ParkedTicketRecord.Event.PARKED, "12341234");
+            assertEquals(2, record.itemCount);
+            assertEquals(new BigDecimal("-1.84"), record.totalAmount);
         }
     }
 }

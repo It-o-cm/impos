@@ -749,7 +749,7 @@ public class TicketPrinterService {
             sb.append(label).append("\n");
             String detail = units.detailLine(
                     line.quantity, line.unitPrice, line.unitName,
-                    line.plu != null && !line.plu.isEmpty(),
+                    line.isWeighedQuantity(),
                     line.embeddedWeight, line.embeddedUnitPrice, "E");
             if (!detail.isBlank()) {
                 sb.append("  ").append(detail).append("\n");
@@ -2485,7 +2485,7 @@ public class TicketPrinterService {
                 String detail = com.intermarche.pos.domain.catalog.UnitFormat.orDefault(
                         posSettingsService.unitFormat()).detailLine(
                         line.quantity, line.unitPrice, line.unitName,
-                        line.plu != null && !line.plu.isEmpty(),
+                        line.isWeighedQuantity(),
                         line.embeddedWeight, line.embeddedUnitPrice, "E");
                 if (!detail.isBlank()) {
                     sb.append("  ").append(detail).append("\n");

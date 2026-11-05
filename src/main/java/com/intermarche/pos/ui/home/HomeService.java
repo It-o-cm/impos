@@ -18,7 +18,9 @@ import org.jboss.logging.Logger;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Home screen service: navigation, line selection, ticket-level actions and
@@ -185,22 +187,6 @@ public class HomeService {
     }
 
     /**
-     * Totals what the running basket may be paid with, tender by tender.
-     *
-     * <p>RECOMPUTED FROM THE LINES AT EVERY CALL, never kept as a field the sale
-     * updates. The screen asks for a total that is "réactualisé à chaque nouvel
-     * enregistrement d'article", and a cart also loses lines, changes quantities and
-     * takes discounts — a running field would have to be corrected in every one of
-     * those places, and the first one forgotten would be a wrong figure on screen with
-     * nothing to show it was wrong.
-     *
-     * <p>A tender no line is eligible for is DROPPED rather than shown at zero: the
-     * indicator exists to tell the cashier what the customer can use, and three
-     * permanent zeroes beside the total teach them to stop reading it.
-     *
-     * @return the tenders with an eligible amount, in administered order, possibly empty
-     */
-    /**
      * The waiting label shown on the sale screen between two customers (EXP-03):
      * the administered "next customer" prompt rendered when the ticket is empty,
      * threaded to both the full sale page and the polled ticket fragment.
@@ -239,6 +225,22 @@ public class HomeService {
                 String.format("%.2f", excess).replace('.', ','));
     }
 
+    /**
+     * Totals what the running basket may be paid with, tender by tender.
+     *
+     * <p>RECOMPUTED FROM THE LINES AT EVERY CALL, never kept as a field the sale
+     * updates. The screen asks for a total that is "réactualisé à chaque nouvel
+     * enregistrement d'article", and a cart also loses lines, changes quantities and
+     * takes discounts — a running field would have to be corrected in every one of
+     * those places, and the first one forgotten would be a wrong figure on screen with
+     * nothing to show it was wrong.
+     *
+     * <p>A tender no line is eligible for is DROPPED rather than shown at zero: the
+     * indicator exists to tell the cashier what the customer can use, and three
+     * permanent zeroes beside the total teach them to stop reading it.
+     *
+     * @return the tenders with an eligible amount, in administered order, possibly empty
+     */
     public List<RestrictedTenderRow> restrictedTenderRows() {
         LOGGER.info("Entering method restrictedTenderRows");
         List<RestrictedTenderRow> rows = new ArrayList<>();
@@ -251,13 +253,65 @@ public class HomeService {
                 }
             }
             if (eligible.signum() > 0) {
-                rows.add(new RestrictedTenderRow(tender.label(),
+                rows.add(new RestrictedTenderRow(tenderLabel(tender),
                         String.format("%.2f", eligible.setScale(2, RoundingMode.HALF_UP))
                                 .replace('.', ',')));
             }
         }
         LOGGER.info("Exiting method restrictedTenderRows");
         return rows;
+    }
+
+    /**
+     * Marks each line of the basket with the restricted tenders it may be paid with
+     * ({@code LC-09-01-11}, {@code -13}, {@code -15}, {@code -17}).
+     *
+     * <p>THE LINE, NOT ONLY THE TOTAL. The eligible total tells the cashier how much the
+     * customer may settle with meal vouchers; the mark on the line tells them WHICH
+     * articles — the question a customer asks when a voucher does not cover the bottle
+     * of wine. The marks follow the same administered list as the totals
+     * ({@code tender.restricted}), so a tender the shop does not show is marked nowhere,
+     * and they read the line's own snapshot, taken when the article was rung.
+     *
+     * @return the wordings of the tenders covering each line, by line uid; a line no
+     *         tender covers is absent
+     */
+    public Map<String, List<String>> restrictedTenderMarks() {
+        LOGGER.info("Entering method restrictedTenderMarks");
+        Map<String, List<String>> marks = new HashMap<>();
+        List<RestrictedTender> tenders =
+                RestrictedTender.administered(posSettingsService.restrictedTenders());
+        for (TicketState.TicketItem item : state.ticket.items) {
+            List<String> labels = new ArrayList<>();
+            for (RestrictedTender tender : tenders) {
+                if (tender.covers(item.restrictedTenders)) {
+                    labels.add(tenderLabel(tender));
+                }
+            }
+            if (!labels.isEmpty()) {
+                marks.put(item.uid, labels);
+            }
+        }
+        LOGGER.info("Exiting method restrictedTenderMarks");
+        return marks;
+    }
+
+    /**
+     * Words a restricted tender in the operator's language.
+     *
+     * <p>The three tenders a shop gets without asking carry a French wording written in
+     * the code; they are read from the bundles ({@code tender.restricted.<code>}) so a
+     * Dutch or Portuguese register does not show French. A wording the shop administered
+     * itself is data and is shown as administered.
+     *
+     * @param tender the tender to word
+     * @return the translated default wording, or the administered one
+     */
+    private String tenderLabel(RestrictedTender tender) {
+        if (!RestrictedTender.administered(RestrictedTender.DEFAULT_TENDERS).contains(tender)) {
+            return tender.label();
+        }
+        return i18n.code("tender.restricted.", tender.code());
     }
 
     /**

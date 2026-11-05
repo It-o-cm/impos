@@ -704,18 +704,29 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         BigDecimal unitPrice;
         BigDecimal quantity;
         boolean priceEmbedded = false;
+        boolean weighed = weight != null && weight.signum() > 0;
+        // LS-01-05-05: a COUNT sells units, and the article's PLU on such a line
+        // made every reader of the line (receipt, deposit control) take its count
+        // for kilograms. An amount, a net weight — and a bare GTIN, which keeps the
+        // weighed article's own rule (LC-02-13-15) — carry the PLU as before.
+        String plu = product.plu;
+        BigDecimal catalogPrice = price != null ? price.priceIncludingTax : BigDecimal.ZERO;
         if (amount != null && amount.signum() > 0) {
             unitPrice = amount.setScale(2, RoundingMode.HALF_UP);
             quantity = BigDecimal.ONE;
             priceEmbedded = true;
-        } else if (weight != null && weight.signum() > 0) {
-            unitPrice = price != null ? price.priceIncludingTax : BigDecimal.ZERO;
+        } else if (weighed) {
+            unitPrice = catalogPrice;
             quantity = weight.setScale(3, RoundingMode.HALF_UP);
+        } else if (count != null) {
+            unitPrice = catalogPrice;
+            quantity = count;
+            plu = null;
         } else {
-            unitPrice = price != null ? price.priceIncludingTax : BigDecimal.ZERO;
-            quantity = count == null ? BigDecimal.ONE : count;
+            unitPrice = catalogPrice;
+            quantity = BigDecimal.ONE;
         }
-        state.ticket.addItem(product.ean, product.plu, translatedLabel(product),
+        state.ticket.addItem(product.ean, plu, translatedLabel(product),
                 unitPrice, quantity, vatRate);
         if (state.ticket.items.isEmpty()) {
             return;
@@ -726,6 +737,11 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         added.gs1Data = message.describe();
         added.gs1ExpiryDate = expiry;
         added.priceEmbedded = priceEmbedded;
+        // LS-03-04-04: an amount line that also states its net weight keeps it, the
+        // weight the deposit control expects for a quantity of one label.
+        if (priceEmbedded && weighed) {
+            added.embeddedWeight = weight.setScale(3, RoundingMode.HALF_UP);
+        }
         if (ProductAttributes.discountForbidden(product)) {
             added.discountForbidden = true;
         }

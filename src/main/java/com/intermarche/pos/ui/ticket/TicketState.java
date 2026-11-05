@@ -1130,6 +1130,44 @@ public class TicketState implements Serializable {
     public List<TicketItem> getItems() { return items; }
 
     /**
+     * Counts the articles a list of lines sells ({@code LS-03-04-04}): the
+     * « Nombre d'articles » of the receipt, the exit ticket, the training
+     * journal and the tickets on hold. A returned line is not a sold article.
+     *
+     * @param lines the lines
+     * @return the number of articles sold
+     */
+    public static int articleCount(List<TicketItem> lines) {
+        return countArticles(lines);
+    }
+
+    /**
+     * The articles the cart sells, as the abandon screen states them
+     * ({@code LS-03-04-04}).
+     *
+     * @return the number of articles sold
+     */
+    public int getArticleCount() {
+        return countArticles(items);
+    }
+
+    /**
+     * Sums the articles of the lines that are not returns.
+     *
+     * @param lines the lines
+     * @return the number of articles sold
+     */
+    private static int countArticles(List<TicketItem> lines) {
+        int count = 0;
+        for (TicketItem line : lines) {
+            if (!line.returnLine) {
+                count += line.articleUnits();
+            }
+        }
+        return count;
+    }
+
+    /**
      * Returns the left-hand label of the on-screen global-discount row:
      * "REMISE TICKET", suffixed with the requested rate for a PERCENT
      * request (e.g. "REMISE TICKET (10 %)").
@@ -1405,7 +1443,48 @@ public class TicketState implements Serializable {
          */
         public String getDetailLine(com.intermarche.pos.domain.catalog.UnitFormat format) {
             return format.detailLine(quantity, unitPrice, unitName,
-                    plu != null && !plu.isEmpty(), embeddedWeight, embeddedUnitPrice, "€");
+                    isWeighedQuantity(), embeddedWeight, embeddedUnitPrice, "€");
+        }
+
+        /**
+         * Whether this line's quantity is a weight in kilograms ({@code LS-03-04-04}):
+         * a weighing of an article sold by its PLU, never a price-embedded sticker
+         * nor a line whose weight is stated beside its quantity (a counter line, a
+         * GS1 amount carrying its net weight).
+         *
+         * @return true when the quantity is the weight
+         */
+        public boolean isWeighedQuantity() {
+            return com.intermarche.pos.domain.catalog.UnitFormat.weighedQuantity(plu, priceEmbedded, embeddedWeight);
+        }
+
+        /**
+         * The weight this line actually puts down, in kilograms: the weight the
+         * sale states beside its quantity when there is one, the quantity of a
+         * weighing, null when the sale does not know it ({@code LS-03-04-04}).
+         *
+         * @return the weight, or null
+         */
+        public BigDecimal getStatedWeightKg() {
+            if (embeddedWeight != null) {
+                return embeddedWeight;
+            }
+            return isWeighedQuantity() ? quantity : null;
+        }
+
+        /**
+         * How many ARTICLES this line sells ({@code LS-03-04-04}): a weighing, a
+         * decimal or measured quantity is one article, a line sold by the piece is
+         * as many articles as its quantity says. The same rule as
+         * {@code TicketLine.articleUnits()}.
+         *
+         * @return the number of articles, never negative
+         */
+        public int articleUnits() {
+            if (isWeighedQuantity() || decimalQuantity || quantity.stripTrailingZeros().scale() > 0) {
+                return 1;
+            }
+            return quantity.abs().intValue();
         }
 
         /**

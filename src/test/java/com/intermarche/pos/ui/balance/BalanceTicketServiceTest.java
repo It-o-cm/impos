@@ -14,6 +14,7 @@ import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -285,6 +286,9 @@ class BalanceTicketServiceTest {
         assertEquals(0, new BigDecimal("13.54").compareTo(price.getValue()));
         assertEquals(0, BigDecimal.ONE.compareTo(quantity.getValue()));
         assertTrue(added.priceEmbedded);
+        // LS-01-05-06: the counter's weight travels beside the quantity of one.
+        assertEquals(new BigDecimal("0.752"), added.embeddedWeight);
+        assertEquals(new BigDecimal("0.752"), added.getStatedWeightKg());
         verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE + " INTÉGRÉ (1 LIGNE(S))");
     }
 
@@ -499,6 +503,9 @@ class BalanceTicketServiceTest {
         verify(ticket).addItem(any(), any(), any(), booked.capture(), any(), any());
         assertEquals(0, new BigDecimal("10.00").compareTo(booked.getValue()));
         assertFalse(added.priceEmbedded);
+        // LS-01-05-06: a quantity of one is not one kilogram — the weight is stated.
+        assertFalse(added.isWeighedQuantity());
+        assertEquals(new BigDecimal("0.500"), added.getStatedWeightKg());
     }
 
     /**
@@ -533,8 +540,9 @@ class BalanceTicketServiceTest {
     void catalogPriceFallsBackWithoutAWeight() {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
-        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "X",
-                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        TicketState.TicketItem added = new TicketState.TicketItem(EAN, "1234", "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT);
+        ticket.items.add(added);
         BalanceTicketService service = newService(serving(oneLine("ROTI", null, "13.54", "0.055")));
         when(service.posSettingsService.balanceCounterPrice()).thenReturn(false);
         Price price = new Price();
@@ -548,6 +556,11 @@ class BalanceTicketServiceTest {
         }
         verify(ticket).addItem(any(), any(), any(), booked.capture(), any(), any());
         assertEquals(0, new BigDecimal("13.54").compareTo(booked.getValue()));
+        // The counter's total is the line's own truth: the engine must not
+        // re-price a quantity of one at the price per kilogram; no weight is known.
+        assertTrue(added.priceEmbedded);
+        assertNull(added.embeddedWeight);
+        assertNull(added.getStatedWeightKg());
     }
 
     /**
@@ -713,8 +726,9 @@ class BalanceTicketServiceTest {
     void catalogPriceFallsBackWithNonPositiveWeight() {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
-        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "X",
-                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        TicketState.TicketItem added = new TicketState.TicketItem(EAN, "1234", "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT);
+        ticket.items.add(added);
         BalanceTicketService service = newService(serving(oneLine("ROTI", "0", "13.54", "0.055")));
         when(service.posSettingsService.balanceCounterPrice()).thenReturn(false);
         Price price = new Price();
@@ -728,6 +742,8 @@ class BalanceTicketServiceTest {
         }
         verify(ticket).addItem(any(), any(), any(), booked.capture(), any(), any());
         assertEquals(0, new BigDecimal("13.54").compareTo(booked.getValue()));
+        assertTrue(added.priceEmbedded);
+        assertNull(added.embeddedWeight);
     }
 
     /**

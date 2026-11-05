@@ -81,19 +81,29 @@ public class SupervisorSettleService {
      * arrives there without the cashier having to call anybody, and the
      * answer comes down the order channel the register already collects.
      *
+     * <p>LS-04-03-13: the request travels with its IDENTITY, which the answer
+     * carries back so the register applies it to this request and to no other,
+     * and with the PROFILES the function reserves its aval to, which the back
+     * office checks on the account that authorises.
+     *
      * @param gesture what the authorisation is asked for, as the cashier reads it
      * @param operator who asked for it, possibly null
+     * @param requestId the identity of the request
+     * @param profiles the profiles the function requires, empty when none
      * @return true when this register has a back office to send it to
      */
-    public boolean authorizationRequested(String gesture, String operator) {
+    public boolean authorizationRequested(String gesture, String operator, String requestId,
+            java.util.List<String> profiles) {
         LOGGER.info("Entering method authorizationRequested with gesture: " + gesture);
         if (!syncOutboxService.isEnabled()) {
             LOGGER.info("Exiting method authorizationRequested");
             return false;
         }
-        post("/api/supervisor/call",
-                call(operator, AUTHORIZATION_REASON, gesture),
-                "la demande d'autorisation");
+        com.fasterxml.jackson.databind.node.ObjectNode body = callNode(operator, AUTHORIZATION_REASON, gesture)
+                .put("requestId", requestId);
+        com.fasterxml.jackson.databind.node.ArrayNode named = body.putArray("profiles");
+        profiles.forEach(named::add);
+        post("/api/supervisor/call", body.toString(), "la demande d'autorisation");
         LOGGER.info("Exiting method authorizationRequested");
         return true;
     }
@@ -101,11 +111,15 @@ public class SupervisorSettleService {
     /**
      * Withdraws this register's pending requests from the back office when the
      * cashier abandons the gesture that asked for an authorisation
-     * ({@code LC-01-05-08}).
+     * ({@code LC-01-05-08}), naming the request withdrawn so the back office
+     * also drops the answers it already left for it ({@code LS-04-03-13}).
+     *
+     * @param requestId the identity of the withdrawn request, possibly null
      */
-    public void authorizationWithdrawn() {
+    public void authorizationWithdrawn(String requestId) {
         LOGGER.info("Entering method authorizationWithdrawn");
-        post("/api/supervisor/cancel", JsonNodeFactory.instance.objectNode().put("terminalId", terminalId).toString(),
+        post("/api/supervisor/cancel", JsonNodeFactory.instance.objectNode().put("terminalId", terminalId)
+                        .put("requestId", requestId).toString(),
                 "le retrait de la demande d'autorisation");
         LOGGER.info("Exiting method authorizationWithdrawn");
     }
@@ -196,11 +210,22 @@ public class SupervisorSettleService {
      * @return the JSON body
      */
     private String call(String operator, String reason, String message) {
+        return callNode(operator, reason, message).toString();
+    }
+
+    /**
+     * Builds the JSON object of a request filed on the supervisor board.
+     *
+     * @param operator who asked, possibly null (sent empty)
+     * @param reason the reason the request is filed under
+     * @param message what the request is about, possibly null (sent empty)
+     * @return the JSON object
+     */
+    private com.fasterxml.jackson.databind.node.ObjectNode callNode(String operator, String reason, String message) {
         return JsonNodeFactory.instance.objectNode()
                 .put("terminalId", terminalId)
                 .put("operator", operator == null ? "" : operator)
                 .put("reason", reason)
-                .put("message", message == null ? "" : message)
-                .toString();
+                .put("message", message == null ? "" : message);
     }
 }

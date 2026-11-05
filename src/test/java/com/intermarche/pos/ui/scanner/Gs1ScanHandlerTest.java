@@ -348,6 +348,10 @@ class Gs1ScanHandlerTest {
         PosState state = newState();
         scan(handler, state, ARTICLE + "(30)12", newProduct(), newPrice());
         assertEquals(new BigDecimal("12"), onlyLine(state).quantity);
+        // LS-01-05-05: a count sells units — the line does not carry the PLU that
+        // would make its twelve read as twelve kilograms.
+        assertNull(onlyLine(state).plu);
+        assertFalse(onlyLine(state).isWeighedQuantity());
     }
 
     /**
@@ -468,6 +472,10 @@ class Gs1ScanHandlerTest {
         TicketState.TicketItem line = onlyLine(state);
         assertEquals(new BigDecimal("4.99"), line.unitPrice);
         assertEquals(BigDecimal.ONE, line.quantity);
+        // LS-01-05-05: the label's net weight travels beside the quantity of one.
+        assertEquals("4200", line.plu);
+        assertEquals(new BigDecimal("0.195"), line.embeddedWeight);
+        assertEquals(new BigDecimal("0.195"), line.getStatedWeightKg());
     }
 
     /**

@@ -2218,4 +2218,58 @@ class TicketStateTest {
         assertTrue(state.ticket.armedDecimalRefused(false));
         assertNull(state.armedQuantity);
     }
+
+    /**
+     * LS-03-04-04: a price-embedded sticker the referential could not convert,
+     * and a counter line whose weight travels beside its quantity, no longer show
+     * their quantity of one as a kilogram; a weighing still does.
+     */
+    @Test
+    void aStickerOrACounterLineIsNotDetailedAsAWeighing() {
+        TicketItem sticker = new TicketItem("2100230008994", "230", "POULET", new BigDecimal("8.99"),
+                BigDecimal.ONE, new BigDecimal("0.055"));
+        sticker.priceEmbedded = true;
+        assertEquals("", sticker.getDetailLine());
+        assertNull(sticker.getStatedWeightKg());
+        TicketItem counter = new TicketItem("3300000000001", "4020", "POMMES", new BigDecimal("3.10"),
+                BigDecimal.ONE, new BigDecimal("0.055"));
+        counter.embeddedWeight = new BigDecimal("0.512");
+        assertFalse(counter.isWeighedQuantity());
+        assertEquals("", counter.getDetailLine());
+        assertEquals(new BigDecimal("0.512"), counter.getStatedWeightKg());
+        TicketItem weighing = new TicketItem("3300000000001", "4020", "POMMES", new BigDecimal("2.50"),
+                new BigDecimal("1.234"), new BigDecimal("0.055"));
+        assertTrue(weighing.isWeighedQuantity());
+        assertEquals("1,234 kg x 2,50 €/kg", weighing.getDetailLine());
+        assertEquals(new BigDecimal("1.234"), weighing.getStatedWeightKg());
+    }
+
+    /**
+     * LS-03-04-04: the cart counts ARTICLES — the units of a piece line, one per
+     * weighing, per decimal-quantity line or non-whole quantity — and leaves the
+     * returned lines out, on the static form and on the screen's getter alike.
+     */
+    @Test
+    void theCartCountsArticlesNotLines() {
+        TicketState state = new TicketState();
+        state.items.add(new TicketItem("3300000000001", null, "POMMES", new BigDecimal("2.50"),
+                BigDecimal.ONE, new BigDecimal("0.055")));
+        state.items.add(new TicketItem("3300000000003", null, "BAGUETTE", new BigDecimal("1.08"),
+                new BigDecimal("2"), new BigDecimal("0.055")));
+        state.items.add(new TicketItem("3300000000017", "4062", "CONCOMBRE", new BigDecimal("2.00"),
+                new BigDecimal("2.000"), new BigDecimal("0.055")));
+        TicketItem metres = new TicketItem("3300000000099", null, "CORDE", new BigDecimal("1.00"),
+                new BigDecimal("3"), new BigDecimal("0.20"));
+        metres.decimalQuantity = true;
+        state.items.add(metres);
+        state.items.add(new TicketItem("3300000000098", null, "TISSU", new BigDecimal("4.00"),
+                new BigDecimal("1.25"), new BigDecimal("0.20")));
+        TicketItem returned = new TicketItem("3300000000004", null, "CAFE", new BigDecimal("4.00"),
+                new BigDecimal("-2"), new BigDecimal("0.055"));
+        returned.returnLine = true;
+        state.items.add(returned);
+        assertEquals(6, TicketState.articleCount(state.items));
+        assertEquals(6, state.getArticleCount());
+        assertEquals(2, returned.articleUnits());
+    }
 }

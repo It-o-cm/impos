@@ -77,15 +77,30 @@ class SupervisorSettleServiceTest {
             type.getMethod("unknownItem", String.class, String.class).invoke(service, code, operator);
         }
 
-        /** Invokes the LC-01-05-08 authorisation request and returns whether it was sent. */
-        boolean authorization(String gesture, String operator) throws Exception {
-            return (Boolean) type.getMethod("authorizationRequested", String.class, String.class)
-                    .invoke(service, gesture, operator);
+        /**
+         * Invokes the LC-01-05-08 authorisation request and returns whether it was sent.
+         *
+         * @param gesture the gesture
+         * @param operator who asked, possibly null
+         * @param requestId the request's identity
+         * @param profiles the profiles the function requires
+         * @return whether it was sent
+         * @throws Exception when reflection fails
+         */
+        boolean authorization(String gesture, String operator, String requestId, java.util.List<String> profiles)
+                throws Exception {
+            return (Boolean) type.getMethod("authorizationRequested", String.class, String.class, String.class,
+                    java.util.List.class).invoke(service, gesture, operator, requestId, profiles);
         }
 
-        /** Invokes the LC-01-05-08 withdrawal of the lane's pending requests. */
-        void withdrawn() throws Exception {
-            type.getMethod("authorizationWithdrawn").invoke(service);
+        /**
+         * Invokes the LC-01-05-08 withdrawal of the lane's pending request.
+         *
+         * @param requestId the withdrawn request's identity, possibly null
+         * @throws Exception when reflection fails
+         */
+        void withdrawn(String requestId) throws Exception {
+            type.getMethod("authorizationWithdrawn", String.class).invoke(service, requestId);
         }
 
         /**
@@ -197,8 +212,8 @@ class SupervisorSettleServiceTest {
     @Test
     void authorizationRequestIsNotSentWithoutAStoreNode() throws Exception {
         Fixture fixture = new Fixture();
-        assertFalse(fixture.authorization("CANCEL_TICKET", "Jean Dupont"));
-        fixture.withdrawn();
+        assertFalse(fixture.authorization("CANCEL_TICKET", "Jean Dupont", "req-1", java.util.List.of()));
+        fixture.withdrawn("req-1");
         verifyNoInteractions(fixture.client);
     }
 
@@ -210,15 +225,18 @@ class SupervisorSettleServiceTest {
         HttpResponse<String> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(200);
         when(fixture.client.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
-        assertTrue(fixture.authorization("DISCOUNT \"10\"", null));
-        fixture.withdrawn();
+        assertTrue(fixture.authorization("DISCOUNT \"10\"", null, "req-1", java.util.List.of("Chef de caisse", "Manager")));
+        fixture.withdrawn("req-1");
+        fixture.withdrawn(null);
         ArgumentCaptor<HttpRequest> requests = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(fixture.client, times(2)).send(requests.capture(), any(HttpResponse.BodyHandler.class));
+        verify(fixture.client, times(3)).send(requests.capture(), any(HttpResponse.BodyHandler.class));
         assertEquals("http://store/api/supervisor/call", requests.getAllValues().get(0).uri().toString());
         assertEquals("{\"terminalId\":\"C04\",\"operator\":\"\",\"reason\":\"AUTORISATION SUPERVISEUR\","
-                + "\"message\":\"DISCOUNT \\\"10\\\"\"}", body(requests.getAllValues().get(0)));
+                + "\"message\":\"DISCOUNT \\\"10\\\"\",\"requestId\":\"req-1\","
+                + "\"profiles\":[\"Chef de caisse\",\"Manager\"]}", body(requests.getAllValues().get(0)));
         assertEquals("http://store/api/supervisor/cancel", requests.getAllValues().get(1).uri().toString());
-        assertEquals("{\"terminalId\":\"C04\"}", body(requests.getAllValues().get(1)));
+        assertEquals("{\"terminalId\":\"C04\",\"requestId\":\"req-1\"}", body(requests.getAllValues().get(1)));
+        assertEquals("{\"terminalId\":\"C04\",\"requestId\":null}", body(requests.getAllValues().get(2)));
     }
 
     /** Invokes the BO-04-03-09 information alert across the class loader. */

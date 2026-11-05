@@ -54,4 +54,18 @@ class UnitFormatTest {
         assertSame(UnitFormat.DEFAULT, UnitFormat.orDefault(null));
         assertSame(ADMINISTERED, UnitFormat.orDefault(ADMINISTERED));
     }
+
+    /**
+     * LS-03-04-04: a line's quantity is a weight only on a weighing of a PLU
+     * article — not without a PLU (null or empty), not on a price-embedded line,
+     * not when a weight is stated beside the quantity.
+     */
+    @Test
+    void aQuantityIsAWeightOnlyOnAWeighing() {
+        org.junit.jupiter.api.Assertions.assertTrue(UnitFormat.weighedQuantity("4021", false, null));
+        org.junit.jupiter.api.Assertions.assertFalse(UnitFormat.weighedQuantity(null, false, null));
+        org.junit.jupiter.api.Assertions.assertFalse(UnitFormat.weighedQuantity("", false, null));
+        org.junit.jupiter.api.Assertions.assertFalse(UnitFormat.weighedQuantity("230", true, null));
+        org.junit.jupiter.api.Assertions.assertFalse(UnitFormat.weighedQuantity("230", false, new BigDecimal("0.512")));
+    }
 }

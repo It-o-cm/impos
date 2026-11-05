@@ -33,7 +33,8 @@ import java.util.List;
  *       promotion channel set on the ticket for the valuation.</li>
  *   <li>{@link #afterLoad} — once its lines are in the sale: the additions lock
  *       of a self-scanning basket, the settlements of a mobility transaction and
- *       its complementary tender, the operator notice.</li>
+ *       its complementary tender, the settlements of an e-commerce order paid
+ *       short (the remainder due at the till), the operator notice.</li>
  * </ul>
  *
  * <p>A kind no channel rule applies to (the click-and-collect basket) passes
@@ -216,6 +217,9 @@ public class ChannelGate {
         if (channel == SalesChannel.MOBILITY) {
             settleMobility(state, doc, notes);
         }
+        if (channel == SalesChannel.ECOMMERCE) {
+            restate(state, doc);
+        }
         if (doc.unknownMarked > 0) {
             notes.add(i18n.format("recall.articlesInconnusMarques", String.valueOf(doc.unknownMarked)));
         }
@@ -241,21 +245,36 @@ public class ChannelGate {
      * @param notes the operator notes, completed in place
      */
     private void settleMobility(PosState state, RecalledDocument doc, List<String> notes) {
-        if (doc.payments != null) {
-            for (RecalledDocument.Payment payment : doc.payments) {
-                if (payment == null || payment.amount() == null || payment.amount().signum() <= 0) {
-                    continue;
-                }
-                pay(state, payment.tender() == null || payment.tender().isBlank()
-                        ? DEFAULT_MOBILITY_TENDER : payment.tender().trim(), payment.amount());
-            }
-        }
+        restate(state, doc);
         String tender = rules.mobilityFictitiousTender();
         BigDecimal due = state.ticket.getTotalAmount().subtract(state.payment.paidAmount);
         if (!tender.isEmpty() && due.signum() > 0) {
             pay(state, tender, due);
             notes.add(i18n.format("recall.paiementComplementaire", tender,
                     due.setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',')));
+        }
+    }
+
+    /**
+     * Restates the settlements a device or a platform already collected on
+     * the document (BO-10-01-39, DG-03-01-05): a mobility transaction paid on
+     * the device, an e-commerce order the platform paid short. What remains
+     * is due at the till — for an e-commerce order the customer pays it there,
+     * no fictitious tender ever covers it.
+     *
+     * @param state the current POS state
+     * @param doc the recalled document
+     */
+    private void restate(PosState state, RecalledDocument doc) {
+        if (doc.payments == null) {
+            return;
+        }
+        for (RecalledDocument.Payment payment : doc.payments) {
+            if (payment == null || payment.amount() == null || payment.amount().signum() <= 0) {
+                continue;
+            }
+            pay(state, payment.tender() == null || payment.tender().isBlank()
+                    ? DEFAULT_MOBILITY_TENDER : payment.tender().trim(), payment.amount());
         }
     }
 

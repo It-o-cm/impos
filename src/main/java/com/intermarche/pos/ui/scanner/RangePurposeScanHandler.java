@@ -166,7 +166,7 @@ public class RangePurposeScanHandler implements ScanContext.ScanHandler {
         }
         BigDecimal tare = value.setScale(3, RoundingMode.HALF_UP);
         ctx.state.ticket.pendingTareKg = tare;
-        ctx.state.ticket.setNotice(i18n.format("op.tarePriseEnCompte", tare.toPlainString()));
+        ctx.state.ticket.setNotice(i18n.format("op.tarePriseEnCompte", tare.toPlainString().replace('.', ',')));
         ctx.handled = true;
     }
 

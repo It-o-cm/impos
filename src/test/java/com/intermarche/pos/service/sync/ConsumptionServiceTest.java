@@ -1,6 +1,7 @@
 package com.intermarche.pos.service.sync;
 
 import com.intermarche.pos.domain.sync.ConsumptionOutbox;
+import com.intermarche.pos.ui.valuation.ValuationPayloads;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -111,6 +112,48 @@ class ConsumptionServiceTest {
     @Test
     void parseAdvantagesEmptyWhenAdvantagesExplicitlyNull() {
         assertTrue(service.parseAdvantages("{\"advantages\":null}").isEmpty());
+    }
+
+    /**
+     * A discount naming its offer only in its label is declared under the
+     * code the label names, as the engine reads it ("Ticket Discount: WEB10").
+     */
+    @Test
+    void parseAdvantagesReadsTheOfferCodeOfALabel() {
+        String json = "{\"advantages\":[{\"type\":\"Ticket Discount: WEB10_07039\","
+                + "\"discountAmount\":{\"amountIncludingTax\":0.45}}]}";
+        List<ConsumptionService.DeclaredAdvantage> declared = service.parseAdvantages(json);
+        assertEquals(1, declared.size());
+        assertEquals("WEB10_07039", declared.get(0).offerCode());
+    }
+
+    /**
+     * The offer code of an advantage: its explicit code (trimmed) first, a
+     * blank one read from the label; the first word after ": " of the label;
+     * none for a label without colon, without word after it, or no label.
+     */
+    @Test
+    void offerCodeOfReadsTheCodeThenTheLabel() {
+        assertEquals("C1", ConsumptionService.offerCodeOf(advantage(" C1 ", "X: C2")));
+        assertEquals("C2", ConsumptionService.offerCodeOf(advantage(" ", "Ticket Discount: C2")));
+        assertEquals("C3", ConsumptionService.offerCodeOf(advantage(null, "Coupon Grant: C3 (x2)")));
+        assertNull(ConsumptionService.offerCodeOf(advantage(null, "MEAL_VOUCHER")));
+        assertNull(ConsumptionService.offerCodeOf(advantage(null, "Odd:  ")));
+        assertNull(ConsumptionService.offerCodeOf(advantage(null, null)));
+    }
+
+    /**
+     * An engine advantage.
+     *
+     * @param offerCode its explicit code, or null
+     * @param type its label, or null
+     * @return the advantage
+     */
+    private static ValuationPayloads.AdvantageDto advantage(String offerCode, String type) {
+        ValuationPayloads.AdvantageDto advantage = new ValuationPayloads.AdvantageDto();
+        advantage.offerCode = offerCode;
+        advantage.type = type;
+        return advantage;
     }
 
     /**

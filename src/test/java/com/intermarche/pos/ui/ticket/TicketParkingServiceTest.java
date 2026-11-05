@@ -656,7 +656,7 @@ class TicketParkingServiceTest {
             assertEquals(TERMINAL, parked.terminalId);
             assertEquals("jdupont", parked.cashierLogin);
             assertEquals("111", parked.parkedBy);
-            assertEquals(1, parked.itemCount);
+            assertEquals(2, parked.itemCount);
             assertNotNull(parked.parkedAt);
             verify(parked).persist();
             verify(service.syncOutboxService).enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.TRAINING,
@@ -669,7 +669,7 @@ class TicketParkingServiceTest {
         assertEquals(1, listed.size());
         assertEquals("FORMATION", listed.get(0).ticketNumber);
         assertEquals(77L, listed.get(0).id);
-        assertEquals(1, listed.get(0).itemCount);
+        assertEquals(2, listed.get(0).itemCount);
         assertEquals(new BigDecimal("5.00"), listed.get(0).totalIncludingTax);
         addOneItem(service);
         assertEquals(service.i18n.get("op.ticketDejaAttenteReprenez"), service.parkCurrent());

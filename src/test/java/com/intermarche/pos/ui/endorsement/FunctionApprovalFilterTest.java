@@ -72,7 +72,7 @@ class FunctionApprovalFilterTest {
     void guardedGetAndReplay() throws Exception {
         for (String target : new String[]{"manual", "/manual?x=1", "/manual?"}) {
             FunctionApprovalFilter filter = filter();var first = request("GET", target, "");filter.filter(first);
-            verify(first).abortWith(any());verify(filter.endorsements).requestAuthorization(filter.state, FunctionApprovalService.ACTION);
+            verify(first).abortWith(any());verify(filter.endorsements).requestAuthorization(filter.state, FunctionApprovalService.ACTION, java.util.List.of());
             String next = filter.approvals.approve().getLocation().toString();
             var approved = request("GET", next, "");filter.filter(approved);verify(approved, never()).abortWith(any());
             var replay = request("GET", next, "");filter.filter(replay);verify(replay).abortWith(any());

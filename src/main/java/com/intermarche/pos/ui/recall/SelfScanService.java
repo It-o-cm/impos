@@ -135,7 +135,9 @@ public class SelfScanService {
         }
         control.mode = RecalledDocument.CONTROL_TOTAL;
         control.provoked = true;
-        control.message = i18n.get("selfscan.controleTotalProvoque");
+        // LS-07-02-06: the mode zone already announces the provoked control; the
+        // message zone is emptied of what was said before instead of repeating it.
+        control.message = null;
         control.messageOk = true;
         state.touch();
         LOGGER.info("Exiting method provokeTotal");
@@ -391,14 +393,17 @@ public class SelfScanService {
 
     /**
      * The register's label of an article, for an article the basket does not
-     * declare.
+     * declare: its CHECKOUT label in the till's language, upper-cased, the very
+     * wording the sale ticket prints (LS-07-01-03).
      *
      * @param ean the code scanned
      * @return the label, or null when the register does not know the article
      */
     private String registerLabel(String ean) {
         Product product = Product.findByEan(ean);
-        return product == null ? null : product.name;
+        return product == null ? null
+                : com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                        .saleLabel(product, i18n.getLang()).toUpperCase();
     }
 
     /**

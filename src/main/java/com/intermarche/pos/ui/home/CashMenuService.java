@@ -70,16 +70,98 @@ public class CashMenuService {
     public View current() {
         LOGGER.info("Entering method current");
         CheckoutPoint point = checkoutPointService.own();
-        String code = point == null || point.menuTemplateCode == null || point.menuTemplateCode.isBlank()
-                ? posSettingsService.menuCode() : point.menuTemplateCode.trim();
-        CashMenu menu = CashMenu.findByCode(code);
-        if (menu != null && !menu.active) {
-            menu = null;
-        }
+        CashMenu menu = resolve(point);
         View view = new View(menu == null ? null : menu.code, menus(menu), css(menu, point),
                 customerCss(menu));
         LOGGER.info("Exiting method current");
         return view;
+    }
+
+    /**
+     * Resolves the model in force on this register: the one its checkout point names,
+     * otherwise the {@code menu.code} parameter; an unknown or inactive model is none.
+     *
+     * @param point this register's checkout point, or null
+     * @return the active model, or null when none is in force
+     */
+    private CashMenu resolve(CheckoutPoint point) {
+        String code = point == null || point.menuTemplateCode == null || point.menuTemplateCode.isBlank()
+                ? posSettingsService.menuCode() : point.menuTemplateCode.trim();
+        CashMenu menu = CashMenu.findByCode(code);
+        return menu != null && !menu.active ? null : menu;
+    }
+
+    /**
+     * Tells which function the model in force HIDES that a request reaches
+     * ({@code LS-12-02-03}, {@code BO-03-09-06}).
+     *
+     * <p>A HIDDEN KEY IS A CLOSED FUNCTION. Removing the key from the grid only removes
+     * the way a cashier usually reaches the function; its address stays typeable, and
+     * a function the back office switched off — the invoice of a shop that issues
+     * none — must not answer it. The test is made once, here, for every function the
+     * model can hide, rather than in each screen.
+     *
+     * <p>The functions hidden because their ACTIVATION is off are not this method's:
+     * each refuses itself with its own message (discounts deactivated, no drawer
+     * driver, no single queue). The model is resolved only when the request reaches a
+     * function at all, so the polls the screens run every second cost nothing.
+     *
+     * @param path  the request path, with its leading slash
+     * @param query the request query parameters
+     * @return the hidden function the request reaches, or null when it reaches none
+     */
+    public CashFunction hiddenFunctionReached(String path, java.util.Map<String, List<String>> query) {
+        List<CashFunction> reached = new ArrayList<>();
+        for (CashFunction function : CashFunction.values()) {
+            for (String functionPath : function.getPaths()) {
+                if (reaches(functionPath, path, query)) {
+                    reached.add(function);
+                }
+            }
+        }
+        if (reached.isEmpty()) {
+            return null;
+        }
+        CashMenu menu = resolve(checkoutPointService.own());
+        if (menu == null) {
+            return null;
+        }
+        List<CashFunction> hidden = menu.hiddenFunctionList();
+        for (CashFunction function : reached) {
+            if (hidden.contains(function)) {
+                return function;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Tells whether a request reaches a function's address: the address itself or any
+     * address under it, and, when the function's address names query parameters, only
+     * with those parameters ({@code /manual?cancel=true} is the group cancellation, not
+     * the direct entry).
+     *
+     * @param functionPath the function's address, possibly with {@code key=value} pairs
+     * @param path         the request path
+     * @param query        the request query parameters
+     * @return true when the request reaches the function
+     */
+    static boolean reaches(String functionPath, String path, java.util.Map<String, List<String>> query) {
+        int mark = functionPath.indexOf('?');
+        String base = mark < 0 ? functionPath : functionPath.substring(0, mark);
+        if (!path.equals(base) && !path.startsWith(base + "/")) {
+            return false;
+        }
+        if (mark < 0) {
+            return true;
+        }
+        for (String pair : functionPath.substring(mark + 1).split("&")) {
+            String[] parameter = pair.split("=", 2);
+            if (!query.getOrDefault(parameter[0], List.of()).contains(parameter[1])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

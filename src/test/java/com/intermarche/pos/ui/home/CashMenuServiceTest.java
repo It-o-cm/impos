@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.home;
 
+import com.intermarche.pos.domain.store.CashFunction;
 import com.intermarche.pos.domain.store.CashMenu;
 import com.intermarche.pos.domain.store.CheckoutPoint;
 import com.intermarche.pos.service.CheckoutPointService;
@@ -13,6 +14,7 @@ import org.mockito.MockedStatic;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -169,5 +171,94 @@ class CashMenuServiceTest {
         assertEquals(2, service.columns(null, new CheckoutPoint()));
         assertEquals(2, service.columns(null, null));
         assertTrue(service.css(null, wide).contains("repeat(3"));
+    }
+
+    /**
+     * A model hiding the invoice closes its address and every address under it, and the
+     * invoice of the Portuguese fiscal screen with it; a function the model does not hide
+     * stays open (LS-12-02-03).
+     */
+    @Test
+    void aHiddenFunctionIsReachedByItsAddresses() {
+        CashMenu menu = new CashMenu();
+        menu.code = "NOFAC";
+        menu.hiddenFunctions = "INVOICE";
+        CashMenuService service = service(null, "NOFAC");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubMenu(panache, "NOFAC", menu);
+            assertEquals(CashFunction.INVOICE, service.hiddenFunctionReached("/invoice", java.util.Map.of()));
+            assertEquals(CashFunction.INVOICE, service.hiddenFunctionReached("/invoice/print", java.util.Map.of()));
+            assertEquals(CashFunction.INVOICE, service.hiddenFunctionReached("/fiscal-pt", java.util.Map.of()));
+            assertNull(service.hiddenFunctionReached("/reprint", java.util.Map.of()));
+        }
+    }
+
+    /**
+     * An address no function owns never resolves the model at all: the polls the screens
+     * run every second cost no lookup.
+     */
+    @Test
+    void anAddressOfNoFunctionResolvesNothing() {
+        CashMenuService service = service(null, "NOFAC");
+        assertNull(service.hiddenFunctionReached("/ticket-fragment", java.util.Map.of()));
+        assertNull(service.hiddenFunctionReached("/invoices", java.util.Map.of()));
+        org.mockito.Mockito.verifyNoInteractions(service.checkoutPointService);
+    }
+
+    /**
+     * Without a model in force — none administered, or an inactive one — nothing is
+     * refused.
+     */
+    @Test
+    void withoutAModelNothingIsRefused() {
+        CashMenu inactive = new CashMenu();
+        inactive.code = "OFF";
+        inactive.active = false;
+        inactive.hiddenFunctions = "INVOICE";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubMenu(panache, "OFF", inactive);
+            assertNull(service(null, "").hiddenFunctionReached("/invoice", java.util.Map.of()));
+            assertNull(service(null, "OFF").hiddenFunctionReached("/invoice", java.util.Map.of()));
+        }
+    }
+
+    /**
+     * A function whose address names a query parameter is reached only with it: the group
+     * cancellation hidden leaves the direct entry open, the direct entry hidden closes
+     * both.
+     */
+    @Test
+    void aQueryAddressIsReachedOnlyWithItsParameter() {
+        CashMenu group = new CashMenu();
+        group.code = "NOGROUP";
+        group.hiddenFunctions = "CANCEL_GROUP";
+        CashMenu manual = new CashMenu();
+        manual.code = "NOMANUAL";
+        manual.hiddenFunctions = "MANUAL";
+        java.util.Map<String, List<String>> cancel = java.util.Map.of("cancel", List.of("true"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubMenu(panache, "NOGROUP", group);
+            stubMenu(panache, "NOMANUAL", manual);
+            assertEquals(CashFunction.CANCEL_GROUP, service(null, "NOGROUP").hiddenFunctionReached("/manual", cancel));
+            assertNull(service(null, "NOGROUP").hiddenFunctionReached("/manual", java.util.Map.of()));
+            assertNull(service(null, "NOGROUP").hiddenFunctionReached("/manual",
+                    java.util.Map.of("cancel", List.of("false"))));
+            assertEquals(CashFunction.MANUAL, service(null, "NOMANUAL").hiddenFunctionReached("/manual", cancel));
+            assertEquals(CashFunction.MANUAL, service(null, "NOMANUAL").hiddenFunctionReached("/manual", java.util.Map.of()));
+        }
+    }
+
+    /**
+     * The address test: the address itself, an address under it, never a mere prefix of
+     * another word, and every named parameter required.
+     */
+    @Test
+    void theAddressTestKeepsToWholeSegments() {
+        assertTrue(CashMenuService.reaches("/return", "/return", java.util.Map.of()));
+        assertTrue(CashMenuService.reaches("/return", "/return/confirm", java.util.Map.of()));
+        assertFalse(CashMenuService.reaches("/return", "/return-mode", java.util.Map.of()));
+        assertFalse(CashMenuService.reaches("/a?x=1&y=2", "/a", java.util.Map.of("x", List.of("1"))));
+        assertTrue(CashMenuService.reaches("/a?x=1&y=2", "/a",
+                java.util.Map.of("x", List.of("1"), "y", List.of("2"))));
     }
 }

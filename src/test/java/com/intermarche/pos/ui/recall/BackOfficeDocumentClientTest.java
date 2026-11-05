@@ -352,6 +352,27 @@ class BackOfficeDocumentClientTest {
     }
 
     /**
+     * DG-03-02-01, -03: settleOrder names the settling ticket in a JSON body,
+     * and sends no body when it knows none.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void settleOrderNamesTheSettlingTicket() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "OK")).when(http).send(any(HttpRequest.class), any());
+        BackOfficeDocumentClient client = client(Optional.of("http://store"), Optional.of("TOK"), http);
+        Assertions.assertTrue(client.settleOrder("W4", "C04-000012"));
+        Assertions.assertTrue(client.settleOrder("W4", null));
+        var sent = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.times(2)).send(sent.capture(), any());
+        Assertions.assertEquals("http://store/api/orders/W4/settled", sent.getAllValues().get(0).uri().toString());
+        Assertions.assertEquals("{\"ticketNumber\":\"C04-000012\"}".length(),
+                sent.getAllValues().get(0).bodyPublisher().orElseThrow().contentLength());
+        Assertions.assertEquals(0L, sent.getAllValues().get(1).bodyPublisher().orElseThrow().contentLength());
+    }
+
+    /**
      * settleOrder answers false on a non-2xx answer (status-out-of-range arm)
      * and on a thrown transport error (catch arm) — a settle the network ate
      * is a warning, never a refused sale.

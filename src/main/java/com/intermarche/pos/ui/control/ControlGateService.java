@@ -437,8 +437,7 @@ public class ControlGateService {
                     count(rule.key());
                     return Outcome.PASS;
                 }
-                hold(held);
-                state.endorsement.requiredProfiles = new java.util.ArrayList<>(rule.profiles());
+                hold(held, rule.profiles());
                 return Outcome.STOP;
             }
         }
@@ -448,17 +447,18 @@ public class ControlGateService {
      * Holds a gesture for a supervisor's validation (BO-04-03-09).
      *
      * @param held the gesture
+     * @param profiles the profiles one of which the endorser must hold, empty for the usual rule
      */
-    private void hold(Held held) {
+    private void hold(Held held, java.util.List<String> profiles) {
         if (held.kind() == Kind.HTTP) {
             functionApprovals.hold(held.method(), held.target(), held.body());
             passed = held;
             replayed = false;
-            endorsementService.requestAuthorization(state, FunctionApprovalService.ACTION);
+            endorsementService.requestAuthorization(state, FunctionApprovalService.ACTION, profiles);
         } else {
             pending = null;
             passed = held;
-            endorsementService.requestAuthorization(state, ACTION);
+            endorsementService.requestAuthorization(state, ACTION, profiles);
         }
     }
 

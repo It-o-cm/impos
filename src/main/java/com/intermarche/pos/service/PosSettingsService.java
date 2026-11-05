@@ -2373,7 +2373,13 @@ public class PosSettingsService {
         new Def("stream.compress-image", Type.BOOL, "FIL DE L'EAU",
                 "Compresser l'image du ticket",
                 "L'image imprimée du ticket part compressée (gzip puis Base64) au lieu du texte brut. L'encodage voyage dans la charge : le lecteur n'a jamais à le deviner (BO-11-02-02).",
-                "false", null));
+                "false", null),
+
+        // ---- DG: C parameters ----
+        new Def("channel.ecommerce.partial-payment", Type.TEXT, "CANAUX EXTERNES",
+                "E-commerce : commande partiellement réglée",
+                "Sort d'une commande e-commerce dont les règlements annoncés n'atteignent pas le total des lignes : RECALL (elle n'est pas enregistrée comme vente close ; elle est gardée comme panier E-commerce rappelable en caisse par sa référence, les règlements de la plateforme repris et le reste dû encaissé en caisse ; le compte rendu répond PENDING_PAYMENT avec le reste dû) ou REJECT (la commande est rejetée, rien n'est enregistré) (DG-03-01-05).",
+                "RECALL", null));
 
     /** The four levels of a control point, shared by the eight gestures. */
     private static final List<String> CONTROL_LEVELS =
@@ -2435,6 +2441,7 @@ public class PosSettingsService {
             Map.entry("nexo.activation-moment", List.of("SCAN", "PAYMENT")),
             Map.entry("island.promotion-channel",
                     List.of("", "POINT_OF_SALE", "WEB", "OTHER")),
+            Map.entry("channel.ecommerce.partial-payment", List.of("RECALL", "REJECT")),
             Map.entry("channel.ecommerce.price-source",
                     List.of("", "POS", "TRANSACTION")),
             Map.entry("channel.ecommerce.forbidden-items",
@@ -9481,4 +9488,15 @@ public class PosSettingsService {
         return value("fiscal.at-public-certificate").trim();
     }
 
+    // ---- DG: C getters ----
+
+    /**
+     * What becomes of an e-commerce order paid short (DG-03-01-05): RECALL
+     * keeps it as a basket the till recalls, REJECT refuses it.
+     *
+     * @return RECALL or REJECT, trimmed and upper-cased
+     */
+    public String ecommercePartialPayment() {
+        return value("channel.ecommerce.partial-payment").trim().toUpperCase(java.util.Locale.ROOT);
+    }
 }

@@ -65,7 +65,8 @@ public class ParkedTicketArchiveService {
             content.append(plain(line.quantity)).append(" x ").append(line.productLabel)
                     .append(" @ ").append(plain(line.unitPrice)).append(" = ").append(plain(lineTotal))
                     .append('\n');
-            count++;
+            // LS-03-04-04: the articles on hold, not the lines.
+            count += line.returnLine ? 0 : line.articleUnits();
             total = total.add(lineTotal);
         }
         record.itemCount = count;

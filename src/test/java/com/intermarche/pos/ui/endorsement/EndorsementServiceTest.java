@@ -872,16 +872,44 @@ class EndorsementServiceTest {
         PosState state = mock(PosState.class);
         state.endorsement = new EndorsementState();
         when(state.getOperatorName()).thenReturn("Jean Dupont");
-        when(service.supervisorSettleService.authorizationRequested("CANCEL_LINE", "Jean Dupont")).thenReturn(true);
+        when(service.supervisorSettleService.authorizationRequested(eq("CANCEL_LINE"), eq("Jean Dupont"),
+                anyString(), eq(java.util.List.of()))).thenReturn(true);
         service.requestAuthorization(state, "CANCEL_LINE_123e4567-e89b-12d3-a456-426614174000");
         assertTrue(state.endorsement.remoteRequested);
-        when(service.supervisorSettleService.authorizationRequested("DRAWER_FORCE_OPEN", "Jean Dupont")).thenReturn(false);
+        assertNotNull(state.endorsement.remoteRequestId);
+        when(service.supervisorSettleService.authorizationRequested(eq("DRAWER_FORCE_OPEN"), eq("Jean Dupont"),
+                anyString(), any())).thenReturn(false);
         service.requestAuthorization(state, "DRAWER_FORCE_OPEN", java.util.Map.of("code", "ERR"), "/");
         assertFalse(state.endorsement.remoteRequested);
-        when(service.supervisorSettleService.authorizationRequested("DISCOUNT 10", "Jean Dupont")).thenReturn(true);
+        assertNull(state.endorsement.remoteRequestId);
+        when(service.supervisorSettleService.authorizationRequested(eq("DISCOUNT 10"), eq("Jean Dupont"),
+                anyString(), any())).thenReturn(true);
         service.requestPriceModification(state, PriceModType.DISCOUNT, "L1", new BigDecimal("10.00"));
         assertTrue(state.endorsement.remoteRequested);
         verify(state, times(3)).touch();
+    }
+
+    /**
+     * LS-04-03-13: a request whose rule reserves the aval to named profiles goes
+     * to the back office WITH those profiles and under a fresh identity, which
+     * the lane keeps to recognise the answer.
+     */
+    @Test
+    void aProfileRestrictedRequestSendsItsProfilesAndIdentity() {
+        EndorsementService service = newService();
+        service.supervisorSettleService = mock(com.intermarche.pos.service.SupervisorSettleService.class);
+        PosState state = mock(PosState.class);
+        state.endorsement = new EndorsementState();
+        when(state.getOperatorName()).thenReturn("Jean Dupont");
+        org.mockito.ArgumentCaptor<String> id = org.mockito.ArgumentCaptor.forClass(String.class);
+        when(service.supervisorSettleService.authorizationRequested(eq("FUNCTION_APPROVAL"), eq("Jean Dupont"),
+                id.capture(), eq(java.util.List.of("Chef de caisse")))).thenReturn(true);
+        service.requestAuthorization(state, "FUNCTION_APPROVAL", java.util.List.of("Chef de caisse"));
+        assertTrue(state.endorsement.active);
+        assertEquals(java.util.List.of("Chef de caisse"), state.endorsement.requiredProfiles);
+        assertTrue(state.endorsement.remoteRequested);
+        assertEquals(id.getValue(), state.endorsement.remoteRequestId);
+        verify(state).touch();
     }
 
     /** LC-01-05-08: a register without the notice service opens its request locally and marks nothing as sent. */
@@ -918,18 +946,20 @@ class EndorsementServiceTest {
         state.serviceRequest = PosState.ServiceRequestStatus.NONE;
         state.endorsement.request("CANCEL_TICKET");
         service.abandonRequest(state);
-        verify(service.supervisorSettleService, never()).authorizationWithdrawn();
+        verify(service.supervisorSettleService, never()).authorizationWithdrawn(any());
         state.endorsement.request("CANCEL_TICKET");
         state.endorsement.remoteRequested = true;
         state.serviceRequest = PosState.ServiceRequestStatus.PENDING;
         service.abandonRequest(state);
-        verify(service.supervisorSettleService, never()).authorizationWithdrawn();
+        verify(service.supervisorSettleService, never()).authorizationWithdrawn(any());
         assertFalse(state.endorsement.active);
         state.endorsement.request("CANCEL_TICKET");
         state.endorsement.remoteRequested = true;
+        state.endorsement.remoteRequestId = "req-1";
         state.serviceRequest = PosState.ServiceRequestStatus.NONE;
         service.abandonRequest(state);
-        verify(service.supervisorSettleService).authorizationWithdrawn();
+        verify(service.supervisorSettleService).authorizationWithdrawn("req-1");
+        assertNull(state.endorsement.remoteRequestId);
         assertFalse(state.endorsement.active);
         assertFalse(state.endorsement.remoteRequested);
     }
