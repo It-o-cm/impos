@@ -281,18 +281,17 @@ public class DemoFidIT {
         Assertions.assertNotNull(waitForEarn(8000),
                 "module VI.4bis: la projection doit précéder le paiement (burnableBase)");
         movementsBaseline = readMovementsCount();
-        // The sale screen was rendered with an EMPTY cart: the ENCAISSER
+        // The sale screen was rendered with an EMPTY cart: the RÈGLEMENT
         // link only exists in a server render that SEES the cart — reload
         // first (the demo's own "F5 sans crainte" doctrine).
         page.reload();
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ENCAISSER").setExact(true)).click();
+        page.locator("a#payBtn").click();
         // Wait for the pay screen through the thing we actually use next —
         // never through a banner text no green run has ever validated.
-        typeAmountVerified(page, "CAGNOTTE", "#fidDisplay", "#fidForm", "1", "1");
+        typeAmountVerified(page, "CAGNOTTE", "#fidDisplay", "#fidForm", "100", "1,00");
         Assertions.assertNotNull(posState.payment.fidReservationId,
                 "module VI.4bis: le bail imfid doit être posé (reservationId)");
-        typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "50", "50");
+        typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "5000", "50,00");
         String printed = printAndWait(page, "CAGNOTTE DU JOUR");
         Assertions.assertTrue(printed.contains("CAGNOTTE DU JOUR"),
                 "module VII: le ticket imprimé doit porter la section CAGNOTTE DU JOUR "
@@ -467,11 +466,10 @@ public class DemoFidIT {
      * @param modeButton the exact pay-mode button label (e.g. "ESPÈCES")
      * @param displayId the sub-form display id (e.g. "#cashDisplay")
      * @param formId the sub-form id (e.g. "#cashForm")
-     * @param digits the digits to tap — the amount IN EUROS: keyboard-lib's
-     *        payment mode accumulates keys verbatim (no cents convention —
-     *        typing "5000" would mean five thousand euros)
-     * @param expectedDisplay the display value proving capture — the MIRROR
-     *        of the keys typed (e.g. "50" for fifty euros)
+     * @param digits the digits to tap — the amount IN CENTS: every amount pad
+     *        of the register is a cents pad, so fifty euros is keyed "5000"
+     * @param expectedDisplay the display value proving capture — the euros the
+     *        pad shows for the keys typed (e.g. "50,00" for fifty euros)
      */
     private void typeAmountVerified(Page page, String modeButton, String displayId,
                                     String formId, String digits, String expectedDisplay) {
@@ -479,6 +477,12 @@ public class DemoFidIT {
             try {
                 Locator button = page.getByRole(AriaRole.BUTTON,
                         new Page.GetByRoleOptions().setName(modeButton).setExact(true));
+                // The payment keys show six at a time: a key past the main ones
+                // is reached through AUTRE.
+                Locator more = page.locator("#payMethods [data-pm=more]");
+                for (int pageTurn = 0; pageTurn < 4 && !button.isVisible() && more.isVisible(); pageTurn++) {
+                    more.click();
+                }
                 button.waitFor(new Locator.WaitForOptions().setTimeout(5000));
                 button.click(new Locator.ClickOptions().setForce(true));
                 // The numpad only EXISTS once openInput rendered it into the

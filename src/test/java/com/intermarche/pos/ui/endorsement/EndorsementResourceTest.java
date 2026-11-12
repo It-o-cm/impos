@@ -232,6 +232,40 @@ class EndorsementResourceTest {
         verifyNoInteractions(resource.ticketService);
     }
 
+    /**
+     * {@code validateEndorsement()} sends a refused endorsement back to the
+     * screen that parked the gesture (non-blank return path arm): a drawer screen
+     * shown in a modal over the sale keeps its panel, with the refusal, in front
+     * of the cashier.
+     */
+    @Test
+    void validateEndorsementRefusedReturnsToTheParkingScreen() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CASH_MOVEMENT";
+        resource.state.endorsement.returnPath = "/withdrawal?method=CASH";
+        when(resource.endorsementService.authorize("m", "0000", "CASH_MOVEMENT")).thenReturn(false);
+        Response response = resource.validateEndorsement("m", "0000");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/withdrawal?method=CASH", response.getLocation().toString());
+        assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
+        verify(resource.endorsementService, never()).clearRequest(resource.state);
+    }
+
+    /**
+     * {@code validateEndorsement()} sends a refused endorsement whose return path
+     * is blank to the main page (blank return path arm).
+     */
+    @Test
+    void validateEndorsementRefusedWithBlankReturnPathReturnsMain() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CASH_MOVEMENT";
+        resource.state.endorsement.returnPath = "  ";
+        when(resource.endorsementService.authorize("m", "0000", "CASH_MOVEMENT")).thenReturn(false);
+        Response response = resource.validateEndorsement("m", "0000");
+        assertEquals("/", response.getLocation().toString());
+        assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
+    }
+
     // --- validateEndorsement: granted dispatch registry ---
 
     /**
@@ -697,6 +731,38 @@ class EndorsementResourceTest {
         verify(resource.state).touch();
     }
 
+    /**
+     * {@code cancelEndorsement()} lands back on the screen that parked the
+     * gesture (non-blank return path arm), read BEFORE the request is abandoned,
+     * since abandoning it clears the return path with the rest.
+     */
+    @Test
+    void cancelEndorsementReturnsToTheParkingScreen() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.returnPath = "/cash-movement";
+        org.mockito.Mockito.doAnswer(invocation -> {
+            resource.state.endorsement.returnPath = null;
+            return null;
+        }).when(resource.endorsementService).abandonRequest(resource.state);
+        Response response = resource.cancelEndorsement();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/cash-movement", response.getLocation().toString());
+        verify(resource.endorsementService).abandonRequest(resource.state);
+        verify(resource.state).touch();
+    }
+
+    /**
+     * {@code cancelEndorsement()} lands on the main page when the parked return
+     * path is blank (blank return path arm).
+     */
+    @Test
+    void cancelEndorsementWithBlankReturnPathRedirectsMain() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.returnPath = " ";
+        Response response = resource.cancelEndorsement();
+        assertEquals("/", response.getLocation().toString());
+    }
+
     // --- selfEndorse (connected-supervisor shortcut) ---
 
     /**
@@ -732,6 +798,22 @@ class EndorsementResourceTest {
         assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
         verify(resource.state).touch();
         verify(resource.ticketService, never()).cancelTicket(any());
+        verify(resource.endorsementService, never()).clearRequest(any());
+    }
+
+    /**
+     * {@code selfEndorse} sends a non-supervisor's refusal back to the screen
+     * that parked the gesture (non-blank return path arm), without executing it.
+     */
+    @Test
+    void selfEndorseRefusesNonSupervisorBackToTheParkingScreen() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CASH_MOVEMENT";
+        resource.state.endorsement.returnPath = "/apport";
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
+        Response response = resource.selfEndorse();
+        assertEquals("/apport", response.getLocation().toString());
+        assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
         verify(resource.endorsementService, never()).clearRequest(any());
     }
 

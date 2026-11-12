@@ -399,6 +399,7 @@ class ArticleInfoResourceTest {
                         .resolve(context -> com.intermarche.pos.ui.TestMessages.french()).build()).build();
         engine.putTemplate("theme", engine.parse(""));
         engine.putTemplate("keyboard-lib", engine.parse(""));
+        engine.putTemplate("screen-embed", engine.parse(""));
         var template = engine.parse(java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/templates/article-info.html")));
         var info = new ArticleInfoResource.ArticleInfo(product("MILK", "12345670", null), price("2.35", "0.20"));
         String html = template.data("code", "12345670").data("info", info).data("notFound", false)

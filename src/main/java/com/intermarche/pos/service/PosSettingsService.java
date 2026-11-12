@@ -496,6 +496,10 @@ public class PosSettingsService {
                 "Contrôle de validité du NIF portugais",
                 "Un NIF saisi ou scanné qui n'est fait que de chiffres, précédés ou non de PT, doit compter 9 chiffres, commencer par un préfixe légal et porter la bonne clé de contrôle (modulo 11) ; sinon il est refusé. Un NIF étranger, qui contient des lettres, n'est pas contrôlé (LC-08-06-04).",
                 "false", null),
+        new Def("customer.tax-id-key", Type.BOOL, "CLIENT EN CAISSE",
+                "Touche NIF CLIENT hors Portugal",
+                "Affiche la touche NIF CLIENT du menu GÉNÉROSITÉ sur une caisse qui n'émet pas les documents fiscaux portugais. Une caisse portugaise (documents fiscaux portugais activés) l'affiche toujours (LC-08-06-02).",
+                "false", null),
         new Def("customer.tax-id-scan-pattern", Type.TEXT, "CLIENT EN CAISSE",
                 "Code-barre porteur d'un NIF",
                 "Expression régulière reconnaissant, au scan, le code-barre qui porte un NIF client (carte d'achat sociale, par exemple) ; le groupe entre parenthèses désigne le NIF. Le NIF scanné est enregistré dans la transaction comme s'il avait été saisi, avec le même contrôle. Vide : aucun code-barre NIF reconnu (LC-08-06-05).",
@@ -3290,6 +3294,20 @@ public class PosSettingsService {
         LOGGER.info("Entering method taxIdPortugueseCheck");
         LOGGER.info("Exiting method taxIdPortugueseCheck");
         return boolValue("customer.tax-id-pt-check");
+    }
+
+    /**
+     * Whether the sale screen offers the NIF CLIENT key (LC-08-06-02): always on
+     * a Portuguese register, which states every sale on a Portuguese fiscal
+     * document, and elsewhere only where the store asks for it.
+     *
+     * @return true when the GÉNÉROSITÉ menu shows the NIF CLIENT key
+     */
+    public boolean saleTaxIdKey() {
+        LOGGER.info("Entering method saleTaxIdKey");
+        boolean shown = ptDocuments() || boolValue("customer.tax-id-key");
+        LOGGER.info("Exiting method saleTaxIdKey");
+        return shown;
     }
 
     /**

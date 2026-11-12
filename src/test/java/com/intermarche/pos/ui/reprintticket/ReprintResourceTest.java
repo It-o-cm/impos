@@ -44,6 +44,8 @@ class ReprintResourceTest {
         ReprintResource resource = new ReprintResource();
         resource.state = mock(PosState.class);
         resource.state.reprint = mock(ReprintState.class);
+        // A closed ticket in the history: the list opens (the empty case is its own test).
+        resource.state.reprint.tickets = java.util.List.of(mock(com.intermarche.pos.domain.sale.Ticket.class));
         resource.reprintService = mock(ReprintService.class);
         resource.reprintTicketPage = mock(Template.class);
         resource.reprintDetailPage = mock(Template.class);
@@ -101,8 +103,24 @@ class ReprintResourceTest {
         ReprintResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance listView = stubList(resource);
-        assertSame(listView, resource.showReprintPage());
+        assertSame(listView, resource.showReprintPage().getEntity());
         verify(resource.reprintService).loadHistory();
+    }
+
+    /**
+     * {@code showReprintPage()} with no closed ticket at all does not open the list:
+     * the refusal is stated at the top of the sale's article list.
+     */
+    @Test
+    void showReprintPageWithoutTicketIsRefusedOnTheSaleScreen() {
+        ReprintResource resource = newResource();
+        resource.state.reprint.tickets = java.util.List.of();
+        resource.state.ticket = mock(com.intermarche.pos.ui.ticket.TicketState.class);
+        resource.i18n = com.intermarche.pos.ui.TestMessages.french();
+        jakarta.ws.rs.core.Response response = resource.showReprintPage();
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.state.ticket).setError(resource.i18n.get(PosState.NO_TICKET_REPRINT_KEY));
+        verify(resource.state).touch();
     }
 
     // --- reprintPrevPage ---
@@ -758,6 +776,8 @@ class ReprintResourceTest {
                         .resolve(context -> "units".equals(context.getName())
                                 ? units : com.intermarche.pos.ui.TestMessages.french()).build()).build();
         engine.putTemplate("theme", engine.parse(""));
+        engine.putTemplate("modal-kit", engine.parse(""));
+        engine.putTemplate("screen-embed", engine.parse(""));
         var source = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/templates/reprint-promotions.html"));
         var view = engine.parse(source);
         var ticket = new Ticket();

@@ -34,6 +34,7 @@ class VignetteResourceTest {
         resource.vignetteService = mock(VignetteService.class);
         resource.state = new PosState();
         resource.state.auth.operatorBadgeId = "12341234";
+        resource.i18n = com.intermarche.pos.ui.TestMessages.french();
         return resource;
     }
 
@@ -57,12 +58,31 @@ class VignetteResourceTest {
         VignetteService.Summary summary = new VignetteService.Summary("S1", 2, 3, 1);
         when(resource.vignetteService.enabled()).thenReturn(true);
         when(resource.vignetteService.summary()).thenReturn(summary);
-        Assertions.assertSame(instance, resource.page("1", null));
+        Assertions.assertSame(instance, resource.page("1", null).getEntity());
         verify(instance).data("summary", summary);
         verify(instance).data("saved", true);
-        Assertions.assertSame(instance, resource.page(null, "count"));
+        Assertions.assertSame(instance, resource.page(null, "count").getEntity());
         verify(instance).data("saved", false);
         verify(instance).data("error", "count");
+        Assertions.assertNull(resource.state.modalMessage);
+    }
+
+    /** With the vignettes off the sale screen states it in its message modal; no page is drawn. */
+    @Test
+    void disabledVignettesAreRefusedInAModal() {
+        VignetteResource resource = resource();
+        Assertions.assertEquals("/", target(resource.page(null, null)));
+        Assertions.assertEquals(resource.i18n.get("vignette.t21Inactive"), resource.state.modalMessage);
+        verify(resource.vignetteService, never()).summary();
+    }
+
+    /** With no open session the sale screen states it in its message modal; no page is drawn. */
+    @Test
+    void noSessionIsRefusedInAModal() {
+        VignetteResource resource = resource();
+        when(resource.vignetteService.enabled()).thenReturn(true);
+        Assertions.assertEquals("/", target(resource.page(null, null)));
+        Assertions.assertEquals(resource.i18n.get("vignette.t21AucuneSession"), resource.state.modalMessage);
     }
 
     /** An unreadable count is refused; with the vignettes off nothing is declared; otherwise the outcome is shown. */

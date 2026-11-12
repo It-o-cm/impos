@@ -2272,4 +2272,17 @@ class TicketStateTest {
         assertEquals(6, state.getArticleCount());
         assertEquals(2, returned.articleUnits());
     }
+
+    /** Every message posted moves the stamp, a repeated one included, so the screen can flash it again. */
+    @Test
+    void everyPostedMessageMovesTheStamp() {
+        TicketState ticket = new TicketState();
+        assertEquals(0L, ticket.transientStamp);
+        ticket.setError("AUCUN TICKET");
+        ticket.setError("AUCUN TICKET");
+        assertEquals(2L, ticket.transientStamp);
+        ticket.setNotice("OK");
+        ticket.setWarning("WARN");
+        assertEquals(4L, ticket.transientStamp);
+    }
 }

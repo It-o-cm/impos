@@ -126,8 +126,9 @@ public class EndorsementResource {
      * @param login the badge id or login name presented for the endorsement
      * @param code the supervisor code typed after a read barcode, or null
      * @param password the raw PIN presented for the endorsement
-     * @return a 303 redirect to the main page (PRG pattern); any refusal
-     *         message travels through the shared state
+     * @return a 303 redirect (PRG pattern): on success to the gesture's own
+     *         landing; on a refusal to the screen that parked the gesture, else
+     *         the main page — the refusal message travels through the shared state
      */
     @POST
     @Path("/action/endorse-validate")
@@ -164,7 +165,7 @@ public class EndorsementResource {
             state.endorsement.error = i18n.get("op.autorisationRefusee2");
             state.touch();
             LOGGER.info("Exiting method validateEndorsement");
-            return redirectHome();
+            return backTo(state.endorsement.returnPath);
         }
     }
 
@@ -400,9 +401,10 @@ public class EndorsementResource {
      * executed directly — no second credential is asked. The role check is
      * done server-side here, never trusted from the page.
      *
-     * @return a 303 redirect to the main page (PRG pattern, so a browser
-     *         reload never replays the POST); any refusal message travels
-     *         through the shared state
+     * @return a 303 redirect (PRG pattern, so a browser reload never replays
+     *         the POST): on success to the gesture's own landing; on a refusal
+     *         to the screen that parked the gesture, else the main page — the
+     *         refusal message travels through the shared state
      */
     @POST
     @Path("/action/endorse-self")
@@ -418,7 +420,7 @@ public class EndorsementResource {
             state.endorsement.error = i18n.get("op.autorisationRefusee2");
             state.touch();
             LOGGER.info("Exiting method selfEndorse");
-            return redirectHome();
+            return backTo(state.endorsement.returnPath);
         }
         String landing = state.endorsement.returnPath;
         Response own = executeApprovedAction(actionToExecute, operatorBadge());
@@ -438,15 +440,36 @@ public class EndorsementResource {
      * of showing a cancelled endorsement. The home resource owns that map and
      * is the only place that should build it.
      *
-     * @return the 303 redirect to the main page
+     * <p>The operator lands back on the screen that parked the gesture when it
+     * named one — a drawer screen shown in a modal over the sale stays in that
+     * modal — else on the sale screen.
+     *
+     * @return the 303 redirect to the parking screen, or to the main page
      */
     @GET
     @Path("/action/endorse-cancel")
     public Response cancelEndorsement() {
         LOGGER.info("Entering method cancelEndorsement");
+        String landing = state.endorsement.returnPath;
         endorsementService.abandonRequest(state);
         state.touch();
         LOGGER.info("Exiting method cancelEndorsement");
+        return backTo(landing);
+    }
+
+    /**
+     * Sends the operator back to the screen that parked the gesture, where its
+     * panel states the refusal or shows the gesture abandoned: a drawer screen
+     * shown in a modal over the sale keeps the operator in that modal. Without a
+     * parking screen, the operator lands on the sale screen.
+     *
+     * @param landing the parked return path, or null
+     * @return the 303 redirect to the parking screen, or to the main page
+     */
+    private Response backTo(String landing) {
+        if (landing != null && !landing.isBlank()) {
+            return Response.seeOther(URI.create(landing)).build();
+        }
         return redirectHome();
     }
 

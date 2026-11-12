@@ -1,98 +1,63 @@
 {!
- ! Duplicata of a ticket made on ANOTHER register (LC-08-05-05).
+ ! TICKET D'UNE AUTRE CAISSE (LC-08-05-05), in the reprint modal over the sale:
+ ! the duplicata of a ticket made on ANOTHER register.
  !
  ! The shop's sales all reach the store node, so this screen names a ticket and asks
  ! the node for it, already rendered. Nothing of that ticket is kept here: this
- ! register is a printer for it, not its register of record.
+ ! register is a printer for it, not its register of record — the duplicata
+ ! counter stays the selling register's.
  !
- ! One field, one keyboard: there is no physical keyboard on this machine.
+ ! One field and its keyboard (there is no physical keyboard on this machine).
+ ! IMPRIMER LE DUPLICATA, bottom left; the outcome is stated at the top. RETOUR,
+ ! bottom right, goes back to the list.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{inject:i18n.get('reprintforeign.ticketDAutreCaisse')}</title>
-    <style>
-        {#include theme /}
-        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
-
-        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
-        .error { background: var(--danger); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
-        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
-        .side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; color: var(--text-muted); font-size: var(--fs-body); line-height: 1.6; }
-        .side h2 { margin: 0; font-size: var(--fs-section); color: var(--text-main); }
-        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-        .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
-        .display { width: 100%; font-size: var(--fs-field); padding: 10px 12px; border-radius: 4px;
-                   border: 2px solid var(--border-strong); background: var(--bg-panel);
-                   color: var(--text-main); text-align: left; flex-shrink: 0; }
-        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
-        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
-
-        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
-        /* The application's button base, declared verbatim as every screen does; the
-           theme include supplies the colour modifiers. */
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('reprintforeign.ticketDAutreCaisse')}</title>
+  <style>
+    {#include theme /}
+    #foreignForm { display: flex; flex-direction: column; gap: 8px; }
+    #foreignForm .pad-display { min-height: 3rem; display: flex; align-items: center; padding: 6px 12px; font-size: var(--fs-field); }
+  </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
-<div class="pos-terminal">
+<body data-theme="{posTheme}" data-modal-size="60rem fit" data-embed-stay="/reprint">
+  <div class="pos-terminal">
+    <div class="mk-title"><span class="title">{inject:i18n.get('reprintforeign.ticketDAutreCaisse2')}</span></div>
 
-    <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('reprintforeign.ticketDAutreCaisse2')}</span>
-        <span id="clock"></span>
+    <div class="mk-body">
+      {#if state.reprint.foreignError}<div class="mk-outcome err" role="alert">{state.reprint.foreignError}</div>
+      {#else if state.reprint.printOutcome}<div class="mk-outcome" role="status">{state.reprint.printOutcome}</div>{/if}
+      <form id="foreignForm" method="post" action="/reprint/foreign">
+        <div class="mk-label">{inject:i18n.get('reprintforeign.numeroTicket')}</div>
+        <div id="kbDisplay" class="pad-display mk-active"></div>
+        <input type="hidden" id="kbHidden" name="ticketNumber" value="{state.reprint.foreignTicketNumber}">
+        <div class="mk-keyboard pos-kb-compact" id="kbArea"></div>
+      </form>
     </div>
 
-    <div class="main-area">
-
-        {#if state.reprint.foreignError}
-        <div class="error">{state.reprint.foreignError}</div>
-        {/if}
-
-        <div class="work">
-            <div class="side">
-                <h2>{inject:i18n.get('reprintforeign.duplicataMagasin')}</h2>
-                <p>{inject:i18n.get('reprintforeign.saisissezNumeroImprimeTicket')}<br>
-                   {inject:i18n.get('reprintforeign.ticketDemandeMagasinPuis')}</p>
-                <p>{inject:i18n.get('reprintforeign.compteurDuplicataResteCelui')}</p>
-            </div>
-            <form class="entry" method="post" action="/reprint/foreign">
-                <div class="entry-title">{inject:i18n.get('reprintforeign.numeroTicket')}</div>
-                <div id="kbDisplay" class="display pad-display"></div>
-                <input type="hidden" id="kbHidden" name="ticketNumber" value="{state.reprint.foreignTicketNumber}">
-                <div class="keyboard pos-kb-compact" id="kbArea"></div>
-                <div class="actions">
-                    <button class="btn btn-success" type="submit">{inject:i18n.get('reprintforeign.imprimerDuplicata')}</button>
-                </div>
-            </form>
-        </div>
-
+    <div class="mk-actions">
+      <button class="btn btn-success" type="submit" form="foreignForm">{inject:i18n.get('reprintforeign.imprimerDuplicata')}</button>
+      <a href="/reprint" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
+  </div>
 
-    <div class="bottom-nav">
-        <a href="/reprint" class="btn btn-muted">{inject:i18n.get('reprintforeign.retourListe')}</a>
-        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
-    </div>
-</div>
-
-{#include keyboard-lib /}
-
-<script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
+  {#include keyboard-lib /}
+  <script>
     PosInput.setup({
-        displayId: 'kbDisplay',
-        hiddenId: 'kbHidden',
-        containerId: 'kbArea',
-        keyboardType: 'email',
-        mode: 'text',
-        uppercase: true,
-        maxLength: 30,
-        initialValue: document.getElementById('kbHidden').value || ''
+      displayId: 'kbDisplay',
+      hiddenId: 'kbHidden',
+      containerId: 'kbArea',
+      keyboardType: 'email',
+      mode: 'text',
+      uppercase: true,
+      maxLength: 30,
+      initialValue: document.getElementById('kbHidden').value || ''
     });
-</script>
+  </script>
+  {#include screen-embed /}
 </body>
 </html>

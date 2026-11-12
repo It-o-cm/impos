@@ -67,7 +67,7 @@ public class PosHardwareResource {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
         // LC-13-02-05/-07: diagnostic scans cannot register sale articles.
-        if (state.maintenanceScreenOpen) {
+        if (state.maintenanceScreenActive()) {
             state.maintenanceScanCode = code;
             state.touch();
             return Response.ok().build();

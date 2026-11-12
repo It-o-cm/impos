@@ -1,161 +1,107 @@
 {!
- ! Sending the last closed ticket by e-mail, FROM THE REGISTER (LC-08-02-09/-10/-11).
+ ! TICKET PAR EMAIL (TicketEmailResource, LC-08-02-09/-10/-11, EXP-48), shown in
+ ! a modal over the sale: the last closed ticket sent by e-mail or by SMS, FROM
+ ! THE REGISTER.
  !
- ! The loyalty holder's address is offered pre-filled when the referential gave one;
- ! whether it can be corrected is administered. Without a known address the operator
- ! types one on the on-screen keyboard — there is no physical keyboard here.
+ ! At the top, the two destinations: the e-mail address (offered pre-filled when the
+ ! loyalty referential gave one; read-only when the shop forbids correcting it)
+ ! and the phone number. Under them, ONE keyboard serving the field touched — the
+ ! letters for the address, the digits for the number. ENVOYER and ENVOYER PAR
+ ! SMS, bottom left, send; the outcome is stated at the top of the modal. RETOUR,
+ ! bottom right, goes back to the sale.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{inject:i18n.get('ticketemail.ticketEmail')}</title>
-    <style>
-        {#include theme /}
-        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
-
-        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
-        .error { background: var(--danger); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
-        .sent { background: var(--success); color: #000; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
-        .note { color: var(--text-muted); font-size: var(--fs-label); flex-shrink: 0; }
-
-        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
-        .side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; color: var(--text-muted); font-size: var(--fs-body); line-height: 1.6; }
-        .side h2 { margin: 0; font-size: var(--fs-section); color: var(--text-main); }
-        .side .holder { color: var(--text-main); font-weight: bold; font-size: var(--fs-row); }
-        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-        .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
-        .display { width: 100%; font-size: var(--fs-field); padding: 10px 12px; border-radius: 4px;
-                   border: 2px solid var(--border-strong); background: var(--bg-panel);
-                   color: var(--text-main); text-align: left; flex-shrink: 0; }
-        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
-        /* Le pave a quitte le bloc de l'adresse pour servir les deux champs de
-           la page: ce sont donc les deux formulaires qui cessent de prendre la
-           hauteur, et lui qui la prend. */
-        .main-area > .work { flex: 0 0 auto; }
-        #kbArea { flex: 1; }
-        /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
-        .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
-        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
-        .centered { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 16px; text-align: center; }
-
-        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
-        /* The application's button base, declared verbatim as every screen does; the
-           theme include supplies the colour modifiers. */
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('ticketemail.ticketEmail')}</title>
+  <style>
+    {#include theme /}
+    /* The two destinations side by side, the shared keyboard under them. */
+    .dest { flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 10px 18px; }
+    .dest .pad-display { min-height: 3rem; display: flex; align-items: center; padding: 6px 12px; font-size: var(--fs-field); overflow-wrap: anywhere; }
+    .readonly { cursor: default; }
+    #kbArea { flex-shrink: 0; }
+  </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
-<div class="pos-terminal">
+<body data-theme="{posTheme}" data-modal-size="72rem fit" data-embed-stay="/ticket-email /customer-documents">
+  <div class="pos-terminal">
+    <div class="mk-title"><span class="title">{inject:i18n.get('ticketemail.ticketEmail2')}</span></div>
 
-    <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('ticketemail.ticketEmail2')}</span>
-        <span id="clock"></span>
-    </div>
-
-    <div class="main-area">
-
-        {#if error}<div class="error">{error}</div>{/if}
-        {#if sent}<div class="sent">TICKET ENVOYÉ À {address}</div>{/if}
-        {#if smsSent}<div class="sent">TICKET ENVOYÉ PAR SMS AU {phone}</div>{/if}
-        {#if !relayConfigured}<div class="note">{inject:i18n.get('ticketemail.aucunRelaisMessagerieConfigure')}</div>{/if}
-
-        <form class="work" method="post" action="/ticket-email">
-            <div class="side">
-                <h2>{inject:i18n.get('ticketemail.envoiDernierTicket')}</h2>
-                {#if known}
-                    <p>{inject:i18n.get('ticketemail.adresseConnueProgrammeFidelite')}</p>
-                    <p class="holder">{state.fidelity.holderEmail}</p>
-                    {#if !editable}<p>{inject:i18n.get('ticketemail.adresseNePeutPas')}</p>{/if}
-                {#else}
-                    <p>{inject:i18n.get('ticketemail.aucuneAdresseConnueClient')}<br>{inject:i18n.get('ticketemail.saisissezCelleQuVous')}</p>
-                {/if}
-            </div>
-
-            {#if editable}
-            <div class="entry">
-                <div class="entry-title">{inject:i18n.get('ticketemail.adresseEmail')}</div>
-                <div id="kbDisplay" class="display pad-display" onclick="activateField('email')"></div>
-                <input type="hidden" id="kbHidden" name="email" value="{address}">
-                <div class="actions">
-                    <button class="btn btn-success" type="submit">{inject:i18n.get('ticketemail.envoyer')}</button>
-                </div>
-            </div>
-            {#else}
-            <div class="centered">
-                <div class="display" style="text-align:center;">{address}</div>
-                <input type="hidden" name="email" value="{address}">
-                <button class="btn btn-success" type="submit" style="width:16.25rem;">ENVOYER</button>
-            </div>
-            {/if}
+    <div class="mk-body">
+      {#if error}<div class="mk-outcome err" role="alert">{error}</div>
+      {#else if sent}<div class="mk-outcome" role="status">{inject:i18n.format('ticketemail.envoyeA', address)}</div>
+      {#else if smsSent}<div class="mk-outcome" role="status">{inject:i18n.format('ticketemail.envoyeSmsAu', phone)}</div>{/if}
+      {#if !relayConfigured}<div class="mk-outcome warn">{inject:i18n.get('ticketemail.aucunRelaisMessagerieConfigure')}</div>{/if}
+      {#if !smsRelayConfigured}<div class="mk-outcome warn">{inject:i18n.get('ticketemail.aucunePasserelleSmsConfiguree')}</div>{/if}
+      <div class="dest">
+        <form class="mk-field" id="emailForm" method="post" action="/ticket-email">
+          <div class="mk-label">{inject:i18n.get('ticketemail.adresseEmail')}</div>
+          {#if editable}
+          <div id="kbDisplay" class="pad-display" onclick="activateField('email')"></div>
+          <input type="hidden" id="kbHidden" name="email" value="{address}">
+          {#else}
+          <div class="pad-display readonly">{address}</div>
+          <input type="hidden" name="email" value="{address}">
+          {/if}
         </form>
-
-        {! EXP-48 : ticket dématérialisé par téléphone — même geste, canal SMS. !}
-        <form class="work" method="post" action="/ticket-email/sms">
-            <div class="entry">
-                <div class="entry-title">{inject:i18n.get('ticketemail.numeroTelephoneSms')}</div>
-                <div id="phoneDisplay" class="display pad-display" data-placeholder="06 12 34 56 78" onclick="activateField('phone')"></div>
-                <input type="hidden" name="phone" id="phoneHidden" value="{phone}">
-                <div class="actions">
-                    <button class="btn btn-primary" type="submit">{inject:i18n.get('ticketemail.envoyerSms')}</button>
-                </div>
-                {#if !smsRelayConfigured}<div class="note">{inject:i18n.get('ticketemail.aucunePasserelleSmsConfiguree')}</div>{/if}
-            </div>
+        {! EXP-48: the dematerialised ticket by phone — the same gesture, SMS channel. !}
+        <form class="mk-field" id="smsForm" method="post" action="/ticket-email/sms">
+          <div class="mk-label">{inject:i18n.get('ticketemail.numeroTelephoneSms')}</div>
+          <div id="phoneDisplay" class="pad-display" data-placeholder="06 12 34 56 78" onclick="activateField('phone')"></div>
+          <input type="hidden" name="phone" id="phoneHidden" value="{phone}">
         </form>
-
-        {! UN seul pave pour l'adresse et le numero: PosInput est un singleton,
-         ! et deux paves rendus en meme temps enverraient tous deux leurs
-         ! touches au dernier champ cable. Un clic sur un champ rebranche le
-         ! pave dessus, avec le clavier que ce champ demande. !}
-        <div class="keyboard pos-kb-compact" id="kbArea"></div>
-
+      </div>
+      {! ONE pad for the address and the number: PosInput is a singleton, and two
+       ! pads drawn together would both send their keys to the last wired field. !}
+      <div class="mk-keyboard pos-kb-compact" id="kbArea"></div>
     </div>
 
-    <div class="bottom-nav">
-        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
-        <a href="/customer-documents" class="btn btn-muted">{inject:i18n.get('customerdocs.title')}</a>
+    <div class="mk-actions">
+      <button class="btn btn-success" type="submit" form="emailForm">{inject:i18n.get('ticketemail.envoyer')}</button>
+      <button class="btn btn-primary" type="submit" form="smsForm">{inject:i18n.get('ticketemail.envoyerSms')}</button>
+      <a href="/customer-documents" class="btn btn-muted">{inject:i18n.get('customerdocs.title')}</a>
+      <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
-</div>
+  </div>
 
-{#include keyboard-lib /}
-
-<script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
-    /* Une adresse demande les lettres et l'arobase, un numero de telephone
-       des chiffres: deux claviers, un seul pave. */
+  {#include keyboard-lib /}
+  <script>
+    /* An address asks for letters and the at sign, a phone number for digits:
+       two keyboards, one pad. */
     const MAIL_FIELDS = {
-        email: { display: 'kbDisplay',    hidden: 'kbHidden',    type: 'email',  mode: 'text', max: 120 },
-        phone: { display: 'phoneDisplay', hidden: 'phoneHidden', type: 'numpad', mode: 'text', max: 20 }
+      email: { display: 'kbDisplay',    hidden: 'kbHidden',    type: 'email',  mode: 'text', max: 120 },
+      phone: { display: 'phoneDisplay', hidden: 'phoneHidden', type: 'numpad', mode: 'text', max: 20 }
     };
 
-    /* Rebranche le pave sur l'un des deux champs, en restaurant ce qui y avait
-       deja ete saisi. Sans effet sur un champ que la page n'affiche pas: quand
-       l'adresse fidelite n'est pas modifiable, seul le telephone est la. */
+    /* Repoints the pad onto one of the two fields, restoring what was already
+       typed there. No effect on a field the page does not show: when the loyalty
+       address is read-only, only the phone is there.
+       @param name the field's name, email or phone */
     function activateField(name) {
-        const field = MAIL_FIELDS[name];
-        if (!field || !document.getElementById(field.hidden)) { return; }
-        Object.values(MAIL_FIELDS).forEach(f => {
-            const el = document.getElementById(f.display);
-            if (el) { el.classList.remove('pad-active'); }
-        });
-        document.getElementById(field.display).classList.add('pad-active');
-        PosInput.setup({
-            displayId: field.display,
-            hiddenId: field.hidden,
-            containerId: 'kbArea',
-            keyboardType: field.type,
-            mode: field.mode,
-            uppercase: false,
-            maxLength: field.max,
-            initialValue: document.getElementById(field.hidden).value || ''
-        });
+      const field = MAIL_FIELDS[name];
+      if (!field || !document.getElementById(field.hidden)) { return; }
+      Object.values(MAIL_FIELDS).forEach(f => {
+        const el = document.getElementById(f.display);
+        if (el) { el.classList.remove('mk-active'); }
+      });
+      document.getElementById(field.display).classList.add('mk-active');
+      PosInput.setup({
+        displayId: field.display,
+        hiddenId: field.hidden,
+        containerId: 'kbArea',
+        keyboardType: field.type,
+        mode: field.mode,
+        uppercase: false,
+        maxLength: field.max,
+        initialValue: document.getElementById(field.hidden).value || ''
+      });
     }
 
     activateField(document.getElementById('kbHidden') ? 'email' : 'phone');
-</script>
+  </script>
+  {#include screen-embed /}
 </body>
 </html>

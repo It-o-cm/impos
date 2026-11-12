@@ -37,6 +37,8 @@ public class ReprintResource {
     @Inject
     PosState state;
     @Inject ReprintService reprintService;
+    /** Operator messages, for the refusal stated on the sale screen. */
+    @Inject com.intermarche.pos.ui.Messages i18n;
 
     @Inject @Location("reprint-ticket") Template reprintTicketPage;
     @Inject @Location("reprint-ticket-detail") Template reprintDetailPage;
@@ -50,15 +52,23 @@ public class ReprintResource {
     @GET
     @Produces(MediaType.TEXT_HTML)
     /**
-     * Shows the reprint screen with a fresh closed-ticket history.
+     * Shows the reprint screen with a fresh closed-ticket history; with no closed
+     * ticket at all the screen is not opened and the refusal is stated where every
+     * key of the TICKET menu states it, at the top of the sale's article list.
      *
-     * @return the reprint page
+     * @return the reprint page, or the sale screen with the refusal
      */
-    public TemplateInstance showReprintPage() {
+    public Response showReprintPage() {
         LOGGER.info("Entering method showReprintPage");
         reprintService.loadHistory();
+        if (state.reprint.tickets.isEmpty()) {
+            state.ticket.setError(i18n.get(PosState.NO_TICKET_REPRINT_KEY));
+            state.touch();
+            LOGGER.info("Exiting method showReprintPage: no ticket");
+            return Response.seeOther(java.net.URI.create("/")).build();
+        }
         LOGGER.info("Exiting method showReprintPage");
-        return reprintTicketPage.data("state", state);
+        return Response.ok(reprintTicketPage.data("state", state)).build();
     }
 
     /**

@@ -6,7 +6,7 @@
  ! invoice screen's own mechanism.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,9 +20,6 @@
         .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
         .tabs { display: flex; gap: 10px; flex-shrink: 0; }
         .tabs .btn { flex: 1; text-align: center; }
-        .hint { font-size: var(--fs-label); color: var(--text-muted); flex-shrink: 0; }
-        .error { background: var(--danger); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
-        .info { background: var(--success); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; overflow-wrap: anywhere; }
         .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
         .side { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
@@ -31,7 +28,7 @@
         .field { display: flex; justify-content: space-between; align-items: center; gap: 8px;
                  padding: 8px 10px; border-bottom: 1px dashed var(--border-strong);
                  font-size: var(--fs-body); cursor: pointer; }
-        .field.on { background: rgba(255,255,255,.08); }
+        .field.on { box-shadow: inset 4px 0 0 var(--primary); }
         .field .lab { color: var(--text-muted); white-space: nowrap; }
         .field .val { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .field .val.empty { color: var(--text-muted); font-weight: normal; }
@@ -40,30 +37,31 @@
                    color: var(--text-main); text-align: left; flex-shrink: 0; overflow-wrap: anywhere; }
         .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
         .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
-        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        .bottom-nav .mk-back { margin-left: auto; }
     </style>
+    {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="76rem 40rem" data-embed-stay="/fiscal-pt">
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('fiscalpt.title')}</span>
+        <span class="title">{inject:i18n.get('fiscalpt.title')}</span>
         <span id="clock"></span>
     </div>
 
     <div class="main-area">
         {#if mode == 'request'}
-        <div class="hint"><strong>{inject:i18n.get('fiscalpt.demandeFatura')}</strong> — {inject:i18n.get('fiscalpt.demandeHint')}</div>
+        <div class="mk-label">{inject:i18n.get('fiscalpt.demandeFatura')}</div>
         {#else}
         <div class="tabs">
             <a href="/fiscal-pt?mode=convert" class="btn {#if mode == 'convert'}btn-primary{#else}btn-muted{/if}">{inject:i18n.get('fiscalpt.convertir')}</a>
             <a href="/fiscal-pt?mode=receipt" class="btn {#if mode == 'receipt'}btn-primary{#else}btn-muted{/if}">{inject:i18n.get('fiscalpt.recibo')}</a>
         </div>
-        <div class="hint">{#if mode == 'convert'}{inject:i18n.get('fiscalpt.convertHint')}{#else}{inject:i18n.get('fiscalpt.reciboHint')}{/if}</div>
         {/if}
 
-        {#if error}<div class="error" role="alert">{error}</div>{/if}
-        {#if info}<div class="info" role="status">{info}</div>{/if}
+        {#if error}<div class="mk-outcome err" role="alert">{error}</div>{/if}
+        {#if info}<div class="mk-outcome" role="status">{info}</div>{/if}
 
         <form class="work" method="post" action="/fiscal-pt/{mode}" id="entryForm">
             <div class="side">
@@ -73,9 +71,6 @@
                 <div class="entry-title" id="entryTitle"></div>
                 <div id="kbDisplay" class="display pad-display"></div>
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
-                <div class="actions">
-                    <button class="btn btn-success" type="submit">{inject:i18n.get('common.validate')}</button>
-                </div>
             </div>
             <input type="hidden" name="next" value="{next}">
             {#for f in fields}
@@ -86,7 +81,8 @@
     </div>
 
     <div class="bottom-nav">
-        <a href="{#if next == 'pay'}/pay{#else}/{/if}" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        <button class="btn btn-success" type="submit" form="entryForm">{inject:i18n.get('common.validate')}</button>
+        <a href="{#if next == 'pay'}/pay{#else}/{/if}" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 
@@ -152,5 +148,6 @@
     selectField(0);
     document.getElementById('entryForm').addEventListener('submit', refreshFields);
 </script>
+{#include screen-embed /}
 </body>
 </html>

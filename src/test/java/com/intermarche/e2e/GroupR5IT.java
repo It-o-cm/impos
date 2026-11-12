@@ -177,6 +177,13 @@ public class GroupR5IT {
      * @param page the Playwright page driving the register
      */
     private void goPay(Page page) {
+        // A cart rung over the bus makes the sale payable: the sale screen then
+        // reloads itself once to turn RÈGLEMENT into a link, and a navigation
+        // started during that reload is aborted. From the sale screen, wait for
+        // the link first.
+        if ("/".equals(java.net.URI.create(page.url()).getPath())) {
+            page.locator("a#payBtn").waitFor();
+        }
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
     }

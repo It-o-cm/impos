@@ -139,11 +139,15 @@ public class GroupIIT {
         clearPrinter();
         // The X read is now two-step: RAPPORT X (LECTURE) opens the report PREVIEW,
         // then IMPRIMER LE RAPPORT X prints it (the direct-print link is gone).
+        // LC-12-07-01: reading the revenue, then printing it, each needs a fresh
+        // supervisor approval on the register-wide report.
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("RAPPORT X (LECTURE)").setExact(true)).click();
+        approveReportWithManager(page, "Rapport X");
         page.getByText("RAPPORT X — LECTURE").waitFor();
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("IMPRIMER LE RAPPORT X").setExact(true)).click();
+        approveReportWithManager(page, "IMPRIMER LE RAPPORT X");
         page.getByText("RAPPORT X — LECTURE").waitFor();
         String paper = printerContent();
         Assertions.assertTrue(paper.contains("RAPPORT X - LECTURE"), "the paper must be an X read report");
@@ -162,6 +166,7 @@ public class GroupIIT {
         clearPrinter();
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("IMPRIMER LE RAPPORT X").setExact(true)).click();
+        approveReportWithManager(page, "IMPRIMER LE RAPPORT X");
         page.getByText("RAPPORT X — LECTURE").waitFor();
         Assertions.assertTrue(printerContent().contains("RAPPORT X - LECTURE"),
                 "the X read must be printable again with the session still open");
@@ -496,6 +501,34 @@ public class GroupIIT {
      */
     private String printerContent() {
         return context.request().get(base.toString() + "api/hardware/printer/content").text();
+    }
+
+    /**
+     * Approves a revenue report with the manager (LC-12-07-01): the manager's
+     * badge is presented on the hardware bus — the approval panel reads it and
+     * asks for the code only — then the PIN is tapped on the report pad and the
+     * register-wide report button is pressed.
+     *
+     * @param page the Playwright page showing the approval form
+     * @param button the exact name of the register-wide report button to press
+     */
+    private void approveReportWithManager(Page page, String button) {
+        page.locator("#reportKeyboard").waitFor();
+        // The panel arms the supervisor mailbox from its own poll: a badge
+        // presented before that first poll is not routed to it, so it is
+        // presented again until the panel has read it.
+        Locator step = page.getByText("Étape 2/2 : Mot de passe");
+        for (int attempt = 0; attempt < 10 && !step.isVisible(); attempt++) {
+            scan(MANAGER_BADGE);
+            try {
+                step.waitFor(new Locator.WaitForOptions().setTimeout(1500));
+            } catch (com.microsoft.playwright.TimeoutError notYet) {
+                // Not read yet: present the badge again.
+            }
+        }
+        step.waitFor();
+        tapDigits(page.locator("#reportKeyboard"), MANAGER_PIN);
+        page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName(button).setExact(true)).click();
     }
 
     /**

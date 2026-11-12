@@ -148,10 +148,21 @@ class PosHardwareResourceTest {
     @Test
     void maintenanceScanDoesNotSellAnArticle() {
         PosHardwareResource resource = newResource();
-        resource.state.maintenanceScreenOpen = true;
+        when(resource.state.maintenanceScreenActive()).thenReturn(true);
         assertEquals(200, resource.handleScan("3456789012345", null).getStatus());
         assertEquals("3456789012345", resource.state.maintenanceScanCode);
         verifyNoInteractions(resource.ticketService);
+    }
+
+    /** LC-13-02-05/-07: a maintenance screen left without its exit key no longer swallows scans. */
+    @Test
+    void abandonedMaintenanceScreenReleasesScans() {
+        PosHardwareResource resource = newResource();
+        resource.state.maintenanceScreenOpen = true;
+        when(resource.state.maintenanceScreenActive()).thenReturn(false);
+        resource.handleScan("3456789012345", null);
+        assertNull(resource.state.maintenanceScanCode);
+        verify(resource.ticketService).processScan("3456789012345");
     }
 
     // --- handleWeight ---

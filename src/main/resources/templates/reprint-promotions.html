@@ -1,34 +1,62 @@
+{!
+ ! DÉTAIL DES PROMOTIONS of a closed ticket (LC-04-05-05), in the reprint modal
+ ! over the sale: the calculation recorded at the sale, line by line — never a
+ ! recalculation at today's conditions. RETOUR, bottom right, goes back to the
+ ! ticket's detail.
+!}
 <!DOCTYPE html>
-<html lang="fr">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{inject:i18n.get('reprint.promotions')}</title>
-<style>
-{#include theme /}
-body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
-.pos-terminal { grid-template-rows:auto 1fr auto; padding:16px; gap:12px; }
-.calculations { overflow:auto; min-height:0; }
-.calculation { padding:12px; border-bottom:1px solid var(--border-color); }
-.amounts { display:flex; flex-wrap:wrap; gap:16px; }
-</style></head>
-<body data-theme="{posTheme}"><div class="pos-terminal">
-<h1>{inject:i18n.get('reprint.promotions')} — {ticket.ticketNumber}</h1>
-<div class="calculations">
-<p>{inject:i18n.get('reprint.frozenCalculation')}</p>
-{#if traces.isEmpty()}<p>{inject:i18n.get('reprint.noCalculation')}</p>{/if}
-{#for trace in traces}
-<section class="calculation">
-{#for line in ticket.lines}{#if line.lineUid == trace.lineUid}<h2>{line.productLabel} — {inject:units.line(line)}</h2>{/if}{/for}
-<div class="amounts"><span>{inject:i18n.get('reprint.beforeCalculation')} : {inject:units.money(trace.localTotal)} €</span>
-<span>{inject:i18n.get('reprint.afterCalculation')} : {inject:units.money(trace.valuedTotal)} €</span></div>
-{#if trace.offerLabel}<p>{inject:i18n.get('reprint.offer')} : {trace.offerLabel}</p>{/if}
-{#if trace.advantageLabel}<p>{inject:i18n.get('reprint.advantage')} : {trace.advantageLabel} — {#if trace.advantageAmount != null}{inject:units.money(trace.advantageAmount)}{#else}—{/if} €</p>{/if}
-{#if trace.correctionLabel}<p>{inject:i18n.get('reprint.correction')} : {trace.correctionLabel} — {#if trace.correctionAmount != null}{inject:units.money(trace.correctionAmount)}{#else}—{/if} €</p>{/if}
-</section>
-{/for}
-{#for line in ticket.lines}{#if line.modifierLabel}<p>{line.productLabel} : {line.modifierLabel}</p>{/if}{/for}
-{#if ticket.globalDiscountApplied}<p>{inject:i18n.get('reprint.globalDiscount')} : {inject:units.money(ticket.globalDiscountApplied)} €</p>{/if}
-{#for benefit in ticket.fidelityLines}<p>{benefit.label} : {inject:units.money(benefit.amount)} €</p>{/for}
-<p>{inject:i18n.get('reprintticketdetail.totalTtc')} : {ticket.totalFormatted} €</p>
-</div>
-<a class="btn btn-muted" href="/reprint/view/{ticket.id}">{inject:i18n.get('common.back')}</a>
-</div></body></html>
+<html lang="{inject:i18n.lang}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('reprint.promotions')}</title>
+  <style>
+    {#include theme /}
+    .mk-title { gap: 16px; }
+    .mk-title .sub { margin-left: 14px; color: var(--text-muted); font-size: var(--fs-row-sub); }
+    .calculations { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-row); }
+    .calculation { padding: 8px 12px; border-bottom: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 4px; }
+    .calculation .name { font-weight: bold; }
+    .amounts { display: flex; flex-wrap: wrap; gap: 4px 24px; color: var(--text-muted); }
+    .fact { padding: 4px 12px; }
+    .total { padding: 8px 12px; font-weight: bold; border-top: 2px solid var(--border-strong); }
+  </style>
+  {#include modal-kit /}
+</head>
+<body data-theme="{posTheme}" data-modal-size="60rem fit" data-embed-stay="/reprint">
+  <div class="pos-terminal">
+    <div class="mk-title">
+      <span class="title">{inject:i18n.get('reprint.promotions')}</span>
+      <span class="sub">TICKET {ticket.ticketNumber}</span>
+    </div>
+
+    <div class="mk-body">
+      <div class="mk-hint">{inject:i18n.get('reprint.frozenCalculation')}</div>
+      <div class="calculations">
+        {#if traces.isEmpty()}<div class="mk-empty">{inject:i18n.get('reprint.noCalculation')}</div>{/if}
+        {#for trace in traces}
+        <section class="calculation">
+          {#for line in ticket.lines}{#if line.lineUid == trace.lineUid}<div class="name">{line.productLabel} — {inject:units.line(line)}</div>{/if}{/for}
+          <div class="amounts">
+            <span>{inject:i18n.get('reprint.beforeCalculation')} : {inject:units.money(trace.localTotal)} €</span>
+            <span>{inject:i18n.get('reprint.afterCalculation')} : {inject:units.money(trace.valuedTotal)} €</span>
+          </div>
+          {#if trace.offerLabel}<div>{inject:i18n.get('reprint.offer')} : {trace.offerLabel}</div>{/if}
+          {#if trace.advantageLabel}<div>{inject:i18n.get('reprint.advantage')} : {trace.advantageLabel} — {#if trace.advantageAmount != null}{inject:units.money(trace.advantageAmount)}{#else}—{/if} €</div>{/if}
+          {#if trace.correctionLabel}<div>{inject:i18n.get('reprint.correction')} : {trace.correctionLabel} — {#if trace.correctionAmount != null}{inject:units.money(trace.correctionAmount)}{#else}—{/if} €</div>{/if}
+        </section>
+        {/for}
+        {#for line in ticket.lines}{#if line.modifierLabel}<div class="fact">{line.productLabel} : {line.modifierLabel}</div>{/if}{/for}
+        {#if ticket.globalDiscountApplied}<div class="fact">{inject:i18n.get('reprint.globalDiscount')} : {inject:units.money(ticket.globalDiscountApplied)} €</div>{/if}
+        {#for benefit in ticket.fidelityLines}<div class="fact">{benefit.label} : {inject:units.money(benefit.amount)} €</div>{/for}
+        <div class="total">{inject:i18n.get('reprintticketdetail.totalTtc')} : {ticket.totalFormatted} €</div>
+      </div>
+    </div>
+
+    <div class="mk-actions">
+      <a class="btn btn-muted mk-back" href="/reprint/view/{ticket.id}">{inject:i18n.get('common.back')}</a>
+    </div>
+  </div>
+  {#include screen-embed /}
+</body>
+</html>

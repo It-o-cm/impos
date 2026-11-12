@@ -1,0 +1,17 @@
+{!
+ ! THE DESTINATION of a withdrawal (recette), mandatory: the safe is always
+ ! offered, then the administered destinations — one toggle each, none chosen
+ ! beforehand, so the cashier always says where the money goes.
+ ! idPrefix keeps the toggles' ids apart when a page holds more than one list.
+!}
+<div class="mk-field">
+  <div class="mk-label">{inject:i18n.get('withdrawal.destination')}</div>
+  <div class="mk-choices" id="{idPrefix}">
+    <input type="radio" name="destination" id="{idPrefix}-safe" value="{safeDestination}">
+    <label class="mk-choice" for="{idPrefix}-safe">{safeDestination}</label>
+    {#for destination in destinations}
+    <input type="radio" name="destination" id="{idPrefix}-{destination_index}" value="{destination}">
+    <label class="mk-choice" for="{idPrefix}-{destination_index}">{destination}</label>
+    {/for}
+  </div>
+</div>

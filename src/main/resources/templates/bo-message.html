@@ -7,6 +7,9 @@
  ! Un sondage se répond depuis le bandeau (EXP-89) : la page le montre en
  ! lecture seule. Une consigne se acquitte ici, l'acquittement remonte au
  ! magasin (LC-01-08-05).
+!
+ ! Shown in a small modal over the sale: the message, ACQUITTER bottom left when
+ ! there is one to acknowledge, RETOUR bottom right.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -16,62 +19,44 @@
   <title>{inject:i18n.get('supervisor.messageBo')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
-    .main-area { display: flex; justify-content: center; align-items: center; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 32px; width: 36rem; display: flex; flex-direction: column; gap: 18px; }
-    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
-    .message-text { font-size: var(--fs-body); line-height: 1.5; background: var(--bg-page); border: 1px solid var(--primary); border-radius: 8px; padding: 20px; text-align: center; min-height: 6rem; display: flex; align-items: center; justify-content: center; }
-    .empty-text { color: var(--text-muted); font-size: var(--fs-section); text-align: center; }
-    .row { display: flex; gap: 10px; }
-    .row .btn { flex: 1; }
+    body { background: var(--bg-page); color: var(--text-main); margin: 0; }
+    .pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+    .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+    .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+    .main-area { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 4px 20px; }
+    .message-text { font-size: var(--fs-section); line-height: 1.45; background: var(--bg-inset); border: 1px solid var(--border-color); border-left: 4px solid var(--primary); border-radius: 8px; padding: 14px 18px; overflow-wrap: anywhere; }
+    .survey-options { display: flex; flex-wrap: wrap; gap: 8px; }
+    .survey-options span { border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 10px; color: var(--text-muted); font-size: var(--fs-row); }
+    .empty-text { color: var(--text-muted); font-size: var(--fs-section); text-align: center; text-transform: uppercase; letter-spacing: 1px; }
+    html.in-modal .empty-text { padding: 22px 0; }
+    .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+    .bottom-nav .btn { min-width: 12rem; }
+    .bottom-nav .end { margin-left: auto; }
   </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/bo-message" data-modal-size="44rem fit">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('supervisor.messageBo')}</span>
-      <span id="clock"></span>
-    </div>
+    <div class="top-bar"><span class="title">{inject:i18n.get('supervisor.messageBo')}</span></div>
     <div class="main-area">
-      <div class="panel">
-        <h2>{inject:i18n.get('supervisor.messageBo')}</h2>
-        {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty()}
-        <div class="message-text">{state.backOfficeMessage}</div>
-        {#else}
-        <div class="empty-text">{inject:i18n.get('supervisor.aucunMessage')}</div>
-        {/if}
-        {#if state.backOfficeSurvey??}
-        {! Un sondage se répond depuis le bandeau de la vente (EXP-89) : ici
-           il se lit, la question et ses options, sans bouton de réponse. !}
-        <div class="message-text">{state.backOfficeSurvey.question}</div>
-        {#for opt in state.backOfficeSurvey.options}
-        <div class="empty-text">- {opt}</div>
-        {/for}
-        {/if}
-        {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty() && !state.backOfficeSurvey??}
-        <form method="post" action="/action/bo-message/ack">
-          <div class="row">
-            <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
-            <button type="submit" class="btn btn-success">{inject:i18n.get('supervisor.acquitter')}</button>
-          </div>
-        </form>
-        {#else}
-        <div class="row">
-          <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
-        </div>
-        {/if}
-      </div>
+      {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty()}
+      <div class="message-text">{state.backOfficeMessage}</div>
+      {#else if !state.backOfficeSurvey??}
+      <div class="empty-text">{inject:i18n.get('supervisor.aucunMessage')}</div>
+      {/if}
+      {#if state.backOfficeSurvey??}
+      {! A survey is answered from the sale's banner (EXP-89): here it is only
+       ! read, the question and its options, without an answer key. !}
+      <div class="message-text">{state.backOfficeSurvey.question}</div>
+      <div class="survey-options">{#for opt in state.backOfficeSurvey.options}<span>{opt}</span>{/for}</div>
+      {/if}
     </div>
-    <div class="bottom-nav"></div>
+    <div class="bottom-nav">
+      {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty() && !state.backOfficeSurvey??}
+      <form method="post" action="/action/bo-message/ack"><button type="submit" class="btn btn-success">{inject:i18n.get('supervisor.acquitter')}</button></form>
+      {/if}
+      <a href="/" class="btn btn-muted end">{inject:i18n.get('common.back')}</a>
+    </div>
   </div>
-
-  <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-  </script>
+  {#include screen-embed /}
 </body>
 </html>

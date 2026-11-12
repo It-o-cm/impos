@@ -684,10 +684,11 @@ public class GroupAIT {
         context.request().post(root + "api/pos/scan", RequestOptions.create()
                 .setHeader("Content-Type", "text/plain").setData(EAN_LAIT));
         page.getByText("LAIT UHT 1L").waitFor();
-        // The close screen refuses: a sale is in progress (EXP-11).
+        // The close is refused in the sale screen's message modal: a sale is in progress (EXP-11).
         String closeHtml = context.request().get(root + "close").text();
-        Assertions.assertTrue(closeHtml.contains("Une vente est en cours"),
-                "a close during a transaction must be refused, html was:\n" + closeHtml);
+        Assertions.assertTrue(closeHtml.contains("id=\"messageModal\"") && closeHtml.contains("Une vente est en cours"),
+                "a close during a transaction must be refused in a modal, html was:\n" + closeHtml);
+        context.request().get(root + "action/message/close");
         Assertions.assertFalse(posState.isLocked(),
                 "the in-transaction obstacle must leave the register open");
         // Park the cart so the shared session ends without a lingering line.

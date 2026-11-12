@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.store.Store;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.FrameLocator;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
@@ -174,25 +175,25 @@ public class GroupMIT {
         Assertions.assertEquals(SOMBRE, bodyTheme(page), "Jean starts on the store default (sombre)");
         Assertions.assertNull(employeeTheme(CASHIER_LOGIN), "Jean carries no preference before choosing");
         // --- Reach the selector through the secondary menu (AUTRES → THÈME) ---
-        openThemeSelector(page);
+        FrameLocator selector = openThemeSelector(page);
         Assertions.assertEquals(SOMBRE, bodyTheme(page), "the selector itself is themed with the current (sombre)");
-        Assertions.assertTrue(isChoiceHighlighted(page, "SOMBRE"),
+        Assertions.assertTrue(isChoiceHighlighted(selector, "SOMBRE"),
                 "the selector must highlight the currently resolved theme (SOMBRE)");
-        Assertions.assertFalse(isChoiceHighlighted(page, "CLAIR"),
+        Assertions.assertFalse(isChoiceHighlighted(selector, "CLAIR"),
                 "the not-current theme (CLAIR) must not be highlighted");
         // --- Pick CLAIR: the redirect renders the sale light immediately ---
-        page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("CLAIR").setExact(true)).click();
+        selector.getByRole(AriaRole.BUTTON, new FrameLocator.GetByRoleOptions().setName("CLAIR").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
         Assertions.assertEquals(CLAIR, bodyTheme(page), "choosing CLAIR must render the sale light immediately");
         Assertions.assertEquals(CLAIR, employeeTheme(CASHIER_LOGIN),
                 "choosing CLAIR must persist Jean's preference in the database");
         // --- Re-open: CLAIR is now the highlighted current ---
-        openThemeSelector(page);
-        Assertions.assertTrue(isChoiceHighlighted(page, "CLAIR"),
+        selector = openThemeSelector(page);
+        Assertions.assertTrue(isChoiceHighlighted(selector, "CLAIR"),
                 "the selector must now highlight the chosen CLAIR");
         // --- DÉFAUT MAGASIN: preference cleared, cascade resumes to the store default ---
-        page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName("DÉFAUT MAGASIN").setExact(true)).click();
+        selector.getByRole(AriaRole.BUTTON,
+                new FrameLocator.GetByRoleOptions().setName("DÉFAUT MAGASIN").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
         Assertions.assertEquals(SOMBRE, bodyTheme(page),
                 "DÉFAUT MAGASIN must drop Jean back to the store default (sombre)");
@@ -253,7 +254,9 @@ public class GroupMIT {
         assertScreenLight(page, "manual", "SAISIE DIRECTE");
         assertScreenLight(page, "fruits", "FRUITS, LÉGUMES & FRAIS");
         assertScreenLight(page, "fidelity", "PROGRAMME DE FIDÉLITÉ");
-        assertScreenLight(page, "reprint", "RÉIMPRESSION TICKET");
+        // With no ticket printed yet the reprint key stays on the sale and states
+        // the absence at the top of the article list.
+        assertScreenLight(page, "reprint", "RECHERCHE IMPOSSIBLE");
         assertScreenLight(page, "return", "RETOUR CLIENT");
         assertScreenLight(page, "parked", "Tickets en attente");
         assertScreenLight(page, "pin-change", "CHANGER MON CODE PIN");
@@ -279,11 +282,12 @@ public class GroupMIT {
      * Opens the theme selector through the on-screen path from the sale screen:
      * it reveals the secondary menu with AUTRES… only when needed (the menu
      * sticks open after a first visit), then follows the THÈME D'AFFICHAGE link,
-     * waiting until the selector is rendered.
+     * waiting until the selector is rendered in the modal laid over the sale.
      *
      * @param page the Playwright page sitting on the sale screen
+     * @return the modal frame carrying the selector
      */
-    private void openThemeSelector(Page page) {
+    private FrameLocator openThemeSelector(Page page) {
         Locator themeLink = page.locator("a[href='/theme-select']");
         if (themeLink.count() == 0) {
             // The theme key lives in the AUTRE menu since the five-menu rework
@@ -292,22 +296,24 @@ public class GroupMIT {
             page.locator("a[href='/action/menu/autre']").click();
         }
         themeLink.first().click();
-        // The selector title is now a top-bar span "Thème d'affichage" (CSS
-        // uppercases it), no longer an HTML heading — match its text.
-        page.getByText("Thème d'affichage").waitFor();
+        // The selector opens in the sale screen's modal: its title is a top-bar
+        // span "Thème d'affichage" (CSS uppercases it) inside that frame.
+        FrameLocator selector = page.frameLocator("#screenModalFrame");
+        selector.getByText("Thème d'affichage").waitFor();
+        return selector;
     }
 
     /**
      * Reads whether a selector choice button carries the {@code current}
      * highlight (the resolved theme).
      *
-     * @param page the Playwright page carrying the theme selector
+     * @param selector the modal frame carrying the theme selector
      * @param name the uppercased choice label (e.g. "SOMBRE", "CLAIR")
      * @return true when that choice is highlighted as the current theme
      */
-    private boolean isChoiceHighlighted(Page page, String name) {
-        String cls = page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName(name).setExact(true)).getAttribute("class");
+    private boolean isChoiceHighlighted(FrameLocator selector, String name) {
+        String cls = selector.getByRole(AriaRole.BUTTON,
+                new FrameLocator.GetByRoleOptions().setName(name).setExact(true)).getAttribute("class");
         return cls != null && cls.contains("current");
     }
 

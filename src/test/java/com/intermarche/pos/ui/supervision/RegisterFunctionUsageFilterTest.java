@@ -23,36 +23,33 @@ import static org.mockito.Mockito.when;
 /** Unit tests for {@link RegisterFunctionUsageFilter}. */
 class RegisterFunctionUsageFilterTest {
 
-    /** A resource rooted at the server's root, for the template. */
+    /**
+     * A resource rooted at the server's root, for the template. An interface:
+     * the application indexes the test classes when it boots for the scenario
+     * tests, and a class carrying {@code @Path} would be registered as one of
+     * its resources.
+     */
     @Path("/")
-    static class Screen {
+    interface Screen {
 
         /** A register function. */
         @Path("/action/add/{code}")
-        void add() {
-            // Only its path is read.
-        }
+        void add();
 
         /** A page that is not a function. */
         @Path("/sale")
-        void page() {
-            // Only its path is read.
-        }
+        void page();
 
         /** A handler with no path of its own. */
-        void bare() {
-            // Only its absence of path is read.
-        }
+        void bare();
     }
 
-    /** A resource without path. */
-    static class Unrooted {
+    /** A resource without path, an interface for the same reason. */
+    interface Unrooted {
 
         /** A handler with a path. */
         @Path("action/pay")
-        void pay() {
-            // Only its path is read.
-        }
+        void pay();
     }
 
     /**

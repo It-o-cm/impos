@@ -266,7 +266,7 @@ public class MockHardwareResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response getWeight() {
         double gross = nextGross();
-        return Response.ok(String.format("%.3f", gross)).build();
+        return Response.ok(String.format(java.util.Locale.FRANCE, "%.3f", gross)).build();
     }
 
     /**
@@ -287,7 +287,7 @@ public class MockHardwareResource {
         double gross = nextGross();
         double tare = parseTare(tareKg);
         double net = Math.max(0.0, gross - tare);
-        return Response.ok(String.format("%.3f", net)).build();
+        return Response.ok(String.format(java.util.Locale.FRANCE, "%.3f", net)).build();
     }
 
     /**

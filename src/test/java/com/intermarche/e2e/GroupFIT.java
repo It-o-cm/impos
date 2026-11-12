@@ -218,7 +218,7 @@ public class GroupFIT {
         over.navigate(base.toString() + "pay");
         over.getByText("TRANSACTION TERMINÉE").waitFor();
         over.getByText("Rendu Client").waitFor();
-        Assertions.assertTrue(over.locator(".change-amount").textContent().contains("4.00"),
+        Assertions.assertTrue(over.locator(".change-amount").textContent().contains("4,00"),
                 "the modal must display the 4,00 € change back");
         Assertions.assertEquals(0, posState.payment.lastChangeAmount.compareTo(new BigDecimal("4.00")),
                 "the computed change must be 4,00 €");
@@ -454,10 +454,10 @@ public class GroupFIT {
         waitForRemaining(trAmount);
         Assertions.assertEquals(0, posState.getRemaining().compareTo(trAmount),
                 "le chèque doit laisser exactement le montant TR à payer");
-        // The cheque registration pulsed the drawer open (now reliably, the read
-        // is done); the next payment POST is drawer-guarded, so push it shut.
-        waitForDrawer("OPEN");
-        closeDrawer();
+        // LC-07-16-01: a tender no longer pulses the drawer when it is
+        // registered — the drawer opens once, when the completed sale settles.
+        Assertions.assertEquals("CLOSED", drawerStatus(),
+                "a partial cheque must not open the drawer before the sale settles");
         payThroughScreen(page, "TICKET RESTO", "trForm", trAmount.movePointRight(2).toBigInteger().toString(), false);
         Assertions.assertTrue(posState.payment.payments.stream()
                         .anyMatch(p -> "TR".equals(p.method)),
@@ -466,7 +466,8 @@ public class GroupFIT {
                         + ", paiements = " + posState.payment.payments.stream()
                                 .map(p -> p.method + ":" + p.amount).toList()
                         + ", message = " + posState.ticket.transientError);
-        // The meal-ticket payment ALSO pulses the drawer open (storage).
+        // The meal tickets complete the sale: the settlement opens the drawer
+        // once, for the cheque and the tickets to be stored (LC-07-16-01).
         waitForDrawer("OPEN");
         closeDrawer();
         page.navigate(base.toString() + "pay");
@@ -498,8 +499,7 @@ public class GroupFIT {
         Page page = freshSaleWithBaguette();
         goPay(page);
         // Toggle on: a 0,04 € donation line raises 0,96 € to 1,00 €.
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ARRONDI SOLIDAIRE").setExact(true)).click();
+        payKey(page, AriaRole.LINK, "ARRONDI SOLIDAIRE").click();
         page.getByText("RESTE :").waitFor();
         Assertions.assertNotNull(posState.donationLineUid, "the toggle must add a donation line");
         Assertions.assertEquals(0, posState.ticket.totalAmount.compareTo(new BigDecimal("1.00")),
@@ -511,8 +511,7 @@ public class GroupFIT {
         Assertions.assertEquals(0, donation.getTotalPrice().compareTo(new BigDecimal("0.04")),
                 "the donation must be the difference up to the whole euro (0,04 €)");
         // Toggle off: the donation line is removed, the total falls back.
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ARRONDI SOLIDAIRE").setExact(true)).click();
+        payKey(page, AriaRole.LINK, "ARRONDI SOLIDAIRE").click();
         page.getByText("RESTE :").waitFor();
         Assertions.assertNull(posState.donationLineUid, "re-toggling must remove the donation line");
         Assertions.assertNull(donationLine(), "the ARRONDI SOLIDAIRE line must be gone");
@@ -890,7 +889,7 @@ public class GroupFIT {
      * F16 — Mode dégradé monétique.
      * <p>
      * A supervisor toggles the forced degraded mode on ({@code MODE DÉGRADÉ
-     * MONÉTIQUE ACTIVÉ (60 MIN)}) and off ({@code MODE DÉGRADÉ MONÉTIQUE
+     * MONÉTIQUE ACTIVÉ (n MIN)}, n the administered duration) and off ({@code MODE DÉGRADÉ MONÉTIQUE
      * DÉSACTIVÉ}); toggling off again is {@code MODE DÉGRADÉ MONÉTIQUE DÉJÀ
      * INACTIF}; a wrong credential is {@code AUTORISATION REFUSEE}.
      */
@@ -904,7 +903,9 @@ public class GroupFIT {
         Assertions.assertFalse(posState.isMoneticsDegradedForced(), "the mode must stay off");
         // --- Activate ---
         postForm("action/monetics-degraded", "login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
-        Assertions.assertEquals("MODE DÉGRADÉ MONÉTIQUE ACTIVÉ (60 MIN)", posState.ticket.transientError,
+        // LC-07-08-04: the forcing lasts the administered duration.
+        Assertions.assertEquals("MODE DÉGRADÉ MONÉTIQUE ACTIVÉ (" + posSettings.moneticsDegradedForcedMinutes() + " MIN)",
+                posState.ticket.transientError,
                 "the supervisor must force the degraded mode on");
         Assertions.assertTrue(posState.isMoneticsDegradedForced(), "the mode must be forced on");
         // --- Deactivate ---
@@ -1171,12 +1172,39 @@ public class GroupFIT {
     }
 
     /**
+     * Finds a payment key of the payment column, turning its pages with AUTRE until
+     * the key is drawn: the column shows six methods at a time, the main ones first,
+     * the way the cashier reaches the others.
+     *
+     * @param page the Playwright page carrying the payment overlay
+     * @param role the key's role (a link or a button)
+     * @param name the key's exact visible text
+     * @return the drawn key
+     */
+    private Locator payKey(Page page, AriaRole role, String name) {
+        Locator key = page.locator("#payMethods").getByRole(role,
+                new Locator.GetByRoleOptions().setName(name).setExact(true));
+        Locator more = page.locator("#payMethods [data-pm=more]");
+        while (!key.isVisible() && more.isVisible()) {
+            more.click();
+        }
+        return key;
+    }
+
+    /**
      * Walks onto the payment overlay and waits until it is ready (the remaining
      * line is rendered). Entering /pay flips {@code paymentInProgress} on.
      *
      * @param page the Playwright page driving the register
      */
     private void goPay(Page page) {
+        // A cart rung over the bus makes the sale payable: the sale screen then
+        // reloads itself once to turn RÈGLEMENT into a link, and a navigation
+        // started during that reload is aborted. From the sale screen, wait for
+        // the link first.
+        if ("/".equals(java.net.URI.create(page.url()).getPath())) {
+            page.locator("a#payBtn").waitFor();
+        }
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
     }
@@ -1203,7 +1231,9 @@ public class GroupFIT {
                     new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
             tapDigits(page.locator("#payNumpadZone"), digits);
         }
-        page.locator("#" + formId + " button[type=submit]").click();
+        // The VALIDER key of the form: a cheque form also carries a print button
+        // posting elsewhere (formaction), which is not the settlement.
+        page.locator("#" + formId + " button[type=submit]:not([formaction])").click();
     }
 
     /**
@@ -1254,7 +1284,21 @@ public class GroupFIT {
         closeDrawer();
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("NOUVELLE VENTE").setExact(true)).click();
-        page.getByText("TOTAL À PAYER").waitFor();
+        // The fiscal close may itself pulse the drawer (LC-07-16-01: the drawer
+        // opens when the completed sale settles), which sends the sale screen to
+        // the drawer guard: the cashier shuts it, and the guard hands back.
+        Locator sale = page.getByText("TOTAL À PAYER");
+        for (int attempt = 0; attempt < 20 && !sale.isVisible(); attempt++) {
+            if ("OPEN".equals(drawerStatus())) {
+                closeDrawer();
+            }
+            try {
+                sale.waitFor(new Locator.WaitForOptions().setTimeout(1000));
+            } catch (com.microsoft.playwright.TimeoutError notYet) {
+                // Not back on the sale yet: look at the drawer again.
+            }
+        }
+        sale.waitFor();
     }
 
     /**

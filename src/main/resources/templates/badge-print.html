@@ -1,12 +1,9 @@
 {!
- ! Operator badge reprint (LC-01-06-01): the operator number is typed on a
- ! numpad, then the print request is PARKED as an endorsed action
- ! (PRINT_BADGE_<n>) — the paper only comes out after a manager approval on
- ! the endorsement modal of the sale screen.
- !
- ! That delay is the whole point of the screen, so the screen says it: an
- ! operator who presses IMPRIMER and sees no paper must know it is waiting for a
- ! manager, not broken.
+ ! Operator badge reprint (LC-01-06-01), shown in a modal over the sale: the
+ ! operator number is typed on a numpad, then the print request is PARKED as an
+ ! endorsed action (PRINT_BADGE_<n>) — the paper only comes out after a manager
+ ! approval on the endorsement modal of the sale screen, which the request
+ ! returns to.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -16,65 +13,41 @@
     <title>{inject:i18n.get('badgeprint.badgeOperateur')}</title>
     <style>
         {#include theme /}
-        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        body { background: var(--bg-page); color: var(--text-main); margin: 0; }
+        .pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+        .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+        .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+        .main-area { min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 4px 20px 0; }
+        .label { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        .field { font-size: var(--fs-field-num); font-weight: bold; text-align: center; letter-spacing: 2px; color: var(--primary); background: var(--bg-page); border: 2px solid var(--primary); border-radius: 6px; padding: 6px 12px; box-shadow: 0 0 0 1px var(--primary); flex-shrink: 0; }
+        .keyboard { min-height: 0; }
+        /* The modal has room for the register's ordinary key size. */
+        body .pos-kb-compact .pos-key { padding: 0.5em 6px; font-size: 1.4rem; }
 
-        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
-        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
-        .side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
-        .side h2 { margin: 0; font-size: var(--fs-section); color: var(--text-main); }
-        .side p { margin: 0; color: var(--text-muted); font-size: var(--fs-body); line-height: 1.5; }
-
-        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-        .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
-        .display { width: 100%; font-size: var(--fs-field); font-weight: bold; padding: 10px 12px; border-radius: 4px;
-                   border: 2px solid var(--border-strong); background: var(--bg-panel);
-                   color: var(--text-main); text-align: center; flex-shrink: 0; }
-        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
-        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
-
-        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+        .bottom-nav .btn { min-width: 12rem; }
+        .bottom-nav .end { margin-left: auto; min-width: 9rem; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/badge-print" data-modal-size="32rem fit">
 <div class="pos-terminal">
-
-    <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('badgeprint.badgeOperateur2')}</span>
-        <span id="clock"></span>
-    </div>
-
-    <div class="main-area">
-        <form class="work" method="post" action="/action/badge-print">
-            <div class="side">
-                <h2>{inject:i18n.get('badgeprint.reimpressionDBadge')}</h2>
-                <p>{inject:i18n.get('badgeprint.saisissezNumeroLOperateur')}</p>
-                <p><strong>{inject:i18n.get('badgeprint.demandeAttendAvalManager')}</strong> {inject:i18n.get('badgeprint.papierNeSortPas')}</p>
-            </div>
-            <div class="entry">
-                <div class="entry-title">{inject:i18n.get('badgeprint.numeroDOperateur')}</div>
-                <div id="opDisplay" class="display pad-display"></div>
-                <input type="hidden" name="operator" id="opHidden" value="">
-                <div class="keyboard pos-kb-compact" id="opKbArea"></div>
-                <div class="actions">
-                    <button type="submit" class="btn btn-primary">{inject:i18n.get('badgeprint.demanderLImpression')}</button>
-                </div>
-            </div>
-        </form>
-    </div>
-
+    <div class="top-bar"><span class="title">{inject:i18n.get('badgeprint.badgeOperateur2')}</span></div>
+    <form class="main-area" method="post" action="/action/badge-print" id="badgeForm">
+        <div class="label">{inject:i18n.get('badgeprint.numeroDOperateur')}</div>
+        <div id="opDisplay" class="field pad-display"></div>
+        <input type="hidden" name="operator" id="opHidden" value="">
+        <div class="keyboard pos-kb-compact" id="opKbArea"></div>
+    </form>
     <div class="bottom-nav">
-        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        <button type="submit" form="badgeForm" class="btn btn-primary" id="badgeSubmit" disabled>{inject:i18n.get('badgeprint.demanderLImpression')}</button>
+        <a href="/" class="btn btn-muted end">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 
 {#include keyboard-lib /}
 
 <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
     PosInput.setup({
         displayId: 'opDisplay',
         hiddenId: 'opHidden',
@@ -82,8 +55,15 @@
         keyboardType: 'numpad',
         mode: 'text',
         maxLength: 20,
-        initialValue: ''
+        initialValue: '',
+        onChange: refreshSubmit
     });
+
+    /* The request names an operator: the key waits for one digit at least. */
+    function refreshSubmit() {
+        document.getElementById('badgeSubmit').disabled = document.getElementById('opHidden').value.trim() === '';
+    }
 </script>
+{#include screen-embed /}
 </body>
 </html>

@@ -294,4 +294,44 @@ class FidelityResourceTest {
         verify(resource.fidelityService).keepReplacement(resource.state);
     }
 
+
+    // --- fidelityStatus ---
+
+    /** Without a card the status says so, with an empty label and no replacement pending. */
+    @Test
+    void fidelityStatusWithoutCard() {
+        FidelityResource resource = newResource();
+        java.util.Map<String, Object> status = resource.fidelityStatus();
+        assertEquals(false, status.get("active"));
+        assertEquals("", status.get("label"));
+        assertEquals(false, status.get("replacementPending"));
+    }
+
+    /** An attached card is reported with its number. */
+    @Test
+    void fidelityStatusWithCard() {
+        FidelityResource resource = newResource();
+        resource.state.fidelity.active = true;
+        resource.state.fidelity.label = "2990000000011";
+        java.util.Map<String, Object> status = resource.fidelityStatus();
+        assertEquals(true, status.get("active"));
+        assertEquals("2990000000011", status.get("label"));
+    }
+
+    /** An active state whose label is missing reports an empty label, never null. */
+    @Test
+    void fidelityStatusWithActiveStateAndNoLabel() {
+        FidelityResource resource = newResource();
+        resource.state.fidelity.active = true;
+        resource.state.fidelity.label = null;
+        assertEquals("", resource.fidelityStatus().get("label"));
+    }
+
+    /** A second card parked for the replacement question is reported. */
+    @Test
+    void fidelityStatusWithReplacementPending() {
+        FidelityResource resource = newResource();
+        resource.state.fidelity.pendingReplacementCard = "2990000000028";
+        assertEquals(true, resource.fidelityStatus().get("replacementPending"));
+    }
 }

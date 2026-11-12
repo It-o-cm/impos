@@ -5,6 +5,10 @@
  ! number of rolls, and the other figure is computed from the administered
  ! roll-value correspondence. The slip prints empty (to fill by hand) or filled.
  ! Outcome messages arrive via ?error= / ?ok=.
+ ! IN A MODAL over the sale (TIROIR menu): the slip on the left, the one pad on
+ ! the right, the printing and clearing buttons at the bottom with RETOUR bottom
+ ! right; the outcome is stated at the top of the modal. Each cell shows what
+ ! was dialed on it, not only once it is touched.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -14,119 +18,101 @@
   <title>{inject:i18n.get('changeorder.commandeMonnaie')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
-    .main-area { display: flex; justify-content: center; align-items: flex-start; overflow: auto; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px; width: 46rem; }
-    .panel h2 { text-transform: uppercase; margin-bottom: 20px; text-align: center; letter-spacing: 1px; }
+  </style>
+  {#include modal-kit /}
+  <style>
+    .slip { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 10px 18px; }
+    .slip-table { min-height: 0; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-inset); }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border-color); }
-    th:first-child, td:first-child { text-align: left; }
-    th { color: var(--text-muted); text-transform: uppercase; font-size: var(--fs-body); }
+    th, td { padding: 4px 10px; text-align: right; border-bottom: 1px solid var(--border-color); }
+    th:first-child, td:first-child { text-align: left; font-weight: bold; }
+    th { position: sticky; top: 0; background: var(--bg-inset); color: var(--text-muted); text-transform: uppercase; font-size: var(--fs-label); letter-spacing: 1px; }
     .denom-form { display: inline-flex; gap: 6px; align-items: center; }
-    .denom-form input { width: 6rem; padding: 6px; font-size: var(--fs-body); background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; text-align: right; }
-    /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
-    .denom-form input.pad-active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
-    .change-kb { max-width: 18rem; margin: 20px auto 0; }
+    .denom-form .pad-display { width: 6rem; padding: 5px 8px; font-size: var(--fs-body); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 2px solid var(--border-color); border-radius: 6px; text-align: right; cursor: pointer; }
+    /* The cell holding the pad: one at a time, and it shows. */
+    .denom-form .pad-display.pad-active { border-color: var(--primary); color: var(--primary); }
     .val { font-weight: bold; }
-    .actions { display: flex; gap: 15px; margin-top: 25px; justify-content: center; }
-    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
-    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .mk-actions .btn { min-width: 0; }
   </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="72rem 47rem" data-embed-stay="/change-order /action/change-order">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('changeorder.commandeMonnaie2')}</span>
-      <span id="clock"></span>
-    </div>
+    <div class="mk-title"><span class="title">{inject:i18n.get('changeorder.commandeMonnaie2')}</span></div>
 
-    <div class="main-area">
-      <div class="panel">
-        {#if error??}
-          <div class="error-box">{error}</div>
-        {/if}
-        {#if saved}
-          <div class="ok-box">{inject:i18n.get('changeorder.bordereauImprime')}</div>
-        {/if}
+    <div class="mk-body">
+      {#if error??}
+        <div class="mk-outcome err" role="alert">{error}</div>
+      {#else if saved}
+        <div class="mk-outcome" role="status">{inject:i18n.get('changeorder.bordereauImprime')}</div>
+      {/if}
 
-        <h2>{inject:i18n.get('changeorder.bordereauCommandeMonnaie')}</h2>
-        <table>
-          <thead>
-            <tr><th>{inject:i18n.get('changeorder.denomination')}</th><th>{inject:i18n.get('changeorder.montant')}</th><th>{inject:i18n.get('changeorder.nbrRouleaux')}</th></tr>
-          </thead>
-          <tbody>
-            {#for denom in denominations}
-            <tr>
-              <td>{denom.label}</td>
-              <td>
-                <form class="denom-form" method="post" action="/action/change-order/entry">
-                  <input type="hidden" name="id" value="{denom.id}">
-                  <input type="hidden" name="type" value="AMOUNT">
-                  <div id="dispAmount-{denom.id}" class="pad-display" onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'cents')"></div>
-                  <input type="hidden" name="value" id="valAmount-{denom.id}" value="{denom.amount}">
-                  <button type="submit" class="btn btn-sm btn-muted">€</button>
-                </form>
-              </td>
-              <td>
-                {#if denom.rollAvailable}
-                <form class="denom-form" method="post" action="/action/change-order/entry">
-                  <input type="hidden" name="id" value="{denom.id}">
-                  <input type="hidden" name="type" value="ROLLS">
-                  <div id="dispRolls-{denom.id}" class="pad-display" onclick="bindDenom('dispRolls-{denom.id}', 'valRolls-{denom.id}', 'numpad', 'integer')"></div>
-                  <input type="hidden" name="value" id="valRolls-{denom.id}" value="{denom.rolls}">
-                  <button type="submit" class="btn btn-sm btn-muted">{inject:i18n.get('changeorder.rl')}</button>
-                </form>
-                {#else}
-                <span class="val">{denom.rolls}</span>
-                {/if}
-              </td>
-            </tr>
-            {/for}
-          </tbody>
-        </table>
+      <div class="slip">
+        <div class="slip-table">
+          <table>
+            <thead>
+              <tr><th>{inject:i18n.get('changeorder.denomination')}</th><th>{inject:i18n.get('changeorder.montant')}</th><th>{inject:i18n.get('changeorder.nbrRouleaux')}</th></tr>
+            </thead>
+            <tbody>
+              {#for denom in denominations}
+              <tr>
+                <td>{denom.label}</td>
+                <td>
+                  <form class="denom-form" method="post" action="/action/change-order/entry">
+                    <input type="hidden" name="id" value="{denom.id}">
+                    <input type="hidden" name="type" value="AMOUNT">
+                    <div id="dispAmount-{denom.id}" class="pad-display" onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'cents')">{denom.amount}</div>
+                    <input type="hidden" name="value" id="valAmount-{denom.id}" value="{denom.amount}">
+                    <button type="submit" class="btn btn-sm btn-muted">€</button>
+                  </form>
+                </td>
+                <td>
+                  {#if denom.rollAvailable}
+                  <form class="denom-form" method="post" action="/action/change-order/entry">
+                    <input type="hidden" name="id" value="{denom.id}">
+                    <input type="hidden" name="type" value="ROLLS">
+                    <div id="dispRolls-{denom.id}" class="pad-display" onclick="bindDenom('dispRolls-{denom.id}', 'valRolls-{denom.id}', 'numpad', 'integer')">{denom.rolls}</div>
+                    <input type="hidden" name="value" id="valRolls-{denom.id}" value="{denom.rolls}">
+                    <button type="submit" class="btn btn-sm btn-muted">{inject:i18n.get('changeorder.rl')}</button>
+                  </form>
+                  {#else}
+                  <span class="val">{denom.rolls}</span>
+                  {/if}
+                </td>
+              </tr>
+              {/for}
+            </tbody>
+          </table>
+        </div>
 
         {! UN seul pave pour toutes les lignes du bordereau: PosInput est un
          ! singleton, et l'operateur ne dialogue qu'avec une denomination a la
          ! fois. Un clic sur une case rebranche le pave dessus, la touche € ou
          ! rl de la ligne poste sa saisie. !}
-        <div class="change-kb pos-kb-compact" id="changeKbArea"></div>
-
-        <div class="actions">
-          <form method="post" action="/action/change-order/print-empty">
-            <button type="submit" class="btn btn-muted">{inject:i18n.get('changeorder.imprimerBordereauVierge')}</button>
-          </form>
-          <form method="post" action="/action/change-order/print">
-            <button type="submit" class="btn btn-success">{inject:i18n.get('changeorder.imprimerBordereau')}</button>
-          </form>
-          <form method="post" action="/action/change-order/clear">
-            <button type="submit" class="btn btn-warning">{inject:i18n.get('changeorder.effacer')}</button>
-          </form>
-        </div>
+        <div class="mk-keyboard pos-kb-compact" id="changeKbArea"></div>
       </div>
+      <form id="printEmptyForm" method="post" action="/action/change-order/print-empty"></form>
+      <form id="printForm" method="post" action="/action/change-order/print"></form>
+      <form id="clearForm" method="post" action="/action/change-order/clear"></form>
     </div>
 
-    <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+    <div class="mk-actions">
+      <button type="submit" form="printEmptyForm" class="btn btn-muted">{inject:i18n.get('changeorder.imprimerBordereauVierge')}</button>
+      <button type="submit" form="printForm" class="btn btn-success">{inject:i18n.get('changeorder.imprimerBordereau')}</button>
+      <button type="submit" form="clearForm" class="btn btn-warning">{inject:i18n.get('changeorder.effacer')}</button>
+      <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 
   {#include keyboard-lib /}
 
   <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
     /* Rebranche l'unique pave sur la case touchee: un montant prend le pave
        decimal, un nombre de rouleaux le pave entier. Ce qui avait deja ete
        saisi dans la case est restaure dans le tampon. */
     function bindDenom(displayId, hiddenId, keyboardType, mode) {
         const hidden = document.getElementById(hiddenId);
         if (!hidden) { return; }
-        document.querySelectorAll('.denom-form input.pad-active')
+        document.querySelectorAll('.denom-form .pad-active')
                 .forEach(el => el.classList.remove('pad-active'));
         document.getElementById(displayId).classList.add('pad-active');
         PosInput.setup({
@@ -139,6 +125,11 @@
             initialValue: (hidden.value || '0').replace(',', '.')
         });
     }
+
+    /* The pad is there from the start, on the slip's first cell. */
+    const firstCell = document.querySelector('.denom-form .pad-display');
+    if (firstCell) { firstCell.click(); }
   </script>
+  {#include screen-embed /}
 </body>
 </html>

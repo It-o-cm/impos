@@ -11,6 +11,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('lock.title')}</title>
+  <script>
+    /* Never drawn inside a modal laid over the sale: reached from a screen shown
+       in that frame (a guard or a landing redirect), this page takes the whole
+       register page instead. */
+    if (window.top !== window.self) { window.top.location.href = window.location.href; }
+  </script>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }

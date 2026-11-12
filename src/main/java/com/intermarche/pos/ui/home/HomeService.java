@@ -123,6 +123,29 @@ public class HomeService {
     // --- Navigation ---
 
     /**
+     * Shows the tab a key of the bottom bar names: a tab the back office
+     * created ({@code x1}…) or one of the standard menus.
+     *
+     * @param key the tab id carried by the bar's link
+     */
+    public void selectTab(String key) {
+        LOGGER.info("Entering method selectTab with key: " + key);
+        String id = key == null ? "" : key.trim().toLowerCase(java.util.Locale.ROOT);
+        if (id.matches(com.intermarche.pos.domain.store.MenuLayout.CUSTOM_PREFIX + "[0-9]{1,3}")) {
+            state.customTab = id;
+            state.touch();
+            LOGGER.info("Exiting method selectTab: created tab");
+            return;
+        }
+        com.intermarche.pos.ui.PosMenu menu = com.intermarche.pos.ui.PosMenu.of(key);
+        if (!menu.isDirect()) {
+            state.customTab = null;
+        }
+        selectMenu(menu);
+        LOGGER.info("Exiting method selectTab");
+    }
+
+    /**
      * Shows one of the five button menus.
      *
      * @param menu the menu to show, never null
@@ -1206,7 +1229,7 @@ public class HomeService {
     /**
      * Reprints the last closed ticket.
      *
-     * <p>Refusals go through {@link PosState#requireLastClosedTicket()}: this
+     * <p>Refusals go through {@link PosState#requireLastClosedTicket(String)}: this
      * function used to be the one that printed nothing and said nothing when
      * the register had closed no sale yet, which on a touch screen is a broken
      * button.
@@ -1218,7 +1241,7 @@ public class HomeService {
         // PosState and the four keys answered "AUCUN TICKET" over a ticket that
         // was still in the database and still on the customer's hands.
         ticketService.resolveLastClosedTicketId(state);
-        if (!state.requireLastClosedTicket()) {
+        if (!state.requireLastClosedTicket(PosState.NO_LAST_TICKET_PRINT_KEY)) {
             LOGGER.info("Exiting method printLastTicket");
             return;
         }
@@ -1235,14 +1258,14 @@ public class HomeService {
      * Prints the identification barcode of the last closed ticket, alone
      * (LC-08-01-04).
      *
-     * <p>Refusals go through {@link PosState#requireLastClosedTicket()}. The slip
+     * <p>Refusals go through {@link PosState#requireLastClosedTicket(String)}. The slip
      * states no amount, but it carries a real ticket number, and a number that
      * leaves the register must name a sale that happened.
      */
     public void printLastTicketBarcode() {
         LOGGER.info("Entering method printLastTicketBarcode");
         ticketService.resolveLastClosedTicketId(state);
-        if (!state.requireLastClosedTicket()) {
+        if (!state.requireLastClosedTicket(PosState.NO_LAST_TICKET_BARCODE_KEY)) {
             LOGGER.info("Exiting method printLastTicketBarcode");
             return;
         }
@@ -1257,13 +1280,13 @@ public class HomeService {
      * <p>The register builds the slip from the traces it holds — amount, authorization
      * number, degraded acceptance. A monetique that returns its own print frames will
      * replace that body; the DUPLICATA mention and the moment it is asked for do not
-     * change with it. Refusals go through {@link PosState#requireLastClosedTicket()};
+     * change with it. Refusals go through {@link PosState#requireLastClosedTicket(String)};
      * a ticket settled without a card prints nothing, which is not a refusal.
      */
     public void printLastCardReceiptDuplicate() {
         LOGGER.info("Entering method printLastCardReceiptDuplicate");
         ticketService.resolveLastClosedTicketId(state);
-        if (!state.requireLastClosedTicket()) {
+        if (!state.requireLastClosedTicket(PosState.NO_LAST_TICKET_CARD_KEY)) {
             LOGGER.info("Exiting method printLastCardReceiptDuplicate");
             return;
         }
@@ -1306,22 +1329,16 @@ public class HomeService {
             LOGGER.info("Exiting method openPriceMod");
             return;
         }
-        // THE QUANTITY KEY READS THE EXPLICIT SELECTION, not the fallback.
-        // getTargetItem() answers the last line when nothing is selected, which
-        // is the right answer for the price gestures and the wrong one here: a
-        // quantity keyed with no line chosen landed on the last article rung
-        // instead of arming for the next one, so the arming below never fired
-        // on a ticket that already carried a line (LC-02-13-04/05/06).
-        TicketState.TicketItem target = mode == PriceModType.QUANTITY
-                ? state.getSelectedItem() : state.getTargetItem();
+        // THE QUANTITY KEY TARGETS LIKE THE PRICE GESTURES: the selected line,
+        // and with nothing selected the LAST line of the sale — the article just
+        // rung, which is the one a cashier corrects with this key.
+        TicketState.TicketItem target = state.getTargetItem();
         if (target == null && mode == PriceModType.QUANTITY) {
-            // NO LINE SELECTED AND A QUANTITY KEYED: the figure is for the article
-            // ABOUT TO BE RUNG. Keying the quantity and then the article is the
-            // order LC-02-13-04/05/06 asks for, and a cashier who has selected
-            // nothing can only mean that one — there is no other line the quantity
-            // could belong to. So the modal opens WITHOUT a target line, and
-            // validating it arms the quantity for the next article instead of
-            // refusing the gesture.
+            // AN EMPTY TICKET AND A QUANTITY KEYED: there is no line the figure
+            // could belong to, so it is for the article ABOUT TO BE RUNG
+            // (LC-02-13-04/05/06, the quantity keyed before the article). The modal
+            // opens WITHOUT a target line, and validating it arms the quantity for
+            // the next article instead of refusing the gesture.
             state.priceModState.set(mode, null, i18n.get("op.prochainArticle"));
         } else if (target == null) {
             state.ticket.setError(i18n.get("op.aucuneLigneSelectionnee"));
@@ -1438,7 +1455,9 @@ public class HomeService {
     public void requestTrainingToggle() {
         LOGGER.info("Entering method requestTrainingToggle");
         if (!state.ticket.items.isEmpty() || state.payment.paymentInProgress) {
-            state.ticket.setError(i18n.get("op.terminezAnnulezTicketAbord"));
+            // A key that cannot act says so where the operator is looking: in a
+            // message modal on the sale screen, not in a line of the ticket zone.
+            state.modalMessage = i18n.get("op.formationVenteEnCours");
             state.touch();
             LOGGER.info("Exiting method requestTrainingToggle");
             return;
@@ -2234,5 +2253,27 @@ public class HomeService {
     public boolean offlineAppearance() {
         return posSettingsService.offlineDisplayEnabled() && refPullService.isUnreachableFor(
                 posSettingsService.offlineDisplayDelaySeconds(), java.time.LocalDateTime.now());
+    }
+
+    /**
+     * Whether a closed ticket is on record: without one, FACTURE and
+     * RECHERCHE TICKET have nothing to work on and their keys are drawn
+     * inactive instead of answering a refusal each time they are pressed.
+     *
+     * @return true when at least one closed ticket exists
+     */
+    public boolean anyClosedTicket() {
+        return com.intermarche.pos.domain.sale.Ticket.count("status",
+                com.intermarche.pos.domain.sale.Ticket.TicketStatus.CLOSED) > 0;
+    }
+
+    /**
+     * Whether a customer document copy is on record: without one, DOCUMENTS
+     * CLIENT PAR EMAIL has nothing to send and its key is drawn inactive.
+     *
+     * @return true when at least one customer document copy exists
+     */
+    public boolean anyCustomerDocument() {
+        return com.intermarche.pos.domain.sale.CustomerDocument.count() > 0;
     }
 }

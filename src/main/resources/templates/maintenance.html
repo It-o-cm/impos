@@ -1,69 +1,220 @@
+{!
+ ! MAINTENANCE (LC-13-02 / LC-13-03 / LC-14-03-01).
+ !
+ ! The register's ordinary frame — top bar, work area, bottom bar — with one
+ ! thing no selling screen has: the hazard strip under the top bar, so nobody
+ ! mistakes this screen for a till that sells. Scans made here are test scans.
+ !
+ ! Left: the peripherals, one row each, with their last observed state and
+ ! their two gestures. Right: the workstation commands, which ask for a closed
+ ! session and a supervisor. Above both: the outcome of the last gesture, and
+ ! while a gesture runs, the fact that it is running.
+!}
 <!DOCTYPE html>
 <html lang="{inject:i18n.lang}">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>{inject:i18n.get('maintenance.title')}</title>
-    <style>
-        {#include theme /}
-        body { background:repeating-linear-gradient(135deg,#191919,#191919 24px,#332a00 24px,#332a00 48px); color:var(--text-main); padding:2rem; }
-        main { max-width:60rem;margin:auto;background:var(--bg-panel);border:6px solid #ffc400;padding:2rem; }
-        .actions { display:flex;flex-wrap:wrap;gap:1rem;margin:1rem 0; }
-        button { padding:1rem;font-size:1.1rem;cursor:pointer; }
-        output { display:block;padding:2rem;font-size:2rem;overflow-wrap:anywhere;background:#000;color:#ffc400; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{inject:i18n.get('maintenance.title')}</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); margin: 0; }
+    .pos-terminal { grid-template-rows: 3.75rem 2rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .top-bar .screen-name { font-weight: bold; letter-spacing: 1px; }
+    .hazard { display: flex; align-items: center; justify-content: center; color: #000; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; font-size: var(--fs-btn-sm);
+              background: repeating-linear-gradient(135deg, var(--warning), var(--warning) 18px, #1a1a1a 18px, #1a1a1a 36px); }
+    .hazard span { background: var(--warning); padding: 2px 14px; border-radius: 4px; }
+    .work { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 12px; padding: 12px 18px; min-height: 0; overflow: hidden; }
+    .outcome { grid-column: 1 / -1; border-radius: 8px; padding: 8px 16px; font-size: var(--fs-body); font-weight: bold; border: 2px solid var(--border-color); color: var(--text-muted); min-height: 1.4em; }
+    .outcome.ok { border-color: var(--success); color: var(--success); }
+    .outcome.err { border-color: var(--danger); color: var(--danger); }
+    .outcome.warn { border-color: var(--warning); color: var(--warning); }
+    .outcome.busy { border-color: var(--primary); color: var(--primary); }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .panel h2 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+    .device { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+    .device:last-of-type { border-bottom: none; }
+    .device-name { font-size: var(--fs-row); font-weight: bold; }
+    .device-sub { font-size: var(--fs-row-sub); color: var(--text-muted); margin-top: 4px; min-height: 1.4em; }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: var(--fs-row-sub); font-weight: bold; border: 1px solid var(--border-color); color: var(--text-muted); vertical-align: middle; }
+    .pill.AVAILABLE { border-color: var(--success); color: var(--success); }
+    .pill.FAILED { border-color: var(--danger); color: #fff; background: var(--danger); }
+    .pill.ABSENT { border-style: dashed; }
+    .pill.TESTING { border-color: var(--warning); color: #000; background: var(--warning); }
+    .device-actions { display: flex; gap: 8px; }
+    .device-actions form { display: contents; }
+    .device-actions .btn { min-width: 9rem; padding: 12px 10px; }
+    .scan-test { border: 2px dashed var(--warning); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 14px; }
+    .scan-test .label { color: var(--text-muted); font-size: var(--fs-row-sub); text-transform: uppercase; letter-spacing: 1px; }
+    .scan-test output { display: block; flex: 1; font-size: var(--fs-total); font-weight: bold; color: var(--warning); overflow-wrap: anywhere; font-family: var(--font-doc); }
+    .scan-test output:empty::before { content: attr(data-placeholder); color: var(--text-muted); font-size: var(--fs-body); font-weight: normal; font-family: var(--font-ui); }
+    .choices { display: flex; gap: 8px; flex-wrap: wrap; }
+    .choices input { display: none; }
+    .choices label { flex: 1; min-width: 0; padding: 6px 4px; line-height: 1.15; display: flex; align-items: center; justify-content: center; text-align: center; border-radius: 6px; border: 2px solid var(--border-color); background: var(--bg-row); color: var(--text-muted); font-weight: bold; font-size: var(--fs-btn-sm); text-transform: uppercase; cursor: pointer; }
+    .choices input:checked + label { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .field-label { font-size: var(--fs-row-sub); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+    .field-row { display: grid; grid-template-columns: 6.5rem 1fr; align-items: center; gap: 8px; }
+    .choices { flex-wrap: nowrap; }
+    .sub-display { font-size: var(--fs-field); background: var(--bg-page); color: var(--primary); border: 2px solid var(--primary); border-radius: 4px; padding: 6px 12px; }
+    .control-pad { width: 100%; }
+    .blocked { border: 2px solid var(--warning); border-radius: 8px; padding: 12px 14px; color: var(--warning); font-weight: bold; font-size: var(--fs-body); }
+    .control-form { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+    .control-form .sup-auth { gap: 6px; }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+    .bottom-nav form { display: contents; }
+    .bottom-nav .btn { min-width: 14rem; }
+    .bottom-nav .end { margin-left: auto; }
+    .btn.busy { opacity: 0.6; }
+  </style>
 </head>
 <body data-theme="{posTheme}">
-<main>
-    <h1>{inject:i18n.get('maintenance.title')}</h1>
-    <p>{inject:i18n.get('maintenance.noSale')}</p>
-    {#include peripheral-status /}
-    <div class="actions">
-        <form action="/action/maintenance/probe" method="POST"><button>{inject:i18n.get('maintenance.probe')}</button></form>
-        <form action="/action/maintenance/printer/reset" method="POST"><button>{inject:i18n.get('maintenance.printerReset')}</button></form>
-        <form action="/action/maintenance/printer/test" method="POST"><button>{inject:i18n.get('maintenance.printerTest')}</button></form>
-        <form action="/action/maintenance/scanner/reset" method="POST"><button>{inject:i18n.get('maintenance.scannerReset')}</button></form>
-        <form action="/action/maintenance/scanner/test" method="POST"><button>{inject:i18n.get('maintenance.scannerTest')}</button></form>
-        <form action="/action/maintenance/handheld/reset" method="POST"><button>{inject:i18n.get('maintenance.handheldReset')}</button></form>
-        <form action="/action/maintenance/handheld/test" method="POST"><button>{inject:i18n.get('maintenance.handheldTest')}</button></form>
-        <form action="/action/maintenance/terminal/reset" method="POST"><button>{inject:i18n.get('maintenance.terminalReset')}</button></form>
-        <form action="/action/maintenance/terminal/test" method="POST"><button>{inject:i18n.get('maintenance.terminalTest')}</button></form>
-        {! LC-14-03-01: the metrology information of the weighing system. !}
-        <form action="/maintenance/metrology" method="GET"><button>{inject:i18n.get('maintenance.metrology')}</button></form>
-    </div>
-    <pre id="terminal-status">{terminalStatus}</pre>
-    {#if state.maintenanceScanMode}<h2>{inject:i18n.get('maintenance.scanTestActive')}</h2><output>{code}</output>{/if}
-    <p role="alert">{message}</p>
-    {#if state.ticket.transientError}<p role="alert">{state.ticket.transientError}</p>{/if}
-    <hr>
-    <h2>{inject:i18n.get('maintenance.workstation')}</h2>
-    <p>{inject:i18n.get('maintenance.closedSupervisorConfirmation')}</p>
-    {#include keyboard-lib /}
-    {#include supervisor-auth padContainer='controlPad' displayClass='sub-display' /}
-    <div id="controlPad" class="keyboard pos-kb-compact"></div>
-    <form action="/action/maintenance/control" method="POST" onsubmit="return SupAuth.fill(this)">
+<div class="pos-terminal">
+  <div class="top-bar">
+    <span class="store-name">{inject:i18n.get('common.store')}</span>
+    <span class="screen-name">{inject:i18n.get('maintenance.title')}</span>
+    <span id="clock"></span>
+  </div>
+  <div class="hazard"><span>{inject:i18n.get('maintenance.noSale')}</span></div>
+
+  <div class="work">
+    {! The outcome of the last gesture. Drawn even when empty so that the
+     ! "in progress" notice has a place to appear without moving the screen. !}
+    <div id="outcome" role="status"
+         class="outcome{#if state.ticket.transientError}{#if state.ticket.transientOk} ok{#else if state.ticket.transientWarn} warn{#else} err{/if}{/if}">{#if state.ticket.transientError}{state.ticket.transientError}{#else if message}{message}{#else}{inject:i18n.get('maintenance.idle')}{/if}</div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>{inject:i18n.get('maintenance.devices')}</h2>
+        <form action="/action/maintenance/probe" method="POST" data-pending="{inject:i18n.get('maintenance.pendingProbe')}">
+          <button class="btn btn-sm btn-primary">{inject:i18n.get('maintenance.probe')}</button>
+        </form>
+      </div>
+      <div id="devices">
+      {#for d in devices}
+      <div class="device" id="device-{d.id}">
+        <div>
+          <div class="device-name">{d.label}</div>
+          {#if d.id == 'terminal'}
+          <div class="device-sub" id="terminal-status">{#if terminal.unavailable}{inject:i18n.get('maintenance.failed')}{#else}{#if terminal.stateLabel}{terminal.stateLabel}{/if}{#if terminal.result} · {inject:i18n.get('maintenance.terminalResult')} {terminal.result}{/if}{#if terminal.line1} · {terminal.line1}{/if}{#if terminal.line2} {terminal.line2}{/if}{/if}</div>
+          {#else}
+          <div class="device-sub">{#if d.scanTesting}<span class="pill TESTING">{inject:i18n.get('maintenance.testing')}</span>{#else if d.id != 'handheld'}<span class="pill {d.status}">{d.statusLabel}</span>{/if}</div>
+          {/if}
+        </div>
+        <div class="device-actions">
+          {#if d.id == 'scale'}
+          <a class="btn btn-muted" href="/maintenance/metrology">{inject:i18n.get('maintenance.metrology')}</a>
+          {#else}
+          <form action="/action/maintenance/{d.id}/reset" method="POST" data-pending="{inject:i18n.format('maintenance.pendingReset', d.label)}">
+            <button class="btn btn-muted">{inject:i18n.get('maintenance.reset')}</button>
+          </form>
+          {#if d.scanTesting}
+          <form action="/action/maintenance/{d.id}/stop" method="POST" data-pending="{inject:i18n.format('maintenance.pendingStop', d.label)}">
+            <button class="btn btn-warning">{inject:i18n.get('maintenance.stopTest')}</button>
+          </form>
+          {#else}
+          <form action="/action/maintenance/{d.id}/test" method="POST" data-pending="{inject:i18n.format('maintenance.pendingTest', d.label)}">
+            <button class="btn btn-primary">{inject:i18n.get('maintenance.test')}</button>
+          </form>
+          {/if}
+          {/if}
+        </div>
+      </div>
+      {/for}
+      </div>
+      {#if state.maintenanceScanMode}
+      <div class="scan-test">
+        <div class="label">{inject:i18n.get('maintenance.lastScan')}</div>
+        <output id="scan-code" data-placeholder="{inject:i18n.get('maintenance.noScanYet')}">{code}</output>
+      </div>
+      {/if}
+    </section>
+
+    <section class="panel">
+      <h2>{inject:i18n.get('maintenance.workstation')}</h2>
+      {#if sessionOpen}
+      <div class="blocked">{inject:i18n.get('maintenance.sessionOpenBlocked')}</div>
+      {#else if state.workstationControlUrl}
+      <a class="btn btn-lg btn-success" href="{state.workstationControlUrl}" target="_blank" rel="noopener">{inject:i18n.get('maintenance.confirmControl')}</a>
+      {#else}
+      <form class="control-form" id="controlForm" action="/action/maintenance/control" method="POST" onsubmit="return SupAuth.fill(this)" data-pending="{inject:i18n.get('maintenance.pendingControl')}">
         <input type="hidden" name="supervisor">
         <input type="hidden" name="supervisorPassword">
-        <select name="action">
-            <option value="APPLICATION">{inject:i18n.get('maintenance.restartApplication')}</option>
-            <option value="REBOOT">{inject:i18n.get('maintenance.reboot')}</option>
-            <option value="SHUTDOWN">{inject:i18n.get('maintenance.shutdown')}</option>
-        </select>
-        <select name="reason">{#for reason in reasons}<option>{reason}</option>{/for}</select>
-        <button>{inject:i18n.get('maintenance.prepareControl')}</button>
-    </form>
-    {#if state.workstationControlUrl}
-    <p><a href="{state.workstationControlUrl}" target="_blank" rel="noopener">{inject:i18n.get('maintenance.confirmControl')}</a></p>
+        <div class="field-row">
+        <div class="field-label">{inject:i18n.get('maintenance.chooseAction')}</div>
+        <div class="choices">
+          <input type="radio" name="action" id="act-app" value="APPLICATION" checked><label for="act-app">{inject:i18n.get('maintenance.restartApplication')}</label>
+          <input type="radio" name="action" id="act-reboot" value="REBOOT"><label for="act-reboot">{inject:i18n.get('maintenance.reboot')}</label>
+          <input type="radio" name="action" id="act-shutdown" value="SHUTDOWN"><label for="act-shutdown">{inject:i18n.get('maintenance.shutdown')}</label>
+        </div>
+        </div>
+        <div class="field-row">
+        <div class="field-label">{inject:i18n.get('maintenance.chooseReason')}</div>
+        <div class="choices">
+          {#for reason in reasons}
+          <input type="radio" name="reason" id="reason-{reason_index}" value="{reason}"{#if reason_index == 0} checked{/if}><label for="reason-{reason_index}">{reason}</label>
+          {/for}
+        </div>
+        </div>
+        <div class="field-label">{inject:i18n.get('maintenance.supervisor')}</div>
+        {#include supervisor-auth padContainer='controlPad' displayClass='sub-display' /}
+        <div id="controlPad" class="control-pad pos-kb-compact"></div>
+      </form>
+      {/if}
+    </section>
+  </div>
+
+  <div class="bottom-nav">
+    {#if !sessionOpen && !state.workstationControlUrl}
+    <button class="btn btn-lg btn-warning" form="controlForm">{inject:i18n.get('maintenance.prepareControl')}</button>
     {/if}
-    <form action="/action/maintenance/exit" method="POST"><button>{inject:i18n.get('maintenance.exit')}</button></form>
-</main>
+    <form action="/action/maintenance/exit" method="POST">
+      <button class="btn btn-lg btn-muted end">{inject:i18n.get('maintenance.exit')}</button>
+    </form>
+  </div>
+</div>
+
+{#include keyboard-lib /}
 <script>
-    setInterval(() => fetch('/maintenance').then(response => response.text()).then(html => {
-        const next = new DOMParser().parseFromString(html, 'text/html').querySelector('output');
-        if (next) document.querySelector('output').textContent = next.textContent;
-        const terminal = new DOMParser().parseFromString(html, 'text/html').querySelector('#terminal-status');
-        if (terminal) document.querySelector('#terminal-status').textContent = terminal.textContent;
-    }).catch(() => {}), 2000);
+  /* The clock of the top bar, as on every screen. */
+  function tick() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('{inject:i18n.lang}'); }
+  tick();
+  setInterval(tick, 1000);
+
+  /* A gesture is acknowledged the moment it is made: the outcome zone says what
+     is running and every button waits, so a slow peripheral is never mistaken
+     for a button that did nothing. The page that follows states the result. */
+  document.querySelectorAll('form[data-pending]').forEach(function (form) {
+    form.addEventListener('submit', function (event) {
+      if (event.defaultPrevented) { return; }
+      var outcome = document.getElementById('outcome');
+      outcome.className = 'outcome busy';
+      outcome.textContent = form.getAttribute('data-pending');
+      var pressed = event.submitter || form.querySelector('button');
+      if (pressed) { pressed.classList.add('busy'); }
+      setTimeout(function () {
+        document.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      }, 0);
+    });
+  });
+
+  /* The supervisor pad is drawn as soon as the page opens. */
+  if (typeof SupAuth !== 'undefined' && document.getElementById('supAuthLogin')) { SupAuth.focus(); }
+
+  /* Live readings: the code read by a scan test and the terminal's report are
+     refreshed every two seconds without redrawing the screen. */
+  setInterval(function () {
+    fetch('/maintenance').then(function (r) { return r.text(); }).then(function (html) {
+      var next = new DOMParser().parseFromString(html, 'text/html');
+      ['scan-code', 'terminal-status'].forEach(function (id) {
+        var fresh = next.getElementById(id);
+        var shown = document.getElementById(id);
+        if (fresh && shown) { shown.textContent = fresh.textContent; }
+      });
+    }).catch(function () { /* a missed round is not a failure */ });
+  }, 2000);
 </script>
 </body>
 </html>

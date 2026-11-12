@@ -3,7 +3,7 @@ import { loadTemplateScript } from './harness.js';
 
 /** Executes both the actual shared keyboard and the actual NIF screen initialization. */
 function open(value) {
-    document.body.innerHTML = '<form id="taxIdForm"><div id="taxIdDisplay"></div><input id="taxIdHidden"></form><div id="taxIdKeyboard"></div>';
+    document.body.innerHTML = '<form id="taxIdForm"><div id="taxIdDisplay"></div><button type="button" id="taxIdKeys"></button><input id="taxIdHidden"></form><div id="taxIdKeyboard"></div>';
     document.getElementById('taxIdHidden').value = value;
     loadTemplateScript('src/main/resources/templates/keyboard-lib.html');
     loadTemplateScript('src/main/resources/templates/sale-tax-id.html');
@@ -39,6 +39,27 @@ describe('sale NIF tactile input LC-08-06-02/-03', () => {
         expect(document.getElementById('taxIdHidden').value).toBe('');
         window.PosInput.handleKey('F'); window.PosInput.handleKey('R'); window.PosInput.handleKey('1');
         expect(document.getElementById('taxIdHidden').value).toBe('FR1');
+    });
+});
+
+describe('the smallest pad that covers a NIF', () => {
+    it('opens on the numeric pad for a numeric NIF and offers ABC', () => {
+        open('999999990');
+        expect(document.getElementById('taxIdKeys').textContent).toBe('ABC');
+        expect([...document.querySelectorAll('#taxIdKeyboard button')].some(button => button.innerText === 'A')).toBe(false);
+    });
+    it('switches to the letters and back, keeping what was typed', () => {
+        open('999999990');
+        document.getElementById('taxIdKeys').click();
+        expect(document.getElementById('taxIdKeys').textContent).toBe('123');
+        expect([...document.querySelectorAll('#taxIdKeyboard button')].some(button => button.innerText === 'A')).toBe(true);
+        expect(document.getElementById('taxIdHidden').value).toBe('999999990');
+        document.getElementById('taxIdKeys').click();
+        expect(document.getElementById('taxIdKeys').textContent).toBe('ABC');
+    });
+    it('opens on the letters when the NIF already carries some', () => {
+        open('FR123');
+        expect(document.getElementById('taxIdKeys').textContent).toBe('123');
     });
 });
 

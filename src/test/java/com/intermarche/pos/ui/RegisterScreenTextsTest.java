@@ -166,7 +166,7 @@ class RegisterScreenTextsTest {
      * @throws IOException if a template cannot be read
      */
     private static String manualPage(String language, boolean root) throws IOException {
-        Template page = template(engine(messages(language), "theme", "keyboard-lib"), "manual");
+        Template page = template(engine(messages(language), "theme", "keyboard-lib", "screen-embed"), "manual");
         ManualService.ManualItem article = new ManualService.ManualItem("CHIPS", false, null,
                 "3300000000014", "size-normal", false);
         article.priceFormatted = "1,80 €";

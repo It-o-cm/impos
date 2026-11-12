@@ -1,151 +1,93 @@
 {!
- ! Abandon page (TicketAbandonResource) — LC-04-04-06 à -12. Le dernier écran
- ! avant qu'une vente cesse d'exister : le motif administré, ce qu'il advient
- ! d'un règlement déjà pris, et l'impression du ticket d'abandon.
+ ! ABANDON DU TICKET (TicketAbandonResource, LC-04-04-06 to -12), shown in a
+ ! modal over the sale: the last screen before a sale stops existing — the
+ ! administered reason, what becomes of a payment already taken, and the
+ ! printing of the abandon ticket.
  !
- ! CE QUI BLOQUE EST DIT AVANT CE QU'ON DEMANDE : quand un règlement partiel
- ! interdit l'abandon, l'écran n'affiche ni motif ni bouton de confirmation —
- ! poser une question dont la réponse ne servira à rien est ce qui fait croire
- ! à un écran cassé.
+ ! WHAT BLOCKS IS SAID BEFORE WHAT IS ASKED: when a partial payment forbids the
+ ! abandon, the modal shows neither reason nor confirmation — asking a question
+ ! whose answer serves nothing is what makes a screen look broken.
+ !
+ ! The reasons are tiles (one tap, the choice shows); ABANDONNER LE TICKET, bottom
+ ! left, hands the gesture to the manager endorsement on the sale; a refusal is
+ ! stated at the top of the modal. RETOUR, bottom right, goes back to the sale.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{inject:i18n.get('abandon.abandonTicket')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
-
-    /* min-height:0 : sans lui la rangée 1fr refuse de descendre sous la hauteur de
-       son contenu, la grille dépasse les 600 px du terminal et c'est la barre du bas
-       — donc le RETOUR — qui est rognée par l'overflow:hidden. */
-    .main-area { display: flex; justify-content: center; align-items: center; padding: 12px; min-height: 0; }
-    /* LE BOUTON D'ABANDON NE DÉFILE JAMAIS. Le panneau est une colonne dont seule
-       la liste des motifs s'étire et défile : sur une caisse tactile, une touche de
-       validation qu'il faut aller chercher en faisant glisser la page est une touche
-       qu'on ne trouve pas. */
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 18px 30px; width: 45rem; max-height: 100%;
-             display: flex; flex-direction: column; min-height: 0; }
-    .panel > * { flex-shrink: 0; }
-    .panel form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-    .panel form .print-row, .panel form button { flex-shrink: 0; }
-    .panel h2 { text-transform: uppercase; margin: 0 0 14px; text-align: center; letter-spacing: 1px; font-size: var(--fs-section); }
-    .summary { display: flex; justify-content: space-between; color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 12px; }
+    .summary { display: flex; gap: 24px; flex-shrink: 0; font-size: var(--fs-body); color: var(--text-muted); }
     .summary strong { color: var(--text-main); }
-
-    /* Le motif : des touches pleine largeur, pas une liste déroulante — c'est
-       une caisse tactile, et le motif est la seule chose que l'opérateur a à
-       choisir ici. */
-    .reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;
-               flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
-    .reason-btn { display: flex; align-items: center; justify-content: center; text-align: center;
-                  min-height: 2.875rem; padding: 6px 10px; border-radius: 6px; cursor: pointer;
-                  border: 1px solid var(--border-color); background: var(--bg-page);
-                  color: var(--text-main); font-size: var(--fs-btn-sm); font-weight: bold; }
-    .reason-btn.on { border-color: var(--danger); background: rgba(211, 47, 47, 0.18); }
-    .reason-btn input { display: none; }
-
-    /* Le bloc des règlements est le seul dont la hauteur dépend du client : il
-       défile chez lui plutôt que de pousser le bouton d'abandon hors de l'écran. */
-    .payments { border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; max-height: 7.5rem; overflow-y: auto; }
-    .payments .head { color: var(--text-muted); font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    #abandonForm { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+    /* Only the reasons scroll: the confirmation key never leaves the screen. */
+    .reasons { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-content: start; }
+    .reasons .mk-choice { align-items: center; text-align: center; }
+    .payments { flex-shrink: 0; max-height: 7.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
     .payments .row { display: flex; justify-content: space-between; font-size: var(--fs-row); }
-    .print-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: var(--fs-body); }
-    .print-row input { width: 1.375rem; height: 1.375rem; }
-
-    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 14px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
-    .blocking-box { background: rgba(211, 47, 47, 0.22); border: 1px solid var(--danger); color: var(--danger); padding: 16px; font-weight: bold; text-align: center; border-radius: 6px; font-size: var(--fs-row); }
   </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="54rem fit" data-embed-stay="/abandon">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('abandon.abandonTicket2')}</span>
-      <span id="clock"></span>
-    </div>
+    <div class="mk-title"><span class="title">{inject:i18n.get('abandon.abandonTicket2')}</span></div>
 
-    <div class="main-area">
-      <div class="panel">
-        <h2>{inject:i18n.get('abandon.abandonnerVenteCours')}</h2>
+    <div class="mk-body">
+      {#if error}<div class="mk-outcome err" role="alert">{error}</div>{/if}
+      <div class="summary">
+        <span>{inject:i18n.get('abandon.articles')} <strong>{state.ticket.articleCount}</strong></span>
+        <span>{inject:i18n.get('abandon.total')} <strong>{state.ticket.getTotalFormatted()} €</strong></span>
+      </div>
 
-        <div class="summary">
-          <span>{inject:i18n.get('abandon.articles')} <strong>{state.ticket.articleCount}</strong></span>
-          <span>{inject:i18n.get('abandon.total')} <strong>{state.ticket.getTotalFormatted()} €</strong></span>
-        </div>
+      {#if blocking}
+      {! LC-04-04-06 / -08: the shop chose the refusal. It says which payment is
+       ! the cause: cancelling cash and cancelling a card authorisation are not the
+       ! same gesture. !}
+      <div class="mk-outcome err" role="alert">{blocking}</div>
+      {#else}
 
-        {#if error}
-        <div class="error-box">{error}</div>
-        {/if}
-
-        {#if blocking}
-        <!-- LC-04-04-06 / -08 : le magasin a choisi le refus. On dit lequel des deux
-             règlements est en cause, parce qu'annuler des espèces et annuler une
-             autorisation monétique ne sont pas le même geste. -->
-        <div class="blocking-box">{blocking}</div>
-        {#else}
-
-        {#if !payments.isEmpty()}
-        <!-- LC-04-04-07 / -09 : le magasin a choisi la proposition. Les règlements
-             qui vont être annulés sont nommés AVANT la validation — c'est ce qui
-             fait de cet écran une proposition et non une exécution. -->
-        <div class="payments">
-          <div class="head">{inject:i18n.get('abandon.reglementsSerontAnnules')}</div>
+      {#if !payments.isEmpty()}
+      {! LC-04-04-07 / -09: the shop chose the proposal. The payments about to be
+       ! cancelled are named BEFORE the confirmation. !}
+      <div class="mk-field">
+        <div class="mk-label">{inject:i18n.get('abandon.reglementsSerontAnnules')}</div>
+        <div class="payments mk-notice">
           {#for entry in payments}
           <div class="row"><span>{inject:i18n.code('ticketsearch.payment.', entry.method)}</span><span>{inject:units.money(entry.amount)} €</span></div>
           {/for}
           <div class="row"><strong>{inject:i18n.get('abandon.total2')}</strong><strong>{inject:units.money(paymentTotal)} €</strong></div>
         </div>
-        {/if}
-
-        <form method="post" action="/abandon" id="abandonForm">
-          {#if !reasons.isEmpty()}
-          <div class="reasons">
-            {#for reason in reasons}
-            <label class="reason-btn">
-              <input type="radio" name="reason" value="{reason}">{reason}
-            </label>
-            {/for}
-          </div>
-          {/if}
-
-          {#if printOnDemand}
-          <!-- LC-04-04-12 : le magasin laisse la décision à l'opérateur. -->
-          <div class="print-row">
-            <input type="checkbox" name="print" id="printBox">
-            <label for="printBox">{inject:i18n.get('abandon.imprimerTicketDAbandon')}</label>
-          </div>
-          {/if}
-
-          <button type="submit" class="btn btn-danger" style="width:100%; height: 3.5rem;">{inject:i18n.get('abandon.abandonnerTicket')}</button>
-        </form>
-        {/if}
       </div>
+      {/if}
+
+      <form method="post" action="/abandon" id="abandonForm">
+        {#if !reasons.isEmpty()}
+        <div class="reasons mk-choices">
+          {#for reason in reasons}
+          <input type="radio" name="reason" id="reason-{reason_count}" value="{reason}">
+          <label class="mk-choice reason-btn" for="reason-{reason_count}">{reason}</label>
+          {/for}
+        </div>
+        {/if}
+        {#if printOnDemand}
+        {! LC-04-04-12: the shop leaves the decision to the operator. !}
+        <div class="mk-choices">
+          <input type="checkbox" name="print" id="printBox">
+          <label class="mk-choice" for="printBox">{inject:i18n.get('abandon.imprimerTicketDAbandon')}</label>
+        </div>
+        {/if}
+      </form>
+      {/if}
     </div>
 
-    <div class="bottom-nav">
-      <a href="/" class="btn btn-muted">{inject:i18n.get('abandon.retourVente')}</a>
+    <div class="mk-actions">
+      {#if !blocking}<button type="submit" form="abandonForm" class="btn btn-danger">{inject:i18n.get('abandon.abandonnerTicket')}</button>{/if}
+      <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
-
-<script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
-    /* Les motifs sont des radios déguisés en touches : la sélection doit se voir,
-       et un bouton radio de 13 pixels ne se voit pas au bout d'un doigt. */
-    document.querySelectorAll('.reason-btn input').forEach(input => {
-        input.addEventListener('change', () => {
-            document.querySelectorAll('.reason-btn').forEach(b => b.classList.remove('on'));
-            if (input.checked) input.parentElement.classList.add('on');
-        });
-    });
-</script>
+  {#include screen-embed /}
 </body>
 </html>

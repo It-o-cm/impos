@@ -117,8 +117,13 @@ class CashSessionResourceTest {
         when(tiFloat.data(eq("theoreticalFloat"), any())).thenReturn(tiTheo);
         // BO-10-02-11: and the drawer-cap alert, between the two.
         when(tiTheo.data(eq("drawerAlert"), any())).thenReturn(tiDrawer);
-        when(tiDrawer.data(eq("error"), any())).thenReturn(ti3);
-        return new TemplateInstance[]{ti1, ti2, tiDrawer, ti3, tiTheo};
+        TemplateInstance tiError = mock(TemplateInstance.class);
+        TemplateInstance tiNotice = mock(TemplateInstance.class);
+        when(tiDrawer.data(eq("error"), any())).thenReturn(tiError);
+        // The outcome of a gesture of the screen (the settlement voucher) closes the chain.
+        when(tiError.data(eq("notice"), any())).thenReturn(tiNotice);
+        when(tiNotice.data(eq("noticeWarn"), any())).thenReturn(ti3);
+        return new TemplateInstance[]{ti1, ti2, tiDrawer, ti3, tiTheo, tiError, tiNotice};
     }
 
     /**
@@ -147,7 +152,7 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashSessionService.drawerCapExcess()).thenReturn(new BigDecimal("1850.40"));
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[3], resource.sessionPage(null));
+        assertSame(chain[3], resource.sessionPage(null, null));
         verify(chain[4]).data("drawerAlert",
                 "PRÉLÈVEMENT BILLETS — CONTENU TIROIR 1850,40 €");
     }
@@ -164,7 +169,7 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashSessionService.drawerCapExcess()).thenReturn(null);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[3], resource.sessionPage(null));
+        assertSame(chain[3], resource.sessionPage(null, null));
         verify(chain[4]).data("drawerAlert", null);
     }
 
@@ -179,7 +184,7 @@ class CashSessionResourceTest {
         CashSession current = mock(CashSession.class);
         when(resource.cashSessionService.getOpenSession()).thenReturn(current);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[3], resource.sessionPage("open-failed"));
+        assertSame(chain[3], resource.sessionPage("open-failed", null));
         verify(chain[0]).data("current", current);
         verify(chain[2]).data("error", "OUVERTURE IMPOSSIBLE (SESSION DÉJÀ OUVERTE ?)");
     }
@@ -194,7 +199,7 @@ class CashSessionResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[3], resource.sessionPage("no-session"));
+        assertSame(chain[3], resource.sessionPage("no-session", null));
         verify(chain[2]).data("error", "AUCUNE SESSION OUVERTE");
     }
 
@@ -208,7 +213,7 @@ class CashSessionResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[3], resource.sessionPage("bogus"));
+        assertSame(chain[3], resource.sessionPage("bogus", null));
         verify(chain[2]).data("error", null);
     }
 
@@ -422,7 +427,7 @@ class CashSessionResourceTest {
     void sessionPagePassesAdministeredDefaultFloat() {
         CashSessionResource resource = newResource();
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[3], resource.sessionPage(null));
+        assertSame(chain[3], resource.sessionPage(null, null));
         verify(chain[1]).data("defaultFloat", "150.00");
     }
 
@@ -648,9 +653,54 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(open);
         CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
         when(resource.cashSessionService.buildReport(open)).thenReturn(report);
-        assertRedirect(resource.printSettlementVoucher(), "/session");
+        resource.state.peripheralAvailability = new java.util.concurrent.ConcurrentHashMap<>();
+        assertRedirect(resource.printSettlementVoucher(), "/session?ok=voucher");
         verify(resource.ticketPrinterService).printSettlementVoucher(
                 org.mockito.ArgumentMatchers.eq(report), org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
+     * The settlement voucher says what became of its paper: printed (the printer
+     * answered), kept with the register's printouts (no printer), or failed.
+     */
+    @Test
+    void settlementVoucherStatesWhatBecameOfThePaper() {
+        CashSessionResource resource = newResource();
+        CashSession open = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        resource.state.peripheralAvailability = new java.util.concurrent.ConcurrentHashMap<>();
+        resource.state.peripheralAvailability.put("hardware.printer", "AVAILABLE");
+        assertRedirect(resource.printSettlementVoucher(), "/session?ok=voucher");
+        resource.state.peripheralAvailability.put("hardware.printer", "ABSENT");
+        assertRedirect(resource.printSettlementVoucher(), "/session?ok=voucher-kept");
+        resource.state.peripheralAvailability.put("hardware.printer", "FAILED");
+        assertRedirect(resource.printSettlementVoucher(), "/session?error=print-failed");
+    }
+
+    /**
+     * The session screen states the outcome of the settlement voucher: a failed
+     * print as an error, a printed or kept voucher as a notice — the kept one as
+     * a warning — and nothing for an unknown outcome.
+     */
+    @Test
+    void sessionPageStatesTheSettlementVoucherOutcome() {
+        CashSessionResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        TemplateInstance[] chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage("print-failed", null));
+        verify(chain[2]).data("error", "IMPRESSION IMPOSSIBLE : VÉRIFIEZ L'IMPRIMANTE");
+        chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage(null, "voucher"));
+        verify(chain[5]).data("notice", "BORDEREAU DE RÈGLEMENT IMPRIMÉ");
+        verify(chain[6]).data("noticeWarn", false);
+        chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage(null, "voucher-kept"));
+        verify(chain[5]).data("notice", "AUCUNE IMPRIMANTE : BORDEREAU CONSERVÉ DANS LES IMPRESSIONS DE LA CAISSE");
+        verify(chain[6]).data("noticeWarn", true);
+        chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage(null, "bogus"));
+        verify(chain[5]).data("notice", null);
     }
 
     // --- showXReport ---
@@ -714,7 +764,7 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.theoreticalOpeningFloat()).thenReturn(new BigDecimal("123.45"));
         TemplateInstance view = mock(TemplateInstance.class, RETURNS_SELF);
         when(resource.session.data("state", resource.state)).thenReturn(view);
-        assertSame(view, resource.sessionPage(null));
+        assertSame(view, resource.sessionPage(null, null));
         verify(view).data("defaultFloat", "123,45");
         verify(view).data("theoreticalFloat", "123,45");
     }

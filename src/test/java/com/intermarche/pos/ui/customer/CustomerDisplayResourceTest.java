@@ -218,7 +218,7 @@ class CustomerDisplayResourceTest {
         CustomerDisplayResource resource = newResource();
         resource.i18n = com.intermarche.pos.ui.TestMessages.french(resource.state);
         assertEquals("fr", resource.customerData(null).get("displayLang"));
-        assertEquals("A rendre", ((Map<?, ?>) resource.customerData(null).get("labels")).get("change"));
+        assertEquals("À rendre", ((Map<?, ?>) resource.customerData(null).get("labels")).get("change"));
         resource.state.customerLanguage = "nl";
         assertEquals("nl", resource.customerData(null).get("displayLang"));
         assertEquals("Terug te geven", ((Map<?, ?>) resource.customerData(null).get("labels")).get("change"));

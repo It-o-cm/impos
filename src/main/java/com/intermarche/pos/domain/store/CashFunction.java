@@ -47,6 +47,9 @@ public enum CashFunction {
     /** Direct entry of a code. */
     MANUAL("Saisie directe", "/manual"),
 
+    /** The article keys of level zero, one per administered article (BO-03-01-04/05). */
+    LEVEL_ZERO("Touches articles directes", "/action/manual-add-known"),
+
     /** Article search. */
     SEARCH("Recherche article", "/search"),
 
@@ -70,6 +73,9 @@ public enum CashFunction {
 
     /** The training mode toggle. */
     TRAINING("Mode formation", "/action/training"),
+
+    /** The declaration of the vignettes taken at the start of the shift (BO-11-01-20). */
+    VIGNETTES("Vignettes", "/vignettes"),
 
     /** Park and resume a ticket. */
     PARK("Mise en attente", "/parked", "/action/parked/park"),
@@ -140,6 +146,9 @@ public enum CashFunction {
     /** The return of a deposit. */
     DEPOSIT_RETURN("Déconsignation", "/action/deposit"),
 
+    /** The cash level of the coin machine (BO-11-03-03). */
+    CASH_CHANGER("Monnayeur", "/cash-changer"),
+
     /** The forced opening of the drawer. */
     DRAWER_OPEN("Ouverture du tiroir", "/drawer-open"),
 
@@ -172,6 +181,9 @@ public enum CashFunction {
 
     /** The external program of the register. */
     EXTERNAL_PROGRAM("Programme externe", "/action/external-program"),
+
+    /** The third-party applications, one key each (BO-03-09-27). */
+    EXTERNAL_APPS("Applications tierces", "/external-app"),
 
     /** The single-queue availability (BO-03-09-10). */
     SINGLE_QUEUE("File unique", "/action/single-queue");

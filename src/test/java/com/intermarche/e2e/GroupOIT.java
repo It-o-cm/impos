@@ -362,8 +362,14 @@ public class GroupOIT {
         scan(EAN_LAIT);
         page.getByText(LABEL_LAIT).first().waitFor();
         get("action/training");
-        assertSaleErrorShown(page, "TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
-        assertSaleErrorClears(page);
+        // The refusal is stated in the sale screen's message modal, acknowledged by OK.
+        Assertions.assertEquals("Mode formation impossible : une vente est en cours. Terminez, mettez en attente ou abandonnez le ticket d’abord.", posState.modalMessage,
+                "training over a live cart must be refused in the message modal");
+        page.navigate(base.toString());
+        page.locator("#messageModal").getByText("Mode formation impossible : une vente est en cours. Terminez, mettez en attente ou abandonnez le ticket d’abord.").waitFor();
+        page.locator("#messageModal").getByRole(AriaRole.LINK, new Locator.GetByRoleOptions().setName("OK")).click();
+        page.getByText("TOTAL À PAYER").waitFor();
+        Assertions.assertNull(posState.modalMessage, "OK must acknowledge the message");
         clearCartWithManager(page);
 
         // --- FONCTION INDISPONIBLE EN FORMATION — reprint while training ---
@@ -448,9 +454,12 @@ public class GroupOIT {
         Assertions.assertEquals(303, trainingOpen.status(), "a training session-open must redirect");
         Assertions.assertTrue(trainingOpen.headers().get("location").contains("INDISPONIBLE+EN+FORMATION"),
                 "the training block must be carried on the redirect query");
-        Assertions.assertFalse(get("session").text().contains("INDISPONIBLE EN FORMATION"),
-                "GET /session drops the training code: the text is never rendered");
         setTraining(sale, false);
+        // In training the session screen itself is a blocked function (LC-13-05-04):
+        // the redirect target is read back once out of training.
+        Assertions.assertFalse(get(trainingOpen.headers().get("location").replaceFirst("^.*?/session", "session"))
+                        .text().contains("INDISPONIBLE EN FORMATION"),
+                "GET /session drops the training code: the text is never rendered");
         sale.close();
 
         // --- Lock: IDENTIFIANTS INCORRECTS then COMPTE VERROUILLÉ (persisting) ---
@@ -906,6 +915,13 @@ public class GroupOIT {
      * @param page the Playwright page driving the register
      */
     private void goPay(Page page) {
+        // A cart rung over the bus makes the sale payable: the sale screen then
+        // reloads itself once to turn RÈGLEMENT into a link, and a navigation
+        // started during that reload is aborted. From the sale screen, wait for
+        // the link first.
+        if ("/".equals(java.net.URI.create(page.url()).getPath())) {
+            page.locator("a#payBtn").waitFor();
+        }
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
     }

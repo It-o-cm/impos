@@ -1,83 +1,101 @@
 {!
- ! Manual fidelity-card entry — the FALLBACK when the card does not scan
- ! (the scan handler is the primary path). The attached card persists on the
- ! draft and survives restarts.
+ ! PROGRAMME DE FIDÉLITÉ — the manual card entry and the holder search, shown in
+ ! a modal over the sale (the scan of the card stays the primary path).
+ !
+ ! Left, the search: the five modes, the field(s) and the keyboard of the mode.
+ ! Right, what the search or the card gives: the holders found (paged, never
+ ! scrolled) or, with a card attached, its consultation (status, balances, pots,
+ ! last movements). Above both, the card the sale carries and the outcome of the
+ ! last search. VALIDER / RECHERCHER bottom left, RETOUR bottom right.
+ !
+ ! Card mode ATTACHES (/action/fidelity, then the sale); the identity modes
+ ! SEARCH the imfid holder directory (/action/fidelity-lookup, back to this
+ ! screen); SÉLECTIONNER attaches a holder found (back to the sale) or states
+ ! the refusal here. A card SCANNED while the screen is open is attached by the
+ ! scan chain: the screen notices it (/fidelity/status) and goes back to the
+ ! sale, where the card — or the replacement question — is shown.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('fidelity.fidelite')}</title>
     <style>
         {#include theme /}
-        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
-        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
-        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
-        /* The popup's opaque half: the glass shows the register behind, this
-           carries what is being asked. HEIGHT-NEUTRAL on purpose — glass ring
-           10 + border 2 + padding 8 restores exactly the 20 px the overlay used
-           to inset its content by: the lock and PIN screens filled their 556 px
-           to the pixel, and any wider frame would have pushed them out. It
-           inherits the column flow the overlay used to hold directly, so the
-           children below are unchanged. */
-        .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
-        .overlay.active { display: flex; }
-        .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
-        .overlay-title { font-size: var(--fs-title); }
-        .fid-container { width: 100%; max-width: 40rem; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; padding-bottom: 8px; margin: 0 auto; flex: 1 1 auto; min-height: 0; }
-        /* The result list is PAGINATED (app convention — every list pages):
-           4 matches per page plus the pager always fit under the chrome. */
-        /* The result list must NEVER be the column's crumple zone. It used to
-           be the only elastic child (flex: 1 1 auto; min-height: 0), so an
-           over-full column crushed it to nothing while its table kept painting
-           outside its box — superimposed on the consultation block below. It
-           now keeps its natural height and scrolls inside itself; the overlay
-           scrolls for the rest. */
-        .fid-results-wrap { flex: 0 0 auto; max-height: 100%; overflow: hidden; }
-        /* Compact keys on this screen so the alpha/email keyboards fit the
-           600px terminal together with the tabs and the action row. */
-        .fid-container form, .fid-modes { max-width: 31.25rem; width: 100%; margin: 0 auto; }
-        .fid-modes { display: flex; gap: 10px; justify-content: center; }
-        .fid-toggle { flex: 1; padding: 12px; background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-muted); font-size: var(--fs-btn); font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; transition: 0.2s; text-transform: uppercase; }
-        .fid-toggle.active { background: var(--primary); border-color: white; color: white; }
-        .fid-display { width: 100%; font-size: var(--fs-field-num); text-align: center; color: var(--primary); font-weight: bold; background: var(--bg-page); border: 3px solid var(--primary); border-radius: 8px; padding: 10px; transition: border-color 0.3s, color 0.3s; }
-        .fid-keyboard-area { min-height: 0; display: flex; flex-direction: column; }
-        .fid-actions { display: flex; gap: 15px; justify-content: center; margin-top: 2px; }
+        body { background-color: var(--bg-page); color: var(--text-main); margin: 0; }
+        .pos-terminal { grid-template-rows: 3.25rem auto minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+        .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+        .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+        /* The card the sale carries, and the outcome of the last search. */
+        .fid-status { display: flex; flex-direction: column; gap: 6px; padding: 0 20px 8px; }
+        .fid-card { display: flex; align-items: center; justify-content: center; gap: 10px 18px; flex-wrap: wrap; padding: 8px 14px; border-radius: 8px; border: 2px solid var(--success); font-size: var(--fs-body); }
+        .fid-card .label { color: var(--success); font-weight: bold; }
+        .fid-card b { font-weight: bold; }
+        .fid-alert { border-radius: 8px; padding: 8px 14px; border: 2px solid var(--warning); color: var(--warning); font-weight: bold; text-align: center; font-size: var(--fs-body); }
+        .work { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; padding: 0 20px; min-height: 0; }
+        .column { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+        .fid-modes { display: flex; gap: 6px; }
+        .fid-toggle { flex: 1; min-width: 0; padding: 8px 4px; background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-muted); font-size: var(--fs-btn-sm); font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; text-transform: uppercase; line-height: 1.15; }
+        .fid-toggle.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .field-label { font-size: var(--fs-row-sub); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .fid-display { font-size: var(--fs-field); color: var(--primary); font-weight: bold; background: var(--bg-page); border: 2px solid var(--primary); border-radius: 4px; padding: 6px 12px; overflow: hidden; }
+        #fidForm { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+        #fidHint { color: var(--text-muted); font-size: var(--fs-row-sub); min-height: 1.2em; }
+        .fid-keyboard-area { display: flex; flex-direction: column; }
+        /* The right column: the holders found, or the card's consultation. */
+        .side { background: var(--bg-inset); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+        .side-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: var(--fs-body); padding: 10px; }
+        .match { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-row); }
+        .match-name { font-weight: bold; font-size: var(--fs-row); }
+        .match-sub { color: var(--text-muted); font-size: var(--fs-row-sub); overflow-wrap: anywhere; }
+        .match-status { font-size: var(--fs-row-sub); font-weight: bold; }
+        .match-status.ACTIVE { color: var(--success); }
+        .match-status.PENDING_ACTIVATION { color: var(--warning); }
+        .match-status.RESILIATED { color: var(--danger); }
+        .match form { margin: 0; }
+        .match .refused { color: var(--danger); font-weight: bold; font-size: var(--fs-row-sub); text-align: right; }
+        .pots { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-row-sub); }
+        .pots .muted { color: var(--text-muted); }
+        .moves { width: 100%; border-collapse: collapse; font-size: var(--fs-row-sub); }
+        .moves th { color: var(--text-muted); text-align: left; font-weight: bold; padding: 3px 4px; }
+        .moves td { border-top: 1px solid var(--border-color); padding: 4px; }
+        .moves .amount { text-align: right; white-space: nowrap; }
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+        .bottom-nav .btn { min-width: 12rem; }
+        .bottom-nav .end { margin-left: auto; }
+        /* In the sale screen's modal the box takes the height its content needs
+           — a card number needs a numpad, an e-mail a full keyboard — instead of
+           the height of the tallest mode (see fidFit). */
+        html.in-modal .pos-terminal { height: auto; min-height: 0; grid-template-rows: 3.25rem auto auto 4.5rem; }
+        html.in-modal body { min-height: 100vh; }
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/fidelity /action/fidelity-lookup /action/fidelity-select" data-modal-size="64rem auto"
+      data-card="{#if state.fidelity.active}{state.fidelity.label ?: ''}{/if}">
 
-<div class="pos-terminal">
-    <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('common.store')}</span>
-        <span id="opInfo">{inject:i18n.get('menu.caisse')} {inject:terminal.id} | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
-        <span id="clock">--:--:--</span>
-    </div>
-    <div class="main-area"></div>
-    <div class="bottom-nav"></div>
+<div class="pos-terminal" id="fidScreen">
+    <div class="top-bar"><span class="title">{inject:i18n.get('fidelity.programmeFidelite')}</span></div>
 
-    <div class="overlay active" id="fidScreen">
-        <div class="overlay-panel">
-        <div class="overlay-header">
-            <div class="overlay-title">{inject:i18n.get('fidelity.programmeFidelite')}</div>
-            
+    <div class="fid-status">
+        {#if state.fidelity.active}
+        <div class="fid-card" id="fidAttached">
+            <span class="label">{inject:i18n.get('fidelity.carteAttachee')}{state.fidelity.label}</span>
+            {#if state.fidelity.holderLastName}<span>{state.fidelity.holderLastName} {state.fidelity.holderFirstName ?: ''}</span>{/if}
+            {#if consultation.hasAccount}
+            <span>{inject:i18n.get('fidelity.statutNbsp')} <b>{consultation.status}</b></span>
+            <span>{inject:i18n.get('fidelity.soldeNbsp')} <b>{consultation.balanceFormatted}</b></span>
+            <span>{inject:i18n.get('fidelity.disponibleNbsp')} <b style="color: var(--accent);">{consultation.availableFormatted}</b></span>
+            {/if}
         </div>
+        {/if}
+        {#if lookup && lookup.message}
+        <div class="fid-alert" role="alert">{lookup.message}</div>
+        {/if}
+    </div>
 
-        <div class="fid-container">
-            <!-- The status/consultation message lives ABOVE the form, always
-                 visible without scrolling — it was drowned below the fold. -->
-            {#if consultation.message}
-            <div style="text-align:center; color: var(--text-muted); font-weight: bold;">{consultation.message}</div>
-            {/if}
-            {#if lookup && lookup.message}
-            <div style="text-align:center; color: var(--warning, var(--accent)); font-weight: bold;">{lookup.message}</div>
-            {/if}
-
+    <div class="work">
+        <div class="column">
             <div class="fid-modes">
                 <button class="fid-toggle active" id="btnCard" onclick="setFidMode('card', this)">{inject:i18n.get('fidelity.nCarte')}</button>
                 <button class="fid-toggle" id="btnTel" onclick="setFidMode('tel', this)">{inject:i18n.get('fidelity.telephone')}</button>
@@ -86,169 +104,153 @@
                 <button class="fid-toggle" id="btnVille" onclick="setFidMode('ville', this)">{inject:i18n.get('fidelity.ville')}</button>
             </div>
 
-            <!-- Card mode ATTACHES directly (/action/fidelity) ; the identity
-                 modes SEARCH the imfid holder directory
-                 (/action/fidelity-lookup, addendum v1.1 — phone and e-mail
-                 EXACT after imfid's normalization, name and first name by
-                 PREFIX: "dur" finds Durand). LC-03-04-17 : the name mode
-                 carries TWO fields — the last name searches as itself (a
-                 compound name never splits again), the first name is its own
-                 criterion, and the server refuses a search missing either. -->
+            {! LC-03-04-17 : the name mode carries TWO fields — the last name
+             ! searches as itself, the first name is its own criterion, and the
+             ! server refuses a search missing either. !}
             <form action="/action/fidelity" method="POST" id="fidForm">
                 <input type="hidden" name="card" id="fidHiddenInput" value="">
                 <input type="hidden" name="mode" id="fidMode" value="card">
                 <input type="hidden" name="firstName" id="fidHiddenFirstName" value="">
-                <div id="fidNameLabel" style="display:none; text-align:center; color: var(--text-muted); font-size: var(--fs-label); margin-top:8px;">{inject:i18n.get('fidelity.nom')}</div>
+                <div id="fidNameLabel" class="field-label" style="display:none;">{inject:i18n.get('fidelity.nom')}</div>
                 <div id="fidDisplay" class="fid-display pad-display"></div>
-                <div id="fidFirstNameRow" style="display:none; margin-top:8px;">
-                    <div style="text-align:center; color: var(--text-muted); font-size: var(--fs-label);">{inject:i18n.get('fidelity.prenom')}</div>
-                    <div id="fidDisplayFirstName" class="fid-display pad-display" onclick="showKeyboardFirstName()" style="margin-top:4px;"></div>
+                <div id="fidFirstNameRow" style="display:none;">
+                    <div class="field-label">{inject:i18n.get('fidelity.prenom')}</div>
+                    <div id="fidDisplayFirstName" class="fid-display pad-display" onclick="showKeyboardFirstName()"></div>
                 </div>
-                <div id="fidHint" style="text-align:center; color: var(--text-muted); font-size: var(--fs-label); min-height: 1.2em;"></div>
+                <div id="fidHint"></div>
                 <span id="fidTexts" hidden data-validate="{inject:i18n.get('common.validate')}" data-search="{inject:i18n.get('search.rechercher')}" data-card="{inject:i18n.get('fidelity.indiceCarte')}" data-tel="{inject:i18n.get('fidelity.indiceTelephone')}" data-email="{inject:i18n.get('fidelity.indiceEmail')}" data-name="{inject:i18n.get('fidelity.indiceNom')}" data-ville="{inject:i18n.get('fidelity.indiceVille')}"></span>
-
                 <div class="fid-keyboard-area pos-kb-compact" id="fidKeyboardArea"></div>
-
-                <div class="fid-actions">
-                    <a href="/" class="btn btn-muted" style="width:11.25rem;">{inject:i18n.get('common.back')}</a>
-                    <button type="submit" class="btn btn-primary" style="width:11.25rem;" id="fidSubmit">{inject:i18n.get('common.validate')}</button>
-                    <a href="/" class="btn btn-muted" style="width:11.25rem;">{inject:i18n.get('fidelity.passer')}</a>
-                </div>
             </form>
+        </div>
 
+        <div class="side" id="fidSide">
             {#if lookup && lookup.matches}
-            <!-- Holder matches (addendum §4): the operator confirms the
-                 identity VERBALLY, never reads the list to the client. A
-                 RESILIATED card is not selectable from the register. While
-                 the list is shown the keyboard is FOLDED (tap the input or a
-                 mode tab to reopen it) so the chrome plus the list fit the
-                 600px screen; a long list is PAGINATED like every other
-                 list of the register (4 matches per page). -->
-            <div class="fid-results-wrap" id="fidResultsWrap">
-            <table id="fidResults" style="width:100%; border-collapse:collapse; font-size:var(--fs-body);">
-                <tr style="color: var(--text-muted); text-align:left;">
-                    <th style="padding:4px 6px;">{inject:i18n.get('fidelity.carte')}</th>
-                    <th style="padding:4px 6px;">{inject:i18n.get('fidelity.porteur')}</th>
-                    <th style="padding:4px 6px;">TÉLÉPHONE</th>
-                    <th style="padding:4px 6px;">{inject:i18n.get('fidelity.statut')}</th>
-                    <th style="padding:4px 6px;"></th>
-                </tr>
+            {! Holder matches (addendum §4): the operator confirms the identity
+             ! VERBALLY, never reads the list to the client. A RESILIATED card is
+             ! not selectable from the register. Paged like every list. !}
+            <div id="fidResults">
                 {#for m in state.fidelity.visibleMatches}
-                <tr style="border-top:1px solid var(--border-color);">
-                    <td style="padding:6px;">{m.card}</td>
-                    <td style="padding:6px;">{m.lastName} {m.firstName}
-                        {#if m.email}<div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{m.email}</div>{/if}
-                    </td>
-                    <td style="padding:6px; white-space:nowrap;">{m.phone ?: '—'}</td>
-                    <td style="padding:6px;">{#if m.status == 'ACTIVE'}ACTIVE{#else if m.status == 'PENDING_ACTIVATION'}EN ATTENTE D'ACTIVATION{#else}RÉSILIÉE{/if}</td>
-                    <td style="padding:6px; text-align:right;">
-                        {#if m.status != 'RESILIATED'}
-                        <form action="/action/fidelity-select" method="POST" style="display:inline;">
-                            <input type="hidden" name="card" value="{m.card}">
-                            <input type="hidden" name="lastName" value="{m.lastName}">
-                            <input type="hidden" name="firstName" value="{m.firstName}">
-                            <input type="hidden" name="status" value="{m.status}">
-                            <input type="hidden" name="email" value="{m.email ?: ''}">
-                            <button type="submit" class="btn btn-sm btn-primary">{inject:i18n.get('fidelity.selectionner')}</button>
-                        </form>
-                        {#else}
-                        <span style="color: var(--danger); font-weight:bold;">{inject:i18n.get('fidelity.accueil')}</span>
-                        {/if}
-                    </td>
-                </tr>
+                <div class="match">
+                    <div>
+                        <div class="match-name">{m.lastName} {m.firstName}
+                            <span class="match-status {m.status}">{#if m.status == 'ACTIVE'}{inject:i18n.get('op.actif')}{#else if m.status == 'PENDING_ACTIVATION'}{inject:i18n.get('op.attenteActivation')}{#else}{inject:i18n.get('op.resilie')}{/if}</span>
+                        </div>
+                        <div class="match-sub">{m.card}{#if m.phone} · {m.phone}{/if}{#if m.email} · {m.email}{/if}</div>
+                    </div>
+                    {#if m.status != 'RESILIATED'}
+                    <form action="/action/fidelity-select" method="POST" class="fid-select">
+                        <input type="hidden" name="card" value="{m.card}">
+                        <input type="hidden" name="lastName" value="{m.lastName}">
+                        <input type="hidden" name="firstName" value="{m.firstName}">
+                        <input type="hidden" name="status" value="{m.status}">
+                        <input type="hidden" name="email" value="{m.email ?: ''}">
+                        <button type="submit" class="btn btn-sm btn-primary">{inject:i18n.get('fidelity.selectionner')}</button>
+                    </form>
+                    {#else}
+                    <span class="refused">{inject:i18n.get('fidelity.accueil')}</span>
+                    {/if}
+                </div>
                 {/for}
-            </table>
+            </div>
             {#if state.fidelity.lookupPageCount > 1}
             <div class="pos-pager">
                 {#if state.fidelity.hasLookupPrev}
                 <a href="/fidelity/page/{state.fidelity.lastLookupPage - 1}" class="btn btn-sm btn-muted">{inject:i18n.get('fidelity.precedent')}</a>
                 {#else}
-                <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
+                <span class="btn btn-sm btn-muted off">{inject:i18n.get('fidelity.precedent')}</span>
                 {/if}
-                <span class="pos-pager-info">PAGE {state.fidelity.lookupPageDisplay} / {state.fidelity.lookupPageCount}</span>
+                <span class="pos-pager-info">{state.fidelity.lookupPageDisplay} / {state.fidelity.lookupPageCount}</span>
                 {#if state.fidelity.hasLookupNext}
                 <a href="/fidelity/page/{state.fidelity.lastLookupPage + 1}" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>
                 {#else}
-                <span class="btn btn-sm btn-muted off">SUIVANT</span>
+                <span class="btn btn-sm btn-muted off">{inject:i18n.get('lock.next')}</span>
                 {/if}
             </div>
             {/if}
+            {#else if consultation.hasAccount}
+            {! In-store consultation (imfid spec §4): pots and last movements. !}
+            {#if consultation.pots}
+            <div class="pots" id="fidPots">
+                <span class="muted">{inject:i18n.get('fidelity.soldesCagnottes')}</span>
+                {#for pot in consultation.pots}<span>{pot.displayLabel}&nbsp;: <b>{pot.balanceFormatted}</b></span>{/for}
             </div>
             {/if}
+            {#if consultation.rows}
+            <table class="moves">
+                <tr><th>{inject:i18n.get('fidelity.date')}</th><th>{inject:i18n.get('fidelity.operation')}</th><th class="amount">{inject:i18n.get('fidelity.montant')}</th></tr>
+                {#for row in consultation.rows}{#if row_index < 8}
+                <tr><td>{row.0}</td><td>{row.1}</td><td class="amount">{row.2}</td></tr>
+                {/if}{/for}
+            </table>
+            {/if}
+            {#else}
+            <div class="side-empty" id="fidConsultationMessage">{consultation.message ?: ''}</div>
+            {/if}
+        </div>
+    </div>
 
-            <!-- In-store consultation (imfid spec §4): balance and history of
-                 the attached card; degraded imfid = a message, never an error. -->
-            <div style="margin-top: 18px; border-top: 1px solid var(--border-strong); padding-top: 12px;">
-                {#if consultation.hasAccount}
-                <div style="display:flex; gap:18px; justify-content:center; font-size:var(--fs-body); margin-bottom:10px;">
-                    <div>{inject:i18n.get('fidelity.statutNbsp')} <b>{consultation.status}</b></div>
-                    <div>{inject:i18n.get('fidelity.soldeNbsp')} <b>{consultation.balanceFormatted}</b></div>
-                    <div>{inject:i18n.get('fidelity.disponibleNbsp')} <b style="color: var(--accent);">{consultation.availableFormatted}</b></div>
-                </div>
-                {! BO-10-02-33: the balance of each pot, computed by the programme
-                 ! with the current transaction (advantages earned, loyalty payment). !}
-                {#if consultation.pots}
-                <div id="fidPots" style="display:flex; flex-wrap:wrap; gap:6px 18px; justify-content:center; font-size:var(--fs-body); margin-bottom:10px;">
-                    <span style="color: var(--text-muted);">{inject:i18n.get('fidelity.soldesCagnottes')}</span>
-                    {#for pot in consultation.pots}
-                    <span>{pot.displayLabel}&nbsp;: <b>{pot.balanceFormatted}</b></span>
-                    {/for}
-                </div>
-                {/if}
-                {#if consultation.rows}
-                <table style="width:100%; border-collapse:collapse; font-size:var(--fs-body);">
-                    <tr style="color: var(--text-muted); text-align:left;">
-                        <th style="padding:4px 6px;">{inject:i18n.get('fidelity.date')}</th>
-                        <th style="padding:4px 6px;">{inject:i18n.get('fidelity.operation')}</th>
-                        <th style="padding:4px 6px; text-align:right;">{inject:i18n.get('fidelity.montant')}</th>
-                    </tr>
-                    {#for row in consultation.rows}
-                    <tr style="border-top:1px solid var(--border-color);">
-                        <td style="padding:4px 6px;">{row.0}</td>
-                        <td style="padding:4px 6px;">{row.1}</td>
-                        <td style="padding:4px 6px; text-align:right;">{row.2}</td>
-                    </tr>
-                    {/for}
-                </table>
-                {/if}
-                {/if}
-            </div>
-        </div>
-        </div>
+    <div class="bottom-nav">
+        <button type="submit" form="fidForm" class="btn btn-primary" id="fidSubmit">{inject:i18n.get('common.validate')}</button>
+        <a href="/" class="btn btn-muted end">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 
-<!-- Search echo: after a lookup POST the page must come back in the SAME
-     mode with the typed criteria still displayed (Qute HTML-escapes the
-     attribute values, so free-text names are safe here). LC-03-04-17 : the
-     first name is echoed on its own, so a refused search shows both halves of
-     what was typed. -->
+<!-- Search echo: after a lookup the screen comes back in the SAME mode with
+     the typed criteria still displayed (Qute HTML-escapes the attribute values,
+     so free-text names are safe here). -->
 <div id="fidInit" data-mode="{searchMode}" data-value="{searchValue}" data-firstname="{searchFirstName}" style="display:none;"></div>
 
-    {#include keyboard-lib /}
+{#include keyboard-lib /}
 <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    // True when the screen is shown in the sale screen's modal.
+    var fidInModal = window.top !== window.self;
 
-    // The keyboard of the current mode and the two fields the name mode
-    // carries. The pad retargets when the operator taps the other field —
-    // one keyboard, two inputs, never two pads on the 600px screen.
+    // The register scales its type with the size of the window: in the modal
+    // that window is the box itself, so the box would shrink its own type and
+    // shrink again at every fit. The modal reads at the size of the sale screen
+    // it sits on.
+    if (fidInModal) {
+        try { document.documentElement.style.fontSize = window.top.getComputedStyle(window.top.document.documentElement).fontSize; }
+        catch (e) { /* another origin: keep the page's own scale */ }
+    }
+
+    // Sizes the modal box to what the screen shows now (the mode's keyboard,
+    // the holders found, the card's consultation), within the terminal.
+    function fidFit() {
+        if (!fidInModal || !window.frameElement) { return; }
+        var frame = window.frameElement;
+        // The box's own border counts in its height.
+        var height = document.getElementById('fidScreen').scrollHeight + (frame.offsetHeight - frame.clientHeight);
+        frame.style.height = 'min(92vh, ' + height + 'px)';
+    }
+    // The page asks the sale screen for its width only (data-modal-size
+    // "64rem auto": an "auto" height is left alone there); the height is set
+    // here, once the page has loaded and at every change of mode.
+    window.addEventListener('load', function () { setTimeout(fidFit, 0); });
+    // The box is given its width by the sale screen: the content then wraps
+    // differently, and the height follows.
+    window.addEventListener('resize', fidFit);
+
+    // Goes back to the sale: the whole register when in the modal.
+    function fidBackToSale() {
+        if (fidInModal) { window.top.location.href = '/'; } else { window.location.href = '/'; }
+    }
+
+    // The keyboard of the current mode and the field it writes into. The name
+    // mode carries two fields: the pad retargets when the operator taps the
+    // other one — one keyboard, two inputs.
     var fidKb = { kb: 'numpad', im: 'integer', max: 15, upper: false };
     var fidTarget = { displayId: 'fidDisplay', hiddenId: 'fidHiddenInput' };
 
-    // Unfolds the keyboard and folds the result list away — the two never
-    // share the 600px screen (the operator is either typing or picking).
+    // Gives the pad back to the main field.
     function showKeyboard() {
-        document.getElementById('fidKeyboardArea').style.display = 'flex';
-        var results = document.getElementById('fidResultsWrap');
-        if (results) results.style.display = 'none';
         fidTarget = { displayId: 'fidDisplay', hiddenId: 'fidHiddenInput' };
         fidMountInput();
     }
 
-    // LC-03-04-17 : the FIRST-NAME field of the name mode owns the pad while
-    // it is tapped, so the two criteria are typed one after the other.
+    // LC-03-04-17 : the FIRST-NAME field of the name mode owns the pad while it
+    // is tapped, so the two criteria are typed one after the other.
     function showKeyboardFirstName() {
-        showKeyboard();
         fidTarget = { displayId: 'fidDisplayFirstName', hiddenId: 'fidHiddenFirstName' };
         fidMountInput();
     }
@@ -272,11 +274,13 @@
     function setFidMode(mode, btn, initialValue, initialFirstName) {
         document.querySelectorAll('.fid-toggle').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        showKeyboard();
 
-        // Card mode attaches; identity modes search the holder directory.
+        // Card mode attaches (then the sale); identity modes search the holder
+        // directory (then this screen). In the modal, the attachment runs in the
+        // whole register and the search stays in the modal.
         var form = document.getElementById('fidForm');
         form.action = (mode === 'card') ? '/action/fidelity' : '/action/fidelity-lookup';
+        if (fidInModal) { form.target = (mode === 'card') ? '_top' : ''; }
         document.getElementById('fidHiddenInput').name = (mode === 'card') ? 'card' : 'value';
         document.getElementById('fidMode').value = mode;
         // The words of the modes come translated from the bundles (fr/nl/pt).
@@ -290,39 +294,56 @@
         if (mode === 'tel')   { fidKb.kb = 'numpad'; fidKb.im = 'text'; fidKb.max = 20; }
         if (mode === 'ville') { fidKb.kb = 'alpha'; fidKb.im = 'text'; fidKb.max = 40; }
 
-        // LC-03-04-17 : the second field exists in the NAME mode only — the
-        // other modes never send it and never show it.
-        var firstNameRow = document.getElementById('fidFirstNameRow');
-        var nameLabel = document.getElementById('fidNameLabel');
-        firstNameRow.style.display = (mode === 'name') ? 'block' : 'none';
-        nameLabel.style.display = (mode === 'name') ? 'block' : 'none';
+        // LC-03-04-17 : the second field exists in the NAME mode only.
+        document.getElementById('fidFirstNameRow').style.display = (mode === 'name') ? 'block' : 'none';
+        document.getElementById('fidNameLabel').style.display = (mode === 'name') ? 'block' : 'none';
+        document.getElementById('fidHiddenInput').value = initialValue || '';
         document.getElementById('fidHiddenFirstName').value = (mode === 'name' ? (initialFirstName || '') : '');
-        fidTarget = { displayId: 'fidDisplay', hiddenId: 'fidHiddenInput' };
-        fidMountInput();
+        document.getElementById('fidDisplayFirstName').textContent = (mode === 'name' ? (initialFirstName || '') : '');
+        showKeyboard();
+        fidFit();
     }
 
-    // Reopen the keyboard when the operator taps the input field while a
-    // result list is displayed (the list folds away to make room).
     document.getElementById('fidDisplay').addEventListener('click', showKeyboard);
 
-    // Restore the mode and both criteria echoed by the server (card/empty on
-    // a plain GET) instead of always resetting to card mode. When the server
-    // sent a result list, FOLD the keyboard so the chrome plus the list fit
-    // the 600px screen — never scroll the page chrome away.
+    // SÉLECTIONNER attaches the holder and goes back to the sale; a refusal
+    // (resiliated card…) comes back to this screen, which states it.
+    document.querySelectorAll('form.fid-select').forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            fetch(form.action, { method: 'POST', body: new URLSearchParams(new FormData(form)) })
+                .then(function (response) {
+                    if (new URL(response.url).pathname === '/fidelity') { window.location.href = '/fidelity'; }
+                    else { fidBackToSale(); }
+                })
+                .catch(function () { window.location.href = '/fidelity'; });
+        });
+    });
+
+    // A card scanned while the screen is open is attached by the scan chain:
+    // back to the sale, which shows it (or asks whether to replace the card).
+    (function watchScannedCard() {
+        var shown = document.body.getAttribute('data-card') || '';
+        setInterval(function () {
+            fetch('/fidelity/status', { cache: 'no-store' })
+                .then(function (response) { return response.json(); })
+                .then(function (status) {
+                    if (status.replacementPending || (status.active && status.label !== shown)) { fidBackToSale(); }
+                })
+                .catch(function () { /* a missed round is not a failure */ });
+        }, 1000);
+    })();
+
+    // Restore the mode and both criteria echoed by the server (card/empty on a
+    // plain GET).
     (function() {
         var init = document.getElementById('fidInit');
         var mode = init.dataset.mode || 'card';
         var btns = { card: 'btnCard', tel: 'btnTel', email: 'btnEmail', name: 'btnName', ville: 'btnVille' };
         if (!btns[mode]) mode = 'card';
         setFidMode(mode, document.getElementById(btns[mode]), init.dataset.value || '', init.dataset.firstname || '');
-        var results = document.getElementById('fidResultsWrap');
-        if (results) {
-            document.getElementById('fidKeyboardArea').style.display = 'none';
-            results.style.display = 'block';
-        }
     })();
 </script>
-
+{#include screen-embed /}
 </body>
 </html>
-

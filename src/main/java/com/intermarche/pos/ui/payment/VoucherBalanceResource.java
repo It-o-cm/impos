@@ -145,6 +145,10 @@ public class VoucherBalanceResource {
                     ? "ACTIVE" : "ÉPUISÉ";
             view.balanceFormatted = String.format("%.2f",
                     instrument.balance.setScale(2, RoundingMode.HALF_UP)).replace('.', ',');
+            // The customer also asks until when the balance can be spent: a credit
+            // note carries its end of validity, a gift card may carry none.
+            view.validUntilFormatted = instrument.validUntil == null ? null
+                    : instrument.validUntil.toLocalDate().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         }
         return view;
     }
@@ -180,6 +184,8 @@ public class VoucherBalanceResource {
         public String statusLabel;
         /** The balance, French format. */
         public String balanceFormatted;
+        /** The end of validity, dd/MM/yyyy, or null when the instrument carries none. */
+        public String validUntilFormatted;
         /** Why the consultation was refused (BO-03-02-37), or null. */
         public String refusal;
     }

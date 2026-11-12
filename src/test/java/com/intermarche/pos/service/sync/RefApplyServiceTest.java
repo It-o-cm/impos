@@ -4047,6 +4047,7 @@ class RefApplyServiceTest {
         fresh.cashierScreen = "LARGE";
         fresh.customerScreen = "TOTAL_ONLY";
         fresh.ticketModel = "COMPACT";
+        fresh.layout = "{\"tabs\":[]}";
         RefPayloads.CashMenuDto known = new RefPayloads.CashMenuDto();
         known.code = "LIGNE";
         known.label = "Ligne de caisse";
@@ -4080,6 +4081,7 @@ class RefApplyServiceTest {
             assertEquals("LARGE", inserted.cashierScreen);
             assertEquals("TOTAL_ONLY", inserted.customerScreen);
             assertEquals("COMPACT", inserted.ticketModel);
+            assertEquals("{\"tabs\":[]}", inserted.layout);
             verify(inserted).persist();
             assertEquals("Ligne de caisse", existing.label);
             verify(existing).persist();

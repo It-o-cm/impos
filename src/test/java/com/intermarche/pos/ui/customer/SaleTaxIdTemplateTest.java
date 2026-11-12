@@ -24,7 +24,7 @@ class SaleTaxIdTemplateTest {
         var engine = Engine.builder().addDefaults().addValueResolver(new ReflectionValueResolver())
                 .addResultMapper(new io.quarkus.qute.HtmlEscaper(List.of("text/html")))
                 .addNamespaceResolver(NamespaceResolver.builder("inject").resolve(context -> messages).build()).build();
-        for (String include : List.of("theme", "keyboard-lib")) {
+        for (String include : List.of("theme", "keyboard-lib", "screen-embed")) {
             engine.putTemplate(include, engine.parse(Files.readString(Path.of("src/main/resources/templates/" + include + ".html"))));
         }
         var template = engine.parse(Files.readString(Path.of("src/main/resources/templates/sale-tax-id.html")),
@@ -33,7 +33,8 @@ class SaleTaxIdTemplateTest {
                 .data("posKeyboardLayout", "QWERTY")
                 .data("next", "pay").data("scans", 3L).data("scanHint", true).render();
         assertTrue(html.contains("name=\"taxId\" value=\"999999990\""));
-        assertTrue(html.contains("initialValue:document.getElementById('taxIdHidden').value"));
+        assertTrue(html.contains("initialValue: document.getElementById('taxIdHidden').value"));
+        assertTrue(html.contains("keyboardType: lettersShown ? 'searchAlpha' : 'numpad'"));
         assertTrue(html.contains("action=\"/sale-tax-id\""));
         assertTrue(html.contains("layout: 'QWERTY',"));
         assertTrue(html.contains("name=\"next\" value=\"pay\""));

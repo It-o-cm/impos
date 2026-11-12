@@ -430,6 +430,23 @@ class AuthResourceTest {
     }
 
     /**
+     * {@code closePage()} during a sale (EXP-11) does not draw the closing page:
+     * the refusal is stated in the sale screen's message modal and nothing closes.
+     */
+    @Test
+    void closePageDuringASaleIsRefusedInTheSaleScreenModal() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle(any()))
+                .thenReturn(SessionCloseService.Obstacle.IN_TRANSACTION);
+        Response response = resource.closePage();
+        assertEquals("/", response.getLocation().toString());
+        assertEquals(resource.i18n.get("close.venteCoursImpossibleFermer"), resource.state.modalMessage);
+        verify(resource.sessionCloseService, never()).close(any(), any());
+        verify(resource.state).touch();
+    }
+
+    /**
      * {@code closePage()} with a password demanded and NO badge presented
      * renders the closing page instead of closing.
      */

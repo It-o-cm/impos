@@ -91,6 +91,13 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
     @ConfigProperty(name = "pos.scan.embedded-weight-prefixes", defaultValue = "23,25,29")
     List<String> weightPrefixes;
 
+    /**
+     * The deployed range of loyalty cards (BO-03-06-54), the fallback of the
+     * administered one: a code of that range is never a weighed article.
+     */
+    @ConfigProperty(name = "scan.pattern.fidelity", defaultValue = "^299\\d{10}$")
+    String fidelityPattern;
+
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
     @ConfigProperty(name = "pos.vat.default-rate", defaultValue = "0.20")
     BigDecimal defaultVatRate;
@@ -130,6 +137,11 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         // is DepositVoucherScanHandler's, which sits at the same priority: the
         // fallback leaves it alone whatever order the container hands over.
         if (range == null && isDepositVoucher(code)) return;
+        // BO-03-06-54: a loyalty card (299... by default) wears the same 29
+        // weight shape. It is FidelityScanHandler's, at the same priority: the
+        // fallback leaves the card range alone whatever order the container
+        // hands over, or the card would read as an unknown weighed article.
+        if (range == null && isFidelityCard(code)) return;
 
         boolean priceEmbedded;
         String articleCode;
@@ -391,6 +403,20 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether the code belongs to the range of loyalty cards this register
+     * recognises (BO-03-06-54): the administered pattern wins, the deployed one
+     * is the fallback — the same resolution as the loyalty-card handler.
+     *
+     * @param code the scanned code
+     * @return true when the code is a loyalty card, never a weighed article
+     */
+    private boolean isFidelityCard(String code) {
+        String administered = posSettingsService == null ? null : posSettingsService.fidelityCardPattern();
+        String pattern = administered != null && !administered.isBlank() ? administered.trim() : fidelityPattern;
+        return pattern != null && !pattern.isBlank() && code.matches(pattern);
     }
 
     /**

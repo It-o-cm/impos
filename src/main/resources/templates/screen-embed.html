@@ -1,0 +1,177 @@
+{!
+ ! A SCREEN SHOWN IN A MODAL. The sale screen opens some screens (search, article
+ ! info, manual weight, cancelling an article) in a modal laid over the sale
+ ! instead of leaving it. The screen keeps its own page and logic: this include,
+ ! placed at the end of its body, makes it look and behave like a modal of the
+ ! register when it is shown in that frame.
+ !
+ ! - LOOK: the screen's own chrome (store name, clock, the dark bars) gives way
+ !   to the register's modal look — the panel colour, a centred title in the
+ !   primary colour, no band above or below. The page asks for its modal size
+ !   with data-modal-size on its body ("width height", CSS lengths).
+ ! - BEHAVIOUR: its own pages stay in the modal (the paths listed in the body's
+ !   data-embed-stay attribute, and anything below them); RETOUR to the sale
+ !   ("/") closes the modal; anything else — adding the article, validating the
+ !   weight, cancelling a line — is carried out by the whole register page, which
+ !   the server then brings back to the sale.
+ ! Opened on its own (not in a frame), the screen looks and behaves as before.
+!}
+<style>
+  html.in-modal, html.in-modal body { background: var(--bg-panel); }
+  html.in-modal .pos-terminal { background: var(--bg-panel); border: none; box-shadow: none; }
+  html.in-modal .top-bar { background: transparent !important; border-bottom: none !important; justify-content: center !important; }
+  html.in-modal .top-bar .store-name:not(.title), html.in-modal .top-bar #clock { display: none !important; }
+  html.in-modal .top-bar > span, html.in-modal .top-bar .title { color: var(--primary) !important; font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+  html.in-modal .bottom-nav { background: transparent !important; border-top: none !important; }
+  /* ---- THE MODAL KIT: one look for every screen shown over the sale ----
+     A header band carrying the screen's name, a footer band carrying its keys,
+     and between them deep field wells, tiles that fill when chosen, banners that
+     say what happened. Only the look is set here — every screen keeps its own
+     layout — so the same rules dress all of them, in both themes. */
+  html.in-modal { --mk-radius: 10px; --mk-ring: color-mix(in srgb, var(--primary) 32%, transparent); }
+  html.in-modal body { -webkit-font-smoothing: antialiased; }
+  /* Header band: the name of the screen, left-aligned after a marker. */
+  html.in-modal .top-bar, html.in-modal .mk-title {
+    background: var(--bg-inset) !important; border-bottom: 1px solid var(--border-color) !important;
+    justify-content: flex-start !important; padding: 0 24px !important; gap: 0 !important; }
+  html.in-modal .top-bar::before, html.in-modal .mk-title::before {
+    content: ''; flex-shrink: 0; width: 5px; height: 1.5rem; margin-right: 14px; border-radius: 3px; background: var(--primary); }
+  html.in-modal .top-bar > span, html.in-modal .top-bar .title, html.in-modal .mk-title .title {
+    color: var(--text-main) !important; font-size: 1.2rem !important; font-weight: 700 !important;
+    letter-spacing: 0.04em !important; text-align: left !important; }
+  /* Footer band: the gesture's keys on the left, RETOUR on the right. */
+  html.in-modal .bottom-nav, html.in-modal .mk-actions {
+    background: var(--bg-inset) !important; border-top: 1px solid var(--border-color) !important;
+    padding: 0 24px !important; gap: 12px !important; }
+  html.in-modal .btn { border-radius: var(--mk-radius); box-shadow: none; letter-spacing: 0.03em; transition: filter 0.1s; }
+  html.in-modal .btn:active { transform: none; filter: brightness(0.88); }
+  html.in-modal .bottom-nav .btn, html.in-modal .mk-actions .btn {
+    flex: 0 0 auto; height: 3.25rem; min-width: 12.5rem; max-width: none; padding: 0 22px;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; }
+  html.in-modal a.btn[href="/"], html.in-modal .btn.mk-back {
+    background: transparent !important; color: var(--text-main) !important; border: 1px solid var(--border-strong); }
+  html.in-modal .bottom-nav > a.btn[href="/"], html.in-modal .mk-actions > a.btn[href="/"], html.in-modal .btn.mk-back { margin-left: auto; }
+  html.in-modal .btn:disabled, html.in-modal .btn[disabled] {
+    background: var(--bg-row) !important; color: var(--text-muted) !important; opacity: 0.6; }
+  /* Field wells: what the operator types sits deep in the panel; the field
+     the pad writes into is ringed. */
+  html.in-modal .pad-display, html.in-modal .mk-display, html.in-modal .entry-display, html.in-modal .price-input-display {
+    background: var(--bg-page) !important; border: 1px solid var(--border-strong) !important;
+    border-radius: var(--mk-radius) !important; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25); }
+  html.in-modal .pad-display.active, html.in-modal .mk-display.mk-active, html.in-modal .entry-display.active,
+  html.in-modal .pad-display.mk-active, html.in-modal .display.active {
+    border-color: var(--primary) !important; box-shadow: 0 0 0 3px var(--mk-ring) !important; }
+  /* Section labels: quiet, never shouted. */
+  html.in-modal .mk-label, html.in-modal .label, html.in-modal .field-label {
+    color: var(--text-muted) !important; font-size: 0.85rem !important; font-weight: 600 !important; letter-spacing: 0.02em !important; }
+  /* Tiles: a short choice, one tap, filled once chosen. */
+  html.in-modal .mk-choice, html.in-modal .reason {
+    border: 1px solid var(--border-color) !important; border-radius: 12px !important; background: var(--bg-row) !important;
+    box-shadow: none !important; transition: background 0.12s, color 0.12s; }
+  html.in-modal .mk-choices input:checked + .mk-choice, html.in-modal .reasons input:checked + .reason {
+    background: var(--primary) !important; border-color: var(--primary) !important; color: #fff !important; }
+  html.in-modal .mk-choices input:checked + .mk-choice .sub { color: rgba(255, 255, 255, 0.8) !important; }
+  /* Banners: what happened, said once at the top, with its sign. */
+  html.in-modal .mk-outcome, html.in-modal .outcome, html.in-modal .not-found {
+    position: relative; border: none !important; border-radius: var(--mk-radius) !important; padding: 10px 14px 10px 46px !important;
+    background: color-mix(in srgb, var(--success) 15%, var(--bg-panel)) !important; color: var(--text-main) !important; font-weight: 600 !important; }
+  html.in-modal .mk-outcome::before, html.in-modal .outcome::before, html.in-modal .not-found::before {
+    content: '\2713'; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 1.5rem; height: 1.5rem;
+    border-radius: 50%; background: var(--success); color: #fff; font-size: 0.9rem; font-weight: 700; display: grid; place-items: center; }
+  html.in-modal .mk-outcome.err, html.in-modal .outcome.err, html.in-modal .not-found {
+    background: color-mix(in srgb, var(--danger) 15%, var(--bg-panel)) !important; }
+  html.in-modal .mk-outcome.err::before, html.in-modal .outcome.err::before, html.in-modal .not-found::before { content: '!'; background: var(--danger); }
+  html.in-modal .mk-outcome.warn, html.in-modal .outcome.warn { background: color-mix(in srgb, var(--warning) 18%, var(--bg-panel)) !important; }
+  html.in-modal .mk-outcome.warn::before, html.in-modal .outcome.warn::before { content: '!'; background: var(--warning); color: #000; }
+  /* Keys: the same key on every pad of every modal. */
+  html.in-modal .pos-key { border-radius: var(--mk-radius) !important; border: 1px solid var(--border-color) !important; font-weight: 600 !important; }
+  html.in-modal .pos-key--digit, html.in-modal .pos-key--alpha { background: var(--bg-row) !important; }
+  html.in-modal .mk-empty { color: var(--text-muted) !important; font-weight: 500 !important; }
+  /* Choices fill the width in even columns instead of bunching on the left. */
+  html.in-modal .mk-choices { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 8px !important; }
+  html.in-modal .mk-choice { min-height: 3rem; align-items: center; justify-content: center; text-align: center; padding: 6px 12px !important; }
+  /* A numeric pad in a modal is the gesture itself: full-size keys, whatever
+     the screen asked for its standalone version. */
+  html.in-modal .pos-keyboard--cols3, html.in-modal .pos-keyboard--cols4 { gap: 6px !important; }
+  html.in-modal .pos-keyboard--cols3 .pos-key, html.in-modal .pos-keyboard--cols4 .pos-key {
+    min-height: 3.3rem; padding: 0 !important; font-size: 1.4rem !important; display: flex; align-items: center; justify-content: center; }
+  /* Counted rows (denominations): rows a finger can hit, not a dense list. */
+  html.in-modal .count-item { min-height: 3.1rem; border-width: 1px !important; border-radius: var(--mk-radius) !important; font-size: 1.1rem; }
+  html.in-modal .count-item.selected { box-shadow: 0 0 0 3px var(--mk-ring); }
+  /* A short list of denominations spreads over the room it has, up to a comfortable row. */
+  html.in-modal .items-scroll > .count-item { flex: 1 1 auto; max-height: 4.2rem; }
+  /* No scrollbar on the modal itself: its screen is sized to the frame, and
+     only its own lists scroll. */
+  html.in-modal { overflow-x: hidden !important; }
+  html.in-modal:not(.mk-fit) { overflow-y: hidden !important; }
+  html.in-modal.mk-fit { overflow-y: hidden; }
+  html.in-modal.mk-fit.mk-taller { overflow-y: auto; }
+  /* A screen whose content decides its height (data-modal-size "W fit"): the
+     frame takes the height the screen draws, no empty band under short
+     content; past the terminal's height the frame scrolls. */
+  html.in-modal.mk-fit body { min-height: 0 !important; height: auto !important; display: block !important; }
+  html.in-modal.mk-fit .pos-terminal { height: auto !important; min-height: 0 !important; max-height: none !important; grid-template-rows: auto auto auto !important; }
+  html.in-modal.mk-fit .top-bar, html.in-modal.mk-fit .mk-title { min-height: 3.25rem; }
+  html.in-modal.mk-fit .bottom-nav, html.in-modal.mk-fit .mk-actions { min-height: 4.5rem; }
+  html.in-modal.mk-fit .pos-terminal > :not(.top-bar):not(.mk-title):not(.bottom-nav):not(.mk-actions) { padding-top: 16px !important; padding-bottom: 18px !important; }
+</style>
+<script>
+  (function () {
+    if (window.top === window.self) { return; }
+    document.documentElement.classList.add('in-modal');
+    /* The register scales its type with the window: in the modal that window
+       is the box itself, which would shrink the type. The modal reads at the
+       size of the sale screen it sits on. */
+    try {
+      document.documentElement.style.fontSize = window.top.getComputedStyle(window.top.document.documentElement).fontSize;
+    } catch (e) { /* another origin: keep the page's own scale */ }
+    /* "W fit": the frame follows the height the screen draws. */
+    var asked = (document.body.getAttribute('data-modal-size') || '').split(' ');
+    if (asked[1] === 'fit') {
+      document.documentElement.classList.add('mk-fit');
+      var drawn = document.querySelector('.pos-terminal') || document.body;
+      /* Sizes the frame to the screen's drawn height, its own border included. */
+      var fitFrame = function () {
+        var frame = window.frameElement;
+        if (!frame) { return; }
+        var wanted = Math.ceil(drawn.getBoundingClientRect().height) + 2;
+        frame.style.height = 'min(92vh, ' + (wanted + frame.offsetHeight - frame.clientHeight) + 'px)';
+        /* Past the register's height the screen scrolls, and only then. */
+        document.documentElement.classList.toggle('mk-taller', wanted > window.top.innerHeight * 0.92 - 4);
+      };
+      window.addEventListener('load', function () { setTimeout(fitFrame, 0); });
+      if (window.ResizeObserver) { new ResizeObserver(fitFrame).observe(drawn); }
+    }
+    var stay = (document.body.getAttribute('data-embed-stay') || '').split(' ').filter(Boolean);
+
+    /* True when a link or a form leads to one of this screen's own pages.
+       @param url the target, relative or absolute
+       @return true when the target stays in the modal */
+    function staysHere(url) {
+      var path = new URL(url || window.location.href, window.location.href).pathname;
+      return stay.some(function (own) { return path === own || path.indexOf(own + '/') === 0; });
+    }
+
+    /* Leaves the modal: back to the sale closes it, anything else is carried out
+       by the whole register page.
+       @param url the absolute target */
+    function leave(url) {
+      var path = new URL(url, window.location.href).pathname;
+      if (path === '/' && window.top.ScreenModal) {
+        window.top.ScreenModal.close();
+        return;
+      }
+      window.top.location.href = url;
+    }
+
+    document.addEventListener('click', function (event) {
+      var link = event.target.closest('a[href]');
+      if (!link || event.defaultPrevented || staysHere(link.getAttribute('href'))) { return; }
+      event.preventDefault();
+      leave(link.href);
+    });
+    document.querySelectorAll('form').forEach(function (form) {
+      if (!staysHere(form.getAttribute('action'))) { form.target = '_top'; }
+    });
+  })();
+</script>

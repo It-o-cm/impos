@@ -87,6 +87,9 @@ public class GroupCIT {
 
     // --- Catalog fixtures (DataInitializer seed) ---
 
+    /** The refusal a discount-forbidden article names at the gesture (BO-02-03-09). */
+    private static final String REMISE_INTERDITE = "REMISE INTERDITE SUR CET ARTICLE";
+
     /** Single-price unit product, TTC 6,00 € (uppercased label on the line). */
     private static final String EAN_HUILE = "3300000000006";
     private static final String LABEL_HUILE = "HUILE D'OLIVE 1L";
@@ -149,15 +152,25 @@ public class GroupCIT {
                 "6,00 € minus a 1,00 € remise must leave 5,00 €");
         page.close();
 
-        // --- Floor: a remise larger than the line total clamps at 0,00 € ---
+        // --- Above the line total: the implied share (166 %) crosses the
+        //     administered percentage ceiling (100 % by default, LC-03-02-12):
+        //     refused, the line keeps its price ---
         Page page2 = freshSale();
         scan(EAN_HUILE);
         page2.getByText(LABEL_HUILE).waitFor();
         openGesture(page2, "remise", "REMISE");
         typeAndValidate(page2, "1000");
         approveEndorsementWithManager(page2);
+        Assertions.assertNull(posState.ticket.items.get(0).modifierType,
+                "a remise above the line total must be refused");
+        Assertions.assertEquals(0, posState.ticket.items.get(0).getTotalPrice().compareTo(new BigDecimal("6.00")),
+                "a refused remise must leave the line at its 6,00 € price");
+        // --- Floor: a remise of the whole line total brings it to 0,00 € ---
+        openGesture(page2, "remise", "REMISE");
+        typeAndValidate(page2, "600");
+        approveEndorsementWithManager(page2);
         Assertions.assertEquals(0, posState.ticket.items.get(0).getTotalPrice().compareTo(BigDecimal.ZERO),
-                "a remise above the line total must floor the line at 0,00 €");
+                "a remise of the whole line total must floor the line at 0,00 €");
         page2.close();
     }
 
@@ -503,10 +516,12 @@ public class GroupCIT {
      * {@code MODIFICATION INCONNUE}; a line gesture on an empty ticket with
      * {@code AUCUNE LIGNE SÉLECTIONNÉE}; an unreadable value with {@code VALEUR
      * INVALIDE}; a discount while discounts are disabled at the referential with
-     * {@code REMISES DÉSACTIVÉES}. The apply-time refusals are SILENT — a money
-     * product, a discount-forbidden line, and a line remise above the line
-     * ceiling all leave the line untouched with NO message, proven by the absence
-     * of a modifier and an unchanged line total. Toggled settings are restored.
+     * {@code REMISES DÉSACTIVÉES}; a remise on a discount-forbidden line with
+     * {@code REMISE INTERDITE SUR CET ARTICLE}, at the gesture (BO-02-03-09). The
+     * apply-time refusals are SILENT — a money product and a line remise above
+     * the line ceiling leave the line untouched with NO message, proven by the
+     * absence of a modifier and an unchanged line total. Toggled settings are
+     * restored.
      */
     @Test
     void c8_gardes_ouverture_soumission() {
@@ -559,17 +574,20 @@ public class GroupCIT {
         Assertions.assertEquals(0, money.getTotalPrice().compareTo(new BigDecimal("25.00")),
                 "the money-product line total must be untouched");
         pageMoney.close();
-        // --- SILENT refusal: a discount-forbidden line ---
+        // --- NAMED refusal at the gesture: a discount-forbidden line
+        //     (BO-02-03-09 — the operator is told so when the gesture opens,
+        //     rather than finding the figure ignored) ---
         Page pageDf = freshSale();
         scan(EAN_HUILE);
         pageDf.getByText(LABEL_HUILE).waitFor();
         posState.ticket.items.get(0).discountForbidden = true;
-        openGesture(pageDf, "remise", "REMISE");
-        typeAndValidate(pageDf, "100");
-        approveEndorsementWithManager(pageDf);
+        pageDf.navigate(base.toString() + "action/price-mod/remise");
+        pageDf.getByText(REMISE_INTERDITE).first().waitFor();
+        Assertions.assertFalse(posState.priceModState.active,
+                "the gesture must not open on a discount-forbidden line");
         TicketState.TicketItem df = posState.ticket.items.get(0);
         Assertions.assertNull(df.modifierType,
-                "a discount-forbidden line must silently refuse a remise");
+                "a discount-forbidden line must refuse a remise");
         Assertions.assertEquals(0, df.getTotalPrice().compareTo(new BigDecimal("6.00")),
                 "the discount-forbidden line total must be untouched");
         pageDf.close();

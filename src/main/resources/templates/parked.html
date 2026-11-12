@@ -1,89 +1,71 @@
 {!
- ! Parked-tickets list: resume restores the cart through the same
- ! restoreDraft machinery as the restart recovery — one code path to trust.
- ! PARKED tickets die at the session's Z closing.
+ ! TICKETS EN ATTENTE (ParkedTicketResource), shown in a modal over the sale.
+ !
+ ! One row per parked ticket of this register: number, time, article count and
+ ! total. Touching a row resumes it: the cart is restored through the same
+ ! restoreDraft machinery as the restart recovery, and the sale comes back with
+ ! it. IMPRIMER, beside a row when the shop prints on demand, prints its receipt
+ ! and stays on the list. A page holds six tickets; the pager sits under them.
+ ! RETOUR, bottom right, goes back to the sale. PARKED tickets die at the
+ ! session's Z closing.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{inject:i18n.get('parked.ticketsAttente')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .title { color: var(--warning); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
-
-    .list-area { padding: 20px 20px 12px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-    .parked-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
-    .parked-row {
-      display: grid; grid-template-columns: minmax(0, 1.5fr) 5rem minmax(0, 1fr) 6rem;
-      align-items: center; gap: 15px;
-      background: var(--bg-panel); border: 1px solid var(--border-color);
-      border-radius: 6px; padding: 12px 20px;
-      text-decoration: none; color: var(--text-main); font-size: var(--fs-row);
-    }
-    .parked-row:active { background: #2a2a2a; }
-    .parked-number { font-weight: bold; color: var(--warning); }
-    .parked-time { color: var(--text-muted); }
-    .parked-count { color: var(--text-muted); }
-    .parked-total { font-weight: bold; color: var(--success); text-align: right; font-size: var(--fs-amount); }
-
+    .parked-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    /* A list row: the shared row tokens (mk-row, to move into modal-kit). */
+    .mk-row { background: var(--bg-row); border: 2px solid var(--border-color); border-radius: 8px; }
+    .parked-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+    .parked-row { display: grid; grid-template-columns: minmax(0, 1.4fr) 5rem minmax(0, 1fr) 8rem; align-items: center; gap: 12px; min-height: 3.25rem; padding: 6px 16px; text-decoration: none; color: inherit; font-size: var(--fs-row); }
+    .parked-number { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .parked-time, .parked-count { color: var(--text-muted); }
+    .parked-total { font-weight: bold; text-align: right; }
+    .parked-print { display: flex; align-items: center; }
+    .pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-shrink: 0; }
+    .pager .info { color: var(--text-muted); font-weight: bold; }
   </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="56rem fit" data-embed-stay="/parked /action/parked/print">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="title">{inject:i18n.get('parked.ticketsAttente2')}</span>
-      <span id="clock"></span>
-    </div>
+    <div class="mk-title"><span class="title">{inject:i18n.get('parked.ticketsAttente2')}</span></div>
 
-    <div class="list-area">
+    <div class="mk-body">
       {#if tickets.isEmpty}
-        <div class="pos-list-empty">{inject:i18n.get('parked.aucunTicketAttenteCaisse')}</div>
+        <div class="mk-empty">{inject:i18n.get('parked.aucunTicketAttenteCaisse')}</div>
       {#else}
-        <div class="pos-list">
+        <div class="parked-list">
           {#for ticket in tickets}
-            <div class="parked-entry">
-            <a href="/action/parked/resume/{ticket.id}" class="parked-row">
+          <div class="parked-entry">
+            <a href="/action/parked/resume/{ticket.id}" class="parked-row mk-row">
               <span class="parked-number">{ticket.ticketNumber}</span>
               <span class="parked-time">{ticket.creationDate.format('HH:mm')}</span>
               <span class="parked-count">{ticket.itemCount} {inject:i18n.get('parked.r21v-articles')}</span>
               <span class="parked-total">{ticket.getTotalFormatted()} €</span>
             </a>
-            {#if canPrint}<a href="/action/parked/print/{ticket.id}" class="btn btn-sm btn-muted">{inject:i18n.get('parked.printReceipt')}</a>{/if}
-            </div>
+            {#if canPrint}<span class="parked-print"><a href="/action/parked/print/{ticket.id}" class="btn btn-sm btn-muted">{inject:i18n.get('parked.printReceipt')}</a></span>{/if}
+          </div>
           {/for}
         </div>
         {#if pageCount > 1}
-        <div class="pos-pager">
-          {#if hasPrev}
-          <a href="/parked?page={prevPage}" class="btn btn-sm btn-muted">{inject:i18n.get('parked.precedent')}</a>
-          {#else}
-          <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
-          {/if}
-          <span class="pos-pager-info">PAGE {page} / {pageCount}</span>
-          {#if hasNext}
-          <a href="/parked?page={nextPage}" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>
-          {#else}
-          <span class="btn btn-sm btn-muted off">SUIVANT</span>
-          {/if}
+        <div class="pager">
+          {#if hasPrev}<a href="/parked?page={prevPage}" class="btn btn-sm btn-muted">{inject:i18n.get('parked.precedent')}</a>{#else}<span></span>{/if}
+          <span class="info">{page} / {pageCount}</span>
+          {#if hasNext}<a href="/parked?page={nextPage}" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>{#else}<span></span>{/if}
         </div>
         {/if}
       {/if}
     </div>
 
-    <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+    <div class="mk-actions">
+      <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
-
-  <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-  </script>
+  {#include screen-embed /}
 </body>
 </html>

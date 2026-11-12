@@ -11,6 +11,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{inject:i18n.get('session.sessionCaisse')}</title>
+  {#if !current??}
+  <script>
+    /* Opening a session takes the whole register: reached inside the modal
+       laid over the sale (a guard or a landing redirect), this page leaves it. */
+    if (window.top !== window.self) { window.top.location.href = window.location.href; }
+  </script>
+  {/if}
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -36,9 +43,17 @@
     .btn { display: block; }
 
     .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .notice-box { background: rgba(46, 125, 50, 0.15); border: 1px solid var(--success); color: var(--success); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    /* In the sale's modal the modal is the panel: no box in the box. */
+    html.in-modal .main-area { align-items: flex-start; padding: 0 24px; }
+    html.in-modal .panel { width: 100%; border: none; background: transparent; padding: 0; }
+    html.in-modal .panel h2 { display: none; }
+    html.in-modal .actions { margin-top: 18px; gap: 10px; }
+    html.in-modal .actions .btn { height: 3.25rem; display: flex; align-items: center; justify-content: center; border-radius: var(--mk-radius); box-shadow: none; }
+    html.in-modal .error-box, html.in-modal .notice-box { margin-bottom: 12px; text-align: left; }
   </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="40rem fit" data-embed-stay="/session /action/session/settlement-voucher /action/session/x-report /action/session/close-start /cash-count /action/session/close">
   <div class="pos-terminal">
     <div class="top-bar">
       <span class="store-name">{inject:i18n.get('common.store')}</span>
@@ -49,7 +64,9 @@
     <div class="main-area">
       <div class="panel">
         {#if error??}
-          <div class="error-box">{error}</div>
+          <div class="error-box mk-outcome err" role="alert">{error}</div>
+        {#else if notice??}
+          <div class="notice-box mk-outcome{#if noticeWarn} warn{/if}" role="status">{notice}</div>
         {/if}
 
         {! BO-10-02-11 : le plafond d'assurance du tiroir se dit AUSSI ici. L'ecran
@@ -105,9 +122,9 @@
       <!-- Sans session ouverte, RETOUR ne mène nulle part : le garde de session
            renvoie ici. La seule sortie légitime est alors de rendre la caisse. -->
       {#if current??}
-        <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+        <a href="/" class="btn btn-muted" style="width: 11.25rem; margin-left:auto;">{inject:i18n.get('common.back')}</a>
       {#else}
-        <a href="/close" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('session.fermer')}</a>
+        <a href="/close" class="btn btn-muted" style="width: 11.25rem; margin-left:auto;">{inject:i18n.get('session.fermer')}</a>
       {/if}
     </div>
   </div>
@@ -131,5 +148,6 @@
         });
     })();
   </script>
+  {#include screen-embed /}
 </body>
 </html>

@@ -189,6 +189,56 @@ class ReprintStateTest {
     }
 
     /**
+     * {@code setViewedTicket} keeps the print outcome when the SAME ticket is shown
+     * again (the print returns to its view): first ticket non-null, ids equal.
+     */
+    @Test
+    void setViewedTicketKeepsThePrintOutcomeOfTheSameTicket() {
+        ReprintState state = new ReprintState();
+        Ticket ticket = ticketWithLines(1);
+        ticket.id = 7L;
+        state.setViewedTicket(ticket);
+        state.printOutcome = "TICKET RÉIMPRIMÉ";
+        Ticket again = ticketWithLines(1);
+        again.id = 7L;
+        state.setViewedTicket(again);
+        assertEquals("TICKET RÉIMPRIMÉ", state.printOutcome);
+    }
+
+    /**
+     * {@code setViewedTicket} forgets the print outcome on another ticket (ids
+     * differ), on a first ticket (none shown before) and on a null ticket.
+     */
+    @Test
+    void setViewedTicketForgetsThePrintOutcomeElsewhere() {
+        ReprintState state = new ReprintState();
+        Ticket first = ticketWithLines(1);
+        first.id = 7L;
+        state.printOutcome = "TICKET RÉIMPRIMÉ";
+        state.setViewedTicket(first);
+        assertEquals("", state.printOutcome);
+        state.printOutcome = "TICKET RÉIMPRIMÉ";
+        Ticket other = ticketWithLines(1);
+        other.id = 8L;
+        state.setViewedTicket(other);
+        assertEquals("", state.printOutcome);
+        state.printOutcome = "TICKET RÉIMPRIMÉ";
+        state.setViewedTicket(null);
+        assertEquals("", state.printOutcome);
+    }
+
+    /**
+     * {@code setTickets} forgets the print outcome with the viewed ticket.
+     */
+    @Test
+    void setTicketsForgetsThePrintOutcome() {
+        ReprintState state = new ReprintState();
+        state.printOutcome = "TICKET RÉIMPRIMÉ";
+        state.setTickets(java.util.List.of());
+        assertEquals("", state.printOutcome);
+    }
+
+    /**
      * {@code isHasDetailPrev} is false on the first detail page (guard false
      * arm).
      */

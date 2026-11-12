@@ -346,6 +346,15 @@ public class AuthResource {
             LOGGER.info("Exiting method closePage");
             return Response.seeOther(URI.create("/lock")).build();
         }
+        // A sale in progress is not something the closing page can resolve: the
+        // operator is told so in a message modal on the sale screen, which they
+        // never left, instead of being sent to a page that can only say no.
+        if (obstacle == SessionCloseService.Obstacle.IN_TRANSACTION) {
+            state.modalMessage = i18n.get("close.venteCoursImpossibleFermer");
+            state.touch();
+            LOGGER.info("Exiting method closePage");
+            return Response.seeOther(URI.create("/")).build();
+        }
         LOGGER.info("Exiting method closePage");
         return Response.ok(closeView(obstacle, null), MediaType.TEXT_HTML).build();
     }

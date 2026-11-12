@@ -3,7 +3,7 @@
  ! staging view.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,7 +35,7 @@
       border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;
       display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit;
     }
-    .search-result-item:hover { background: #252525; border-color: #444; }
+    .search-result-item:hover { border-color: var(--primary); }
     .ticket-id { font-weight: bold; font-size: var(--fs-row); color: var(--text-main); }
     .ticket-date { font-size: var(--fs-row-sub); color: var(--text-muted); }
     /* LC-04-05-02: keep identity, date, lane and amount readable in the existing row height. */
@@ -55,7 +55,6 @@
     }
 
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 5rem; }
-    .btn-back { background: var(--bg-row); color: var(--text-main); padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
 
 
     /* LC-05-04-01 : les touches de types de retours, au-dessus du pave de
@@ -64,13 +63,14 @@
     .return-type-btn { flex: 1 1 45%; text-align: center; padding: 8px 4px; border-radius: 6px; text-decoration: none; font-size: var(--fs-label); border: 1px solid var(--border-strong); color: var(--text-main); background: var(--bg-page); }
     .return-type-btn.on { background: var(--primary); border-color: var(--primary); color: white; font-weight: bold; }
   </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="76rem 44rem" data-embed-stay="/return /action/return-type /action/endorse-validate /action/endorse-self /action/endorse-cancel">
 
 <div class="pos-terminal">
   <div class="top-bar">
     <span class="store-name">{inject:i18n.get('common.store')}</span>
-    <span id="screenTitle">{inject:i18n.get('returnsearch.retourClient')}</span>
+    <span id="screenTitle" class="title">{inject:i18n.get('returnsearch.retourClient')}</span>
     <span id="clock">--:--:--</span>
   </div>
 
@@ -86,7 +86,7 @@
         {! LC-05-02-07 : le refus d'un ticket d'un autre magasin se lit ici, l'ecran
          ! de detail n'ayant aucun ticket a montrer dans ce cas. !}
         {#if state.refund.errorMessage??}
-        <div style="margin:10px; background:rgba(211,47,47,0.15); border:1px solid var(--danger); color:var(--danger); padding:8px; font-weight:bold; font-size:var(--fs-label); text-align:center; border-radius:6px;">{state.refund.errorMessage}</div>
+        <div class="mk-outcome err" role="alert" style="margin:10px;">{state.refund.errorMessage}</div>
         {/if}
         <div class="search-results-list">
           {#if state.refund.foundTickets.isEmpty}
@@ -134,7 +134,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/return/leave" class="btn-back">{inject:i18n.get('common.back')}</a>
+    <a href="/return/leave" class="btn btn-muted mk-back" style="margin-left:auto;">{inject:i18n.get('common.back')}</a>
   </div>
 </div>
 
@@ -178,5 +178,6 @@
 </script>
 
   <script src="/pos/ticket-criteria.js"></script>
+{#include screen-embed /}
 </body>
 </html>

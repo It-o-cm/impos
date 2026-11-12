@@ -158,7 +158,7 @@ class VoucherBalanceResourceTest {
         assertEquals("2960001", view.number);
         assertEquals("CARTE CADEAU", view.kindLabel);
         assertEquals("ACTIVE", view.statusLabel);
-        assertEquals("12,50", view.balanceFormatted);
+        assertEquals("12,50", view.balanceFormatted);        assertNull(view.validUntilFormatted);
     }
 
     /**
@@ -174,6 +174,7 @@ class VoucherBalanceResourceTest {
         instrument.kind = StoredValue.Kind.CREDIT_NOTE;
         instrument.status = StoredValue.Status.EXHAUSTED;
         instrument.balance = new BigDecimal("0");
+        instrument.validUntil = java.time.LocalDateTime.of(2027, 3, 31, 23, 59);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> found = query(instrument);
             ms.when(() -> PanacheEntityBase.find("number", "0007")).thenReturn(found);
@@ -184,6 +185,7 @@ class VoucherBalanceResourceTest {
         assertEquals("AVOIR", view.kindLabel);
         assertEquals("ÉPUISÉ", view.statusLabel);
         assertEquals("0,00", view.balanceFormatted);
+        assertEquals("31/03/2027", view.validUntilFormatted);
     }
 
     /**

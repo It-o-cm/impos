@@ -1465,13 +1465,6 @@ public class TicketService {
     // --- STANDARD ACTIONS ---
 
     /**
-     * Adds a product to the ticket by its EAN code.
-     *
-     * @param state the current POS state
-     * @param ean the EAN code
-     * @param quantity the quantity to add
-     */
-    /**
      * Whether this register REFUSES an article because a settlement is under
      * way, saying so to the cashier (BO-10-02-15).
      *
@@ -1495,6 +1488,13 @@ public class TicketService {
         return true;
     }
 
+    /**
+     * Adds a product to the ticket by its EAN code.
+     *
+     * @param state the current POS state
+     * @param ean the EAN code
+     * @param quantity the quantity to add
+     */
     public void addItemByEan(PosState state, String ean, BigDecimal quantity) {
         LOGGER.info("Entering method addItemByEan with state: " + state + ", ean: " + ean + ", quantity: " + quantity);
         if (ean == null || ean.isEmpty()) { LOGGER.info("Exiting method addItemByEan"); return; }

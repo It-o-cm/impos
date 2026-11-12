@@ -261,4 +261,128 @@ class CashMenuServiceTest {
         assertTrue(CashMenuService.reaches("/a?x=1&y=2", "/a",
                 java.util.Map.of("x", List.of("1"), "y", List.of("2"))));
     }
+
+    /**
+     * The tabs follow the model's layout in the register's language: a created
+     * tab with its own label and colour, a standard tab with its bundle key,
+     * the settlement tab opening its screen, the hidden functions left out.
+     */
+    @Test
+    void theTabsFollowTheLayoutInTheRegistersLanguage() {
+        CashMenu menu = new CashMenu();
+        menu.code = "SLS";
+        menu.hiddenFunctions = "ABANDON";
+        menu.layout = "{\"tabs\":[{\"id\":\"x1\",\"labels\":{\"fr\":\"PROMO\",\"nl\":\"ACTIE\"},\"color\":\"orange\","
+                + "\"keys\":[{\"fn\":\"SEARCH\",\"labels\":{\"nl\":\"ZOEK\"},\"color\":\"teal\"},{\"fn\":\"ABANDON\"}]},"
+                + "{\"id\":\"ticket\",\"keys\":[{\"fn\":\"PARK\"}]},{\"id\":\"reglement\"}]}";
+        CashMenuService service = service(null, "SLS");
+        service.i18n = mock(com.intermarche.pos.ui.Messages.class);
+        when(service.i18n.getLang()).thenReturn("nl-BE");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubMenu(panache, "SLS", menu);
+            List<CashMenuService.TabView> tabs = service.current().tabs();
+            assertEquals(3, tabs.size());
+            CashMenuService.TabView created = tabs.get(0);
+            assertEquals("x1", created.id());
+            assertNull(created.labelKey());
+            assertEquals("ACTIE", created.label());
+            assertEquals("orange", created.color());
+            assertNull(created.destination());
+            assertEquals(1, created.keys().size());
+            assertEquals(CashFunction.SEARCH, created.keys().get(0).function());
+            assertEquals("ZOEK", created.keys().get(0).label());
+            assertEquals("teal", created.keys().get(0).color());
+            assertEquals("menu.ticket", tabs.get(1).labelKey());
+            assertNull(tabs.get(1).label());
+            assertEquals("/pay", tabs.get(2).destination());
+        }
+    }
+
+    /** Without a model the tabs are the standard ones, every key in place. */
+    @Test
+    void withoutAModelTheTabsAreTheStandardOnes() {
+        CashMenuService service = service(null, "");
+        List<CashMenuService.TabView> tabs = service.tabs(null);
+        assertEquals(7, tabs.size());
+        assertEquals("articles", tabs.get(0).id());
+        assertEquals(13, tabs.get(0).keys().size());
+    }
+
+    /**
+     * A standard tab keeps its standard label when it has none in the language;
+     * a created tab falls back on its French label, then on any, then on its id.
+     */
+    @Test
+    void theLabelOfATab() {
+        com.intermarche.pos.domain.store.MenuLayout.Tab standard = new com.intermarche.pos.domain.store.MenuLayout.Tab();
+        standard.id = "caisse";
+        assertNull(CashMenuService.tabLabel(standard, "nl"));
+        com.intermarche.pos.domain.store.MenuLayout.Tab created = new com.intermarche.pos.domain.store.MenuLayout.Tab();
+        created.id = "x3";
+        assertEquals("X3", CashMenuService.tabLabel(created, "nl"));
+        created.labels.put("pt", "PROMOÇÃO");
+        assertEquals("PROMOÇÃO", CashMenuService.tabLabel(created, "nl"));
+        created.labels.put("fr", "PROMO");
+        assertEquals("PROMO", CashMenuService.tabLabel(created, "nl"));
+        created.labels.put("nl", "ACTIE");
+        assertEquals("ACTIE", CashMenuService.tabLabel(created, "nl"));
+    }
+
+    /** The register's language is the two first letters of its tag, French when unknown. */
+    @Test
+    void theRegistersLanguage() {
+        CashMenuService service = service(null, "");
+        assertEquals("fr", service.language());
+        service.i18n = mock(com.intermarche.pos.ui.Messages.class);
+        assertEquals("fr", service.language());
+        when(service.i18n.getLang()).thenReturn("p");
+        assertEquals("fr", service.language());
+        when(service.i18n.getLang()).thenReturn("PT-pt");
+        assertEquals("pt", service.language());
+    }
+
+    /**
+     * The grid shows the tab asked for; the settlement tab, an unknown tab or a
+     * view without tabs fall back on the first tab with keys, or on none.
+     */
+    @Test
+    void theTabShown() {
+        CashMenuService.TabView pay = new CashMenuService.TabView("reglement", "menu.reglement", null, null, "/pay", List.of());
+        CashMenuService.TabView sale = new CashMenuService.TabView("articles", "menu.articles", null, null, null, List.of());
+        CashMenuService.TabView promo = new CashMenuService.TabView("x1", null, "PROMO", null, null, List.of());
+        CashMenuService.View view = new CashMenuService.View(null, List.of(), "", "", List.of(pay, sale, promo));
+        assertEquals(promo, view.shown("x1"));
+        assertEquals(sale, view.shown("reglement"));
+        assertEquals(sale, view.shown("x9"));
+        assertNull(new CashMenuService.View(null, List.of(), "", "", List.of(pay)).shown("reglement"));
+        assertNull(new CashMenuService.View(null, List.of(), "", "").shown("articles"));
+    }
+
+    /** A tab tells whether it opens a screen, and how it is drawn when another is shown. */
+    @Test
+    void aTabsKindAndFace() {
+        assertTrue(new CashMenuService.TabView("reglement", null, null, null, "/pay", List.of()).direct());
+        CashMenuService.TabView plain = new CashMenuService.TabView("caisse", null, null, null, null, List.of());
+        assertFalse(plain.direct());
+        assertEquals("btn-muted", plain.cls());
+        assertEquals("btn-c-red tab-idle", new CashMenuService.TabView("x1", null, null, "red", null, List.of()).cls());
+    }
+
+    /** A key gives its function name, its text and its colour, administered or standard. */
+    @Test
+    void aKeysTextAndColour() {
+        com.intermarche.pos.ui.Messages i18n = mock(com.intermarche.pos.ui.Messages.class);
+        when(i18n.get("main.recherche")).thenReturn("RECHERCHE");
+        CashMenuService.KeyView standard = new CashMenuService.KeyView(CashFunction.SEARCH, null, null, i18n);
+        assertEquals("SEARCH", standard.fn());
+        assertEquals("RECHERCHE", standard.text("main.recherche"));
+        assertEquals("MODE RETOUR", standard.plain("MODE RETOUR"));
+        assertEquals("btn-muted", standard.cls("btn-muted"));
+        assertTrue(standard.standardColor());
+        CashMenuService.KeyView administered = new CashMenuService.KeyView(CashFunction.SEARCH, "CHERCHER", "blue", i18n);
+        assertEquals("CHERCHER", administered.text("main.recherche"));
+        assertEquals("CHERCHER", administered.plain("MODE RETOUR"));
+        assertEquals("btn-c-blue", administered.cls("btn-muted"));
+        assertFalse(administered.standardColor());
+    }
 }

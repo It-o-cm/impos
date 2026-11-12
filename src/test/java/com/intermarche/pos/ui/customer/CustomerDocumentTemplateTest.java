@@ -21,7 +21,7 @@ class CustomerDocumentTemplateTest {
         var engine = Engine.builder().addDefaults().addValueResolver(new ReflectionValueResolver())
                 .addResultMapper(new io.quarkus.qute.HtmlEscaper(List.of("text/html")))
                 .addNamespaceResolver(NamespaceResolver.builder("inject").resolve(context -> messages).build()).build();
-        for (String include : List.of("theme", "keyboard-lib")) {
+        for (String include : List.of("theme", "keyboard-lib", "screen-embed")) {
             engine.putTemplate(include, engine.parse(Files.readString(Path.of("src/main/resources/templates/" + include + ".html"))));
         }
         String html = engine.parse(Files.readString(Path.of("src/main/resources/templates/customer-documents.html")),
@@ -33,7 +33,7 @@ class CustomerDocumentTemplateTest {
                 .data("address", "client@example.test").data("error", "").data("outcome", "")
                 .data("page", 1).data("previous", 0).data("next", 2)
                 .data("hasPrevious", true).data("hasNext", true).render();
-        assertTrue(html.contains("name=\"documentId\" value=\"42\" required"));
+        assertTrue(html.contains("name=\"documentId\" id=\"doc-42\" value=\"42\" required"));
         assertTrue(html.contains("CUSTOMER &lt;script&gt;alert(1)&lt;/script&gt;"));
         assertFalse(html.contains("CUSTOMER <script>"));
         assertTrue(html.contains("src=\"data:image/png;base64,"));

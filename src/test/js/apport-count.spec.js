@@ -122,8 +122,35 @@ describe('LC-12-04-02 running total « À APPORTER »', () => {
     });
 
     it('ignores a tap beside the rows', async () => {
-        await boot(screen(row('b20', '20', '20 €')), 'g');
+        await boot(screen(row('b20', '20', '20 €') + row('b10', '10', '10 €')), 'g');
+        document.querySelector('[data-id="b10"] .item-label').click();
         document.getElementById('listContainer').click();
+        expect(document.querySelector('[data-id="b10"]').classList.contains('selected')).toBe(true);
+        expect(document.querySelector('[data-id="b20"]').classList.contains('selected')).toBe(false);
+    });
+
+    it('arms the pad on the first denomination at boot, ready to key its count', async () => {
+        await boot(screen(row('b50', '50', '50 €') + row('b20', '20', '20 €')), 'j');
+        expect(document.querySelector('[data-id="b50"]').classList.contains('selected')).toBe(true);
+        expect(keypad.prefilled).toBe('0');
+        keypad.onChange('2');
+        expect(document.getElementById('totalDisplay').textContent).toBe('100,00 €');
+    });
+
+    it('arms the pad on the first denomination of the tab swapped to', async () => {
+        const api = await boot(screen(row('b20', '20', '20 €')), 'k');
+        globalThis.fetch.mockResolvedValue({ text: () => Promise.resolve(row('c2', '2', '2 €') + row('c1', '1', '1 €')) });
+        await api.switchTab('coins', document.getElementById('tabCoins'));
+        expect(document.querySelector('[data-id="c2"]').classList.contains('selected')).toBe(true);
+        keypad.onChange('3');
+        expect(document.getElementById('totalDisplay').textContent).toBe('6,00 €');
+    });
+
+    it('arms nothing on an empty tab', async () => {
+        const api = await boot(screen(row('b20', '20', '20 €')), 'l');
+        keypad.onChange = null;
+        globalThis.fetch.mockResolvedValue({ text: () => Promise.resolve('') });
+        await api.switchTab('rolls', document.getElementById('tabCoins'));
         expect(keypad.onChange).toBeNull();
     });
 

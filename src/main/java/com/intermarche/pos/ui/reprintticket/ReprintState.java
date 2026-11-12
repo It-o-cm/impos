@@ -92,6 +92,16 @@ public class ReprintState implements Serializable {
      */
     public String reassignError = "";
 
+    /**
+     * The operator-facing outcome of the last print from the detail view — the
+     * duplicata or the bon pour échange printed, or the refusal — shown at the top
+     * of that ticket's view; empty when nothing was printed from it.
+     */
+    public String printOutcome = "";
+
+    /** True when {@link #printOutcome} reports a print done, false for a refusal. */
+    public boolean printOutcomeOk = false;
+
     // --- Logique Liste ---
 
     /**
@@ -104,6 +114,7 @@ public class ReprintState implements Serializable {
         this.listPage = 0;
         this.viewedTicket = null;
         this.detailPage = 0;
+        this.printOutcome = "";
         clearExchange();
     }
 
@@ -143,11 +154,16 @@ public class ReprintState implements Serializable {
     // --- Logique Détail ---
 
     /**
-     * Opens a ticket in the detail view, resetting its paging.
+     * Opens a ticket in the detail view, resetting its paging. The outcome of a
+     * print belongs to the ticket it was made on: it stays while that same ticket
+     * is shown again (the print returns to its view) and goes with any other.
      *
      * @param ticket the persisted ticket to review
      */
     public void setViewedTicket(Ticket ticket) {
+        if (viewedTicket == null || ticket == null || !java.util.Objects.equals(viewedTicket.id, ticket.id)) {
+            this.printOutcome = "";
+        }
         this.viewedTicket = ticket;
         this.detailPage = 0;
         clearExchange();

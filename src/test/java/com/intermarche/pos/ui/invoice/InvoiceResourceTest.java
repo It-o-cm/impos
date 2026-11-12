@@ -97,6 +97,8 @@ class InvoiceResourceTest {
         InvoiceResource resource = new InvoiceResource();
         resource.state = mock(PosState.class);
         resource.state.invoice = mock(InvoiceState.class);
+        // A closed ticket to bill: the screen opens (the empty case is its own test).
+        resource.state.invoice.tickets = java.util.List.of(mock(com.intermarche.pos.domain.sale.Ticket.class));
         resource.invoiceService = mock(InvoiceService.class);
         // BO-10-04-03: every display of the request page asks the parameters
         // whether the correction button is offered, so the collaborator belongs
@@ -178,7 +180,7 @@ class InvoiceResourceTest {
         InvoiceResource resource = newResource();
         when(resource.state.invoice.isOnTicketStep()).thenReturn(true);
         TemplateInstance view = stubRequest(resource);
-        assertSame(view, resource.showInvoiceScreen());
+        assertSame(view, resource.showInvoiceScreen().getEntity());
         verify(resource.invoiceService).open();
     }
 
@@ -562,6 +564,22 @@ class InvoiceResourceTest {
     }
 
     /**
+     * {@code showInvoiceScreen()} with no closed ticket to bill does not open the
+     * screen: the refusal is stated at the top of the sale's article list.
+     */
+    @Test
+    void showInvoiceScreenWithoutTicketIsRefusedOnTheSaleScreen() {
+        InvoiceResource resource = newResource();
+        resource.state.invoice.tickets = java.util.List.of();
+        resource.state.ticket = mock(com.intermarche.pos.ui.ticket.TicketState.class);
+        resource.i18n = TestMessages.french();
+        jakarta.ws.rs.core.Response response = resource.showInvoiceScreen();
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.state.ticket).setError(resource.i18n.get(PosState.NO_TICKET_INVOICE_KEY));
+        verify(resource.state).touch();
+    }
+
+    /**
      * {@code request()} exposes {@code hasDocumentStep} true when the service offers
      * more than one eligible document kind — the {@code eligibleDocumentTypes().size() > 1}
      * true arm of the comparison on line 105.
@@ -571,7 +589,7 @@ class InvoiceResourceTest {
         InvoiceResource resource = newResource();
         TemplateInstance view = stubRequest(resource);
         when(resource.invoiceService.documentChoiceCount()).thenReturn(2);
-        assertSame(view, resource.showInvoiceScreen());
+        assertSame(view, resource.showInvoiceScreen().getEntity());
         verify(view).data("hasDocumentStep", true);
     }
 
@@ -586,7 +604,7 @@ class InvoiceResourceTest {
         TemplateInstance view = stubRequest(resource);
         when(resource.invoiceService.eligibleDocumentTypes())
                 .thenReturn(java.util.List.of(DocumentType.FACTURE));
-        assertSame(view, resource.showInvoiceScreen());
+        assertSame(view, resource.showInvoiceScreen().getEntity());
         verify(view).data("hasDocumentStep", false);
     }
 
@@ -709,15 +727,15 @@ class InvoiceResourceTest {
         when(resource.state.invoice.isOnPreviewStep()).thenReturn(true);
         InvoiceDocument document = documentOf(1);
         when(resource.invoiceService.preview()).thenReturn(document);
-        assertSame(page, resource.showInvoiceScreen());
+        assertSame(page, resource.showInvoiceScreen().getEntity());
         when(resource.invoiceService.preview()).thenReturn(null);
-        assertSame(request, resource.showInvoiceScreen());
+        assertSame(request, resource.showInvoiceScreen().getEntity());
         when(resource.posSettingsService.invoiceCustomerValidation()).thenReturn(true);
-        assertSame(request, resource.showInvoiceScreen());
+        assertSame(request, resource.showInvoiceScreen().getEntity());
         when(resource.posSettingsService.invoiceCustomerValidation()).thenReturn(false);
         resource.state.invoice.enteringOrderNumber = true;
         resource.i18n = TestMessages.french();
-        assertSame(request, resource.showInvoiceScreen());
+        assertSame(request, resource.showInvoiceScreen().getEntity());
     }
 
     /**

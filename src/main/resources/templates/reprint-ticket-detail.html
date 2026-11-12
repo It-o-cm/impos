@@ -1,206 +1,153 @@
 {!
- ! Reprint screen, detail view: paged lines of the persisted ticket (what
- ! you see IS what the duplicata prints) + the print action (numbered
- ! duplicata, blocked in training).
+ ! RÉIMPRESSION TICKET, detail view, in the modal over the sale: the paged lines
+ ! of the persisted ticket (what is shown IS what the duplicata prints) and the
+ ! gestures on it — IMPRIMER (a numbered duplicata, refused in training), BON
+ ! POUR ÉCHANGE (lines to tick, no amount), the promotions detail and, in the
+ ! reassignment mode on a ticket with no card, RÉAFFECTER UN CLIENT. The outcome
+ ! of a print is stated at the top. RETOUR, bottom right, goes back to the list.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{inject:i18n.get('reprintticketdetail.detailTicket')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 2.8rem 5rem; position: relative; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
-    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
-
-    .main-area { display: flex; flex-direction: column; overflow: hidden; }
-
-    .ticket-header {
-      padding: 15px 20px; background: var(--bg-panel);
-      border-bottom: 1px solid var(--border-strong); text-align: center;
-    }
-    .ticket-title { font-size: var(--fs-title); font-weight: bold; color: var(--text-main); }
-    .ticket-date { color: var(--text-muted); font-size: var(--fs-row-sub); margin-top: 5px; }
-
-    .receipt-area { flex: 1; overflow: hidden; padding: 15px; background: var(--bg-dark); }
-
-    .receipt-item {
-      display: flex; justify-content: space-between; align-items: center;
-      font-size: var(--fs-row); border-bottom: 1px dashed var(--border-strong);
-      padding: 10px 0; color: var(--text-main);
-    }
-    .item-label { flex: 1; }
-
-    .item-qty { color: var(--warning); margin-right: 10px; min-width: 5rem; display: inline-block; text-align: right; font-weight: bold; }
-
-    .item-price { color: var(--success); font-weight: bold; min-width: 5rem; text-align: right; }
-
-    .total-line { border-top: 2px solid white; padding-top: 15px; margin-top: 15px; border-bottom: none; }
-    .total-label { font-weight: bold; font-size: var(--fs-label); }
-    .total-price { font-weight: bold; font-size: var(--fs-amount); }
-
-    .ticket-nav {
-      display: flex; justify-content: space-between; align-items: center;
-      border-top: 1px solid var(--border-color); padding-top: 6px; padding-bottom: 6px;
-      margin: 0 10px; flex-shrink: 0;
-    }
-    .nav-btn { height: 2rem; min-width: 6.25rem; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
-    .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
-
-    .bottom-nav {
-      background-color: var(--bg-page); border-top: 1px solid var(--border-color);
-      display: flex; justify-content: center; gap: 20px; align-items: center; padding: 0 20px;
-    }
-
-    /* Bon pour échange : les lignes deviennent des cibles tactiles marquées, et
-       aucun montant n'apparaît — c'est tout l'objet du bon. */
-    .exchange-row { text-decoration: none; color: inherit; cursor: pointer; }
-    .exchange-row.on { background-color: rgba(0,200,83,0.18); }
-    .exchange-mark { display: inline-block; width: 1.375rem; color: var(--success); font-weight: bold; }
-    .exchange-note { color: var(--text-muted); font-size: var(--fs-row-sub); font-weight: normal; }
-
+    .mk-title { gap: 16px; }
+    .mk-title .sub { margin-left: 14px; color: var(--text-muted); font-size: var(--fs-row-sub); }
+    .lines { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+    .receipt-item { display: grid; grid-template-columns: 6rem minmax(0, 1fr) 7rem; align-items: center; gap: 10px; min-height: 2.75rem; padding: 0 12px; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); text-decoration: none; color: inherit; flex-shrink: 0; }
+    .item-qty { color: var(--text-muted); text-align: right; font-weight: bold; }
+    .item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-price { text-align: right; font-weight: bold; }
+    .total-line { border-bottom: none; border-top: 2px solid var(--border-strong); font-weight: bold; }
+    .total-price { font-size: var(--fs-amount); }
+    /* Bon pour échange: the lines become touch targets, ticked; no amount shows. */
+    .exchange-row { cursor: pointer; grid-template-columns: 2rem 6rem minmax(0, 1fr); }
+    .exchange-row.on { color: var(--primary); }
+    .exchange-mark { font-weight: bold; text-align: center; }
+    .exchange-note { color: var(--text-muted); font-weight: normal; }
+    .pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-shrink: 0; }
+    .pager .info { color: var(--text-muted); font-weight: bold; }
+    /* LC-03-06-03: the card mask of the reassignment, over the detail. */
+    .reassign-mask { position: absolute; inset: 0; z-index: 40; display: flex; justify-content: center; align-items: center; background: var(--scrim); }
+    .reassign-panel { width: 26rem; display: flex; flex-direction: column; gap: 10px; padding: 18px; background: var(--bg-panel); border-radius: 12px; }
+    .reassign-panel .pad-display { min-height: 3rem; display: flex; align-items: center; justify-content: center; font-size: var(--fs-field-num); }
+    .reassign-panel .row { display: flex; gap: 10px; }
+    .reassign-panel .row .btn { flex: 1; }
+    .pos-terminal { position: relative; }
   </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
-
-<div class="pos-terminal">
-  <div class="top-bar">
-    <span class="store-name">{inject:i18n.get('common.store')}</span>
-    <span id="opInfo">TICKET {state.reprint.viewedTicket.ticketNumber}</span>
-    <span id="clock">--:--:--</span>
-  </div>
-
-  <div class="main-area">
-    <div class="ticket-header">
-      <div class="ticket-title">{inject:i18n.get('reprintticketdetail.detailTicket2')}</div>
-      <div class="ticket-date">{state.reprint.viewedTicket.creationDate.format('dd/MM/yyyy HH:mm')}</div>
+<body data-theme="{posTheme}" data-modal-size="64rem fit"
+      data-embed-stay="/reprint /action/endorse-validate /action/endorse-self /action/endorse-cancel">
+  <div class="pos-terminal">
+    <div class="mk-title">
+      <span class="title">{inject:i18n.get('reprintticketdetail.detailTicket2')}</span>
+      <span class="sub" id="opInfo">TICKET {state.reprint.viewedTicket.ticketNumber} · {state.reprint.viewedTicket.creationDate.format('dd/MM/yyyy HH:mm')}</span>
     </div>
 
-    <div class="receipt-area">
-      {#if state.reprint.exchangeMode}
-        {#for line in state.reprint.visibleLines}
+    <div class="mk-body">
+      {#if state.reprint.printOutcome}
+      <div class="mk-outcome{#if !state.reprint.printOutcomeOk} err{/if}" role="status">{state.reprint.printOutcome}</div>
+      {/if}
+      {#if !state.reprint.reassignMaskOpen && state.reprint.reassignError}
+      {! LC-03-06-04: the named outcome of the last reassignment — the success and
+       ! its possible amount gap, or the refusal and its reason. !}
+      <div class="mk-outcome warn" role="status">{state.reprint.reassignError}</div>
+      {/if}
+      <div class="lines">
+        {#if state.reprint.exchangeMode}
+          {#for line in state.reprint.visibleLines}
           <a class="receipt-item exchange-row {#if state.reprint.isSelected(line.id)}on{/if}"
              href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/toggle/{line.id}">
-            <div class="item-label">
-              <span class="exchange-mark">{#if state.reprint.isSelected(line.id)}&#10003;{#else}&nbsp;{/if}</span>
-              <span class="item-qty">{inject:units.line(line)}</span>
-              {line.productLabel}
-            </div>
+            <span class="exchange-mark">{#if state.reprint.isSelected(line.id)}&#10003;{#else}&nbsp;{/if}</span>
+            <span class="item-qty">{inject:units.line(line)}</span>
+            <span class="item-label">{line.productLabel}</span>
           </a>
-        {/for}
-        <div class="receipt-item total-line">
-          <div class="item-label total-label">
-            {#if state.reprint.wholeTicketExchange}TOUT LE TICKET{#else}ARTICLES CHOISIS : {state.reprint.exchangeSelection.size}{/if}
+          {/for}
+          <div class="receipt-item total-line">
+            <span></span>
+            <span class="item-label">{#if state.reprint.wholeTicketExchange}TOUT LE TICKET{#else}ARTICLES CHOISIS : {state.reprint.exchangeSelection.size}{/if} <span class="exchange-note">— {inject:i18n.get('reprintticketdetail.aucunMontantBon')}</span></span>
+            <span></span>
           </div>
-          <span class="item-price exchange-note">{inject:i18n.get('reprintticketdetail.aucunMontantBon')}</span>
-        </div>
-      {#else}
-        {#for line in state.reprint.visibleLines}
+        {#else}
+          {#for line in state.reprint.visibleLines}
           <div class="receipt-item">
-            <div class="item-label">
-              <span class="item-qty">{inject:units.line(line)}</span>
-              {line.productLabel}
-            </div>
+            <span class="item-qty">{inject:units.line(line)}</span>
+            <span class="item-label">{line.productLabel}</span>
             <span class="item-price">{line.totalFormatted} €</span>
           </div>
-        {/for}
-
-        <div class="receipt-item total-line">
-          <div class="item-label total-label">{inject:i18n.get('reprintticketdetail.totalTtc')}</div>
-          <span class="item-price total-price">{state.reprint.viewedTicket.totalFormatted} €</span>
-        </div>
-      {/if}
+          {/for}
+          <div class="receipt-item total-line">
+            <span></span>
+            <span class="item-label">{inject:i18n.get('reprintticketdetail.totalTtc')}</span>
+            <span class="item-price total-price">{state.reprint.viewedTicket.totalFormatted} €</span>
+          </div>
+        {/if}
+      </div>
+      <div class="pager">
+        {#if state.reprint.hasDetailPrev}<a href="/reprint/view/{state.reprint.viewedTicket.id}/prev" class="btn btn-sm btn-muted">{inject:i18n.get('reprintticketdetail.precedent')}</a>{#else}<span></span>{/if}
+        <span class="info">{inject:i18n.get('ticket.page')} {state.reprint.detailPageDisplay} / {state.reprint.detailTotalPages}</span>
+        {#if state.reprint.hasDetailNext}<a href="/reprint/view/{state.reprint.viewedTicket.id}/next" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>{#else}<span></span>{/if}
+      </div>
     </div>
-  </div>
 
-  <div class="ticket-nav">
-    {#if state.reprint.hasDetailPrev}
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/prev" class="btn btn-muted nav-btn">{inject:i18n.get('reprintticketdetail.precedent')}</a>
-    {#else}
-      <button class="btn btn-muted nav-btn" disabled>PRÉCÉDENT</button>
-    {/if}
-
-    <span class="nav-info">Page {state.reprint.detailPageDisplay} / {state.reprint.detailTotalPages}</span>
-
-    {#if state.reprint.hasDetailNext}
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/next" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>
-    {#else}
-      <button class="btn btn-muted nav-btn" disabled>SUIVANT</button>
-    {/if}
-  </div>
-
-  <div class="bottom-nav">
-    {#if state.reprint.exchangeMode}
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/cancel" class="btn btn-muted">{inject:i18n.get('common.cancel')}</a>
+    <div class="mk-actions">
+      {#if state.reprint.exchangeMode}
       <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/print" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimerBon')}</a>
-    {#else}
-      <a href="/reprint" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.retourListe')}</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/cancel" class="btn btn-muted mk-back">{inject:i18n.get('common.cancel')}</a>
+      {#else}
+      <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimer')}</a>
       <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.bonEchange')}</a>
       <a href="/reprint/view/{state.reprint.viewedTicket.id}/promotions" class="btn btn-muted">{inject:i18n.get('reprint.promotions')}</a>
-      <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimer')}</a>
       {#if state.reprint.reassignMode && !state.reprint.viewedTicket.fidelityCard}
-      <!-- LC-03-06-01 / -02 : LA TOUCHE DE RÉAFFECTATION n'existe que dans le
-           mode réaffectation ET sur un ticket NON AFFECTÉ — un ticket qui
-           porte déjà une carte a eu ses avantages. L'aval superviseur, quand
-           le paramétrage l'exige, est servi par la modale d'autorisation. -->
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/reassign" class="btn btn-warning" style="color:#000;">{inject:i18n.get('reprintticketdetail.reaffecterClient')}</a>
+      {! LC-03-06-01 / -02: the REASSIGNMENT key exists only in the reassignment
+       ! mode AND on a ticket no card is attached to. The supervisor endorsement,
+       ! when the settings ask for it, is served by the authorisation modal. !}
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/reassign" class="btn btn-warning">{inject:i18n.get('reprintticketdetail.reaffecterClient')}</a>
       {/if}
+      <a href="/reprint" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
+      {/if}
+    </div>
+
+    {#if state.reprint.reassignMaskOpen}
+    {! LC-03-06-03: THE CARD MASK. The number is typed — manual entry is the
+     ! fallback path of the whole loyalty — and VALIDER chains the four gestures:
+     ! attachment, advantages recomputed, recorded for the reporting, the new
+     ! ticket printed. !}
+    <div class="reassign-mask">
+      <form class="reassign-panel" action="/reprint/view/{state.reprint.viewedTicket.id}/reassign" method="POST">
+        <div class="mk-label">{inject:i18n.get('reprintticketdetail.reaffecterClient')}</div>
+        {#if state.reprint.reassignError}<div class="mk-outcome err" role="alert">{state.reprint.reassignError}</div>{/if}
+        <input type="hidden" name="card" id="reassignHidden" value="{state.reprint.reassignCard}">
+        <div id="reassignDisplay" class="pad-display mk-active"></div>
+        <div id="reassignKbArea" class="pos-kb-compact"></div>
+        <div class="row">
+          <button type="submit" class="btn btn-warning">{inject:i18n.get('common.validate')}</button>
+          <a href="/reprint/view/{state.reprint.viewedTicket.id}/reassign/cancel" class="btn btn-muted">{inject:i18n.get('common.cancel')}</a>
+        </div>
+      </form>
+    </div>
     {/if}
+    {#include keyboard-lib /}
+    {#include endorsement /}
   </div>
-
-  {#if state.reprint.reassignMaskOpen}
-  <!-- LC-03-06-03 : LE MASQUE DE LA CARTE. Le numéro se tape — la saisie
-       manuelle est le chemin de repli de toute la fidélité — et VALIDER
-       enchaîne les quatre gestes : attachement, recalcul des avantages,
-       enregistrement pour le reporting, impression du nouveau ticket. -->
-  <div style="position:absolute; top:3.75rem; left:0; right:0; bottom:0; background:var(--scrim); -webkit-backdrop-filter:blur(var(--scrim-blur)); backdrop-filter:blur(var(--scrim-blur)); z-index:40; display:flex; justify-content:center; align-items:center;">
-    <form action="/reprint/view/{state.reprint.viewedTicket.id}/reassign" method="POST"
-          style="background:var(--bg-panel); border:2px solid var(--warning); border-radius:10px; padding:20px; width:24rem; display:flex; flex-direction:column; gap:12px;">
-      <div style="color:var(--warning); font-weight:bold; text-align:center; font-size:var(--fs-title);">{inject:i18n.get('reprintticketdetail.reaffecterClient')}</div>
-      {#if state.reprint.reassignError}
-      <div style="color:var(--danger); font-weight:bold; text-align:center;">{state.reprint.reassignError}</div>
-      {/if}
-      <input type="hidden" name="card" id="reassignHidden" value="{state.reprint.reassignCard}">
-      <div id="reassignDisplay" class="pad-display"
-           style="border:3px solid var(--warning); border-radius:6px; padding:10px; font-size:var(--fs-field-num); text-align:center; color:var(--warning); background:var(--bg-page);"></div>
-      <div id="reassignKbArea" class="pos-kb-compact" style="min-height:200px;"></div>
-      <div style="display:flex; gap:10px;">
-        <a href="/reprint/view/{state.reprint.viewedTicket.id}/reassign/cancel" class="btn btn-muted" style="width:50%;">{inject:i18n.get('common.cancel')}</a>
-        <button type="submit" class="btn btn-warning" style="width:50%; color:#000;">{inject:i18n.get('common.validate')}</button>
-      </div>
-    </form>
-  </div>
-  {/if}
-
-  {#if !state.reprint.reassignMaskOpen && state.reprint.reassignError}
-  <!-- LC-03-06-04 : le résultat nommé du dernier geste — la réussite ET son
-       écart de montant éventuel, ou le refus et sa raison. -->
-  <div style="position:absolute; top:3.75rem; left:0; right:0; padding:8px; text-align:center; background:var(--warning); color:#000; font-weight:bold; z-index:30;">{state.reprint.reassignError}</div>
-  {/if}
-
-  {#include keyboard-lib /}
-  {#include endorsement /}
-</div>
-
-
-<script>
-  setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-  var reassignMask = document.getElementById('reassignKbArea');
-  if (reassignMask) {
-    PosInput.setup({
-      displayId: 'reassignDisplay',
-      hiddenId: 'reassignHidden',
-      containerId: 'reassignKbArea',
-      keyboardType: 'numpad',
-      mode: 'text',
-      maxLength: 15,
-      initialValue: document.getElementById('reassignHidden').value || ''
-    });
-  }
-</script>
+  <script>
+    var reassignMask = document.getElementById('reassignKbArea');
+    if (reassignMask) {
+      PosInput.setup({
+        displayId: 'reassignDisplay',
+        hiddenId: 'reassignHidden',
+        containerId: 'reassignKbArea',
+        keyboardType: 'numpad',
+        mode: 'text',
+        maxLength: 15,
+        initialValue: document.getElementById('reassignHidden').value || ''
+      });
+    }
+  </script>
+  {#include screen-embed /}
 </body>
 </html>

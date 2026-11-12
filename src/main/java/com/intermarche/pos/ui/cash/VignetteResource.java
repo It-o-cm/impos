@@ -48,6 +48,10 @@ public class VignetteResource {
     @Inject
     PosState state;
 
+    /** Localised operator messages, for the refusals stated on the sale screen. */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /**
      * Shows the vignettes of the open shift.
      *
@@ -59,14 +63,37 @@ public class VignetteResource {
     @Path("/vignettes")
     @Produces(MediaType.TEXT_HTML)
     @DrawerMayBeOpen
-    public TemplateInstance page(@QueryParam("ok") String ok, @QueryParam("error") String error) {
+    public Response page(@QueryParam("ok") String ok, @QueryParam("error") String error) {
         LOGGER.info("Entering method page");
+        // Nothing to declare — the function is off, or no session is open: the
+        // operator is told so in a message modal on the sale screen instead of
+        // being sent to a screen that only says no.
+        if (!vignetteService.enabled()) {
+            return refused("vignette.t21Inactive");
+        }
+        VignetteService.Summary summary = vignetteService.summary();
+        if (summary == null) {
+            return refused("vignette.t21AucuneSession");
+        }
         LOGGER.info("Exiting method page");
-        return vignettes.data("state", state)
-                .data("enabled", vignetteService.enabled())
-                .data("summary", vignetteService.summary())
+        return Response.ok(vignettes.data("state", state)
+                .data("enabled", true)
+                .data("summary", summary)
                 .data("saved", ok != null)
-                .data("error", error);
+                .data("error", error)).build();
+    }
+
+    /**
+     * Leaves for the sale screen with a refusal in its message modal.
+     *
+     * @param key the message key of the refusal
+     * @return the redirect to the sale screen
+     */
+    private Response refused(String key) {
+        state.modalMessage = i18n.get(key);
+        state.touch();
+        LOGGER.info("Exiting method page: " + key);
+        return redirect("/");
     }
 
     /**

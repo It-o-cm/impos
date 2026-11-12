@@ -1,71 +1,106 @@
+{!
+ ! DOCUMENTS CLIENT PAR EMAIL (LC-08-02-06), shown in a modal over the sale.
+ !
+ ! Left, the issued customer copies as cards: one tap selects a copy, and the
+ ! copy selected is shown right under the list, as it was printed. Right, the
+ ! destination address and its keyboard. ENVOYER sends the selected copy to the
+ ! typed address; the outcome is stated at the top of the modal. RETOUR, bottom
+ ! right, goes back to the sale.
+!}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('customerdocs.title')}</title>
     <style>
         {#include theme /}
-        body { background: var(--bg-page); color: var(--text-main); }
-        .pos-terminal { grid-template-rows: 3.5rem minmax(0,1fr) 4rem; }
-        header, footer { padding: .7rem 1rem; display: flex; align-items: center; gap: 1rem; }
-        header { border-bottom: 1px solid var(--border-color); font-size: var(--fs-title); }
-        form { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1rem; padding: 1rem; }
-        .history, .entry { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: .5rem; }
-        .documents { overflow-y: auto; min-height: 0; flex: 1; }
-        .document { padding: .7rem; border-bottom: 1px solid var(--border-color); }
-        .document label { display: flex; gap: .6rem; align-items: center; min-height: 3rem; overflow-wrap: anywhere; }
-        input[type=radio] { width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
-        details { padding-top: .5rem; }
-        summary { cursor: pointer; min-height: 2rem; }
-        pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-doc); font-size: .85rem; }
-        .display { padding: .6rem; border: 2px solid var(--border-strong); min-height: 3rem; overflow-wrap: anywhere; font-size: var(--fs-field); }
-        .keyboard { min-height: 0; overflow-y: auto; flex: 1; }
-        .error, .outcome { padding: .5rem; }
-        .error { background: var(--danger); }
-        .outcome { background: var(--bg-panel); }
-        nav { display: flex; gap: .5rem; flex-shrink: 0; }
-        .entry .btn { flex-shrink: 0; }
+        body { background: var(--bg-page); color: var(--text-main); margin: 0; }
+        .pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+        .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+        .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+        form { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 10px 18px; padding: 4px 20px 0; }
+        .outcome { grid-column: 1 / -1; border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: var(--fs-body); border: 2px solid var(--success); color: var(--success); }
+        .outcome.err { border-color: var(--danger); color: var(--danger); }
+        .column { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+        .label { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        .documents { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+        .documents input { display: none; }
+        .doc-card { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; border: 2px solid var(--border-color); background: var(--bg-row); cursor: pointer; }
+        .doc-card .doc-kind { font-weight: bold; font-size: var(--fs-row); }
+        .doc-card .doc-ref { color: var(--text-muted); font-size: var(--fs-row-sub); }
+        .doc-card .doc-date { color: var(--text-muted); font-size: var(--fs-row-sub); white-space: nowrap; }
+        .documents input:checked + .doc-card { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+        .documents input:checked + .doc-card .doc-kind { color: var(--primary); }
+        .empty { color: var(--text-muted); text-align: center; padding: 20px; }
+        .pager { display: flex; justify-content: space-between; gap: 8px; flex-shrink: 0; }
+        .preview { flex: 1; min-height: 0; overflow: auto; background: var(--bg-inset); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; }
+        .preview-doc { display: none; font-family: var(--font-doc); font-size: 0.85rem; }
+        .preview-doc.shown { display: block; }
+        .preview .hint { color: var(--text-muted); text-align: center; padding-top: 20px; }
+        .display { font-size: var(--fs-field); color: var(--primary); font-weight: bold; background: var(--bg-page); border: 2px solid var(--primary); border-radius: 4px; padding: 8px 12px; overflow-wrap: anywhere; }
+        .keyboard { min-height: 0; }
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+        .bottom-nav .btn { min-width: 12rem; }
+        .bottom-nav .end { margin-left: auto; }
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/customer-documents" data-modal-size="72rem 44rem">
 <div class="pos-terminal">
-    <header>{inject:i18n.get('customerdocs.title')}</header>
-    <form method="post" action="/customer-documents">
-        <div class="history">
-            <p>{inject:i18n.get('customerdocs.choose')}</p>
+    <div class="top-bar"><span class="title">{inject:i18n.get('customerdocs.title')}</span></div>
+    <form method="post" action="/customer-documents" id="documentForm">
+        {#if error}<div class="outcome err" role="alert">{error}</div>{#else if outcome}<div class="outcome" role="status">{outcome}</div>{/if}
+        <div class="column">
+            <div class="label">{inject:i18n.get('customerdocs.choose')}</div>
             <div class="documents">
                 {#for document in documents}
-                <div class="document">
-                    <label><input type="radio" name="documentId" value="{document.id}" required>
-                        <span>{document.label} — {document.reference}<br><small>{document.date}</small></span></label>
-                    <details><summary>{inject:i18n.get('customerdocs.preview')}</summary><div class="receipt-preview">{document.content}</div></details>
-                </div>
-                {#else}<p>{inject:i18n.get('customerdocs.empty')}</p>{/for}
+                <input type="radio" name="documentId" id="doc-{document.id}" value="{document.id}" required data-preview="preview-{document.id}">
+                <label class="doc-card" for="doc-{document.id}">
+                    <span><span class="doc-kind">{document.label}</span><br><span class="doc-ref">{document.reference}</span></span>
+                    <span class="doc-date">{document.date}</span>
+                </label>
+                {#else}<div class="empty">{inject:i18n.get('customerdocs.empty')}</div>{/for}
             </div>
-            <nav>
-                {#if hasPrevious}<a class="btn btn-muted" href="/customer-documents?page={previous}">{inject:i18n.get('customerdocs.previous')}</a>{/if}
-                {#if hasNext}<a class="btn btn-muted" href="/customer-documents?page={next}">{inject:i18n.get('customerdocs.next')}</a>{/if}
-            </nav>
+            {#if hasPrevious || hasNext}
+            <div class="pager">
+                {#if hasPrevious}<a class="btn btn-sm btn-muted" href="/customer-documents?page={previous}">{inject:i18n.get('customerdocs.previous')}</a>{#else}<span></span>{/if}
+                {#if hasNext}<a class="btn btn-sm btn-muted" href="/customer-documents?page={next}">{inject:i18n.get('customerdocs.next')}</a>{/if}
+            </div>
+            {/if}
+            <div class="preview" id="preview">
+                <div class="hint" id="previewHint">{inject:i18n.get('customerdocs.selectToPreview')}</div>
+                {#for document in documents}<div class="preview-doc" id="preview-{document.id}">{document.content}</div>{/for}
+            </div>
         </div>
-        <div class="entry">
-            {#if error}<div class="error">{error}</div>{/if}
-            {#if outcome}<div class="outcome">{outcome}</div>{/if}
-            <label>{inject:i18n.get('ticketemail.adresseEmail')}</label>
+        <div class="column">
+            <div class="label">{inject:i18n.get('ticketemail.adresseEmail')}</div>
             <div class="display pad-display" id="documentEmailDisplay"></div>
             <input type="hidden" name="email" id="documentEmail" value="{address}">
             <input type="hidden" name="page" value="{page}">
             <div class="keyboard pos-kb-compact" id="documentKeyboard"></div>
-            <button class="btn btn-success" type="submit">{inject:i18n.get('ticketemail.envoyer')}</button>
         </div>
     </form>
-    <footer><a class="btn btn-muted" href="/">{inject:i18n.get('common.back')}</a></footer>
+    <div class="bottom-nav">
+        <button class="btn btn-success" type="submit" form="documentForm">{inject:i18n.get('ticketemail.envoyer')}</button>
+        <a class="btn btn-muted end" href="/">{inject:i18n.get('common.back')}</a>
+    </div>
 </div>
 {#include keyboard-lib /}
 <script>
     PosInput.setup({ displayId: 'documentEmailDisplay', hiddenId: 'documentEmail',
         containerId: 'documentKeyboard', keyboardType: 'email', mode: 'text', uppercase: false,
         maxLength: 120, initialValue: document.getElementById('documentEmail').value });
+
+    /* The copy selected is shown under the list, as it was printed. */
+    function showPreview() {
+        var chosen = document.querySelector('input[name=documentId]:checked');
+        document.querySelectorAll('.preview-doc').forEach(function (doc) { doc.classList.remove('shown'); });
+        document.getElementById('previewHint').style.display = chosen ? 'none' : '';
+        if (chosen) { document.getElementById(chosen.getAttribute('data-preview')).classList.add('shown'); }
+    }
+    document.querySelectorAll('input[name=documentId]').forEach(function (radio) { radio.addEventListener('change', showPreview); });
+    showPreview();
 </script>
+{#include screen-embed /}
 </body>
 </html>

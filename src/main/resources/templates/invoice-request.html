@@ -9,7 +9,7 @@
  ! field being typed and its keyboard.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -27,7 +27,6 @@
         .steps { display: flex; gap: 22px; font-size: var(--fs-label); color: var(--text-muted); flex-shrink: 0; }
         .steps .s.on { color: var(--danger); font-weight: bold; }
         .chosen { color: var(--text-muted); font-size: var(--fs-label); flex-shrink: 0; }
-        .error { background: var(--danger); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
 
         .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
         .side { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -48,7 +47,7 @@
         .field { display: flex; justify-content: space-between; align-items: center; gap: 8px;
                  padding: 8px 10px; border-bottom: 1px dashed var(--border-strong);
                  font-size: var(--fs-body); cursor: pointer; }
-        .field.on { background: rgba(255,255,255,.08); }
+        .field.on { box-shadow: inset 4px 0 0 var(--primary); }
         .field .lab { color: var(--text-muted); white-space: nowrap; }
         .field .val { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .field .val.empty { color: var(--text-muted); font-weight: normal; }
@@ -83,17 +82,18 @@
         .slip-count { font-size: var(--fs-body); color: var(--text-muted); max-width: 38.75rem; }
         .doc-type { display: block; text-align: center; padding: 16px; font-size: var(--fs-row); }
 
-        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        .bottom-nav .mk-back { margin-left: auto; }
         /* The application's button base, declared verbatim as every screen does; the
            theme include supplies the colour modifiers. */
     </style>
+    {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="80rem 44rem" data-embed-stay="/invoice">
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('invoicerequest.facture2')}</span>
-        <span id="clock"></span>
+        <span class="title">{inject:i18n.get('invoicerequest.facture2')}</span>
     </div>
 
     <div class="main-area">
@@ -114,7 +114,7 @@
         </div>
 
         {#if state.invoice.error}
-        <div class="error">{state.invoice.error}</div>
+        <div class="mk-outcome err" role="alert">{state.invoice.error}</div>
         {/if}
 
         {#if state.invoice.onTicketStep}
@@ -134,9 +134,6 @@
                 <div class="fields compact" id="fieldList"></div>
                 <div id="kbDisplay" class="display pad-display"></div>
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
-                <div class="actions">
-                    <button class="btn btn-primary" type="submit">{inject:i18n.get('common.validate')}</button>
-                </div>
                 {#for f in fields}
                 <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
                 {/for}
@@ -198,13 +195,6 @@
                     </select>
                 </div>
                 {/if}
-                <div class="actions">
-                    {#if state.invoice.editingCustomer}
-                    <button class="btn btn-success" type="submit">{inject:i18n.get('invoicerequest.enregistrerContinuer')}</button>
-                    {#else}
-                    <button class="btn btn-success" type="submit">{inject:i18n.get('invoicerequest.creerContinuer')}</button>
-                    {/if}
-                </div>
             </div>
             {#for f in fields}
             <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
@@ -236,10 +226,6 @@
                 <div id="kbDisplay" class="display pad-display"></div>
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
                 <div class="hint">{inject:i18n.get('invoicerequest.quelquesLettresSuffisentN')}</div>
-                <div class="actions">
-                    <a class="btn btn-muted" href="/invoice/customer/new">{inject:i18n.get('invoicerequest.nouveau')}</a>
-                    <button class="btn btn-primary" type="submit">{inject:i18n.get('invoicerequest.rechercher')}</button>
-                </div>
                 {#for f in fields}
                 <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
                 {/for}
@@ -260,9 +246,6 @@
                 <div class="fields compact" id="fieldList"></div>
                 <div id="kbDisplay" class="display pad-display"></div>
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
-                <div class="actions">
-                    <button class="btn btn-primary" type="submit">{inject:i18n.get('common.validate')}</button>
-                </div>
                 {#for f in fields}
                 <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
                 {/for}
@@ -321,7 +304,6 @@
                     <a class="btn btn-sm btn-muted" href="/invoice/order">{inject:i18n.get('invoicerequest.saisir')}</a>
                 </div>
             </div>
-            <a class="btn btn-success" href="/invoice/preview">{inject:i18n.get('invoicerequest.validerVoirDocument')}</a>
         </div>
         {/if}
 
@@ -334,9 +316,7 @@
         <div class="centered">
             <h2>{inject:i18n.get('invoicerequest.x21InserezFeuille')} {state.invoice.slipPageNumber} {inject:i18n.get('invoicerequest.x21Sur')} {state.invoice.slipPageCount}</h2>
             <div class="slip-count">{inject:i18n.format('invoicerequest.x21DocumentOccupe', state.invoice.slipPageCount)}</div>
-            <form method="post" action="/invoice/slip">
-                <button class="btn btn-success" type="submit">{inject:i18n.get('invoicerequest.feuilleInsereeImprimer')}</button>
-            </form>
+            <form method="post" action="/invoice/slip" id="slipForm"></form>
         </div>
         {/if}
 
@@ -348,19 +328,36 @@
          ! promettrait d'annuler ce qui ne peut plus l'être. Ce qu'on abandonne à ce
          ! stade, ce sont les feuilles restantes.
         !}
+        {! The gesture of the step on screen, bottom left. !}
+        {#if state.invoice.onTicketStep || (state.invoice.onPreviewStep && state.invoice.enteringOrderNumber)}
+        <button class="btn btn-primary" type="submit" form="entryForm">{inject:i18n.get('common.validate')}</button>
+        {/if}
+        {#if state.invoice.onCustomerStep}
+        {#if state.invoice.editingCustomer}
+        <button class="btn btn-success" type="submit" form="entryForm">{inject:i18n.get('invoicerequest.enregistrerContinuer')}</button>
+        {#else if state.invoice.creatingCustomer}
+        <button class="btn btn-success" type="submit" form="entryForm">{inject:i18n.get('invoicerequest.creerContinuer')}</button>
+        {#else}
+        <button class="btn btn-primary" type="submit" form="entryForm">{inject:i18n.get('invoicerequest.rechercher')}</button>
+        <a class="btn btn-muted" href="/invoice/customer/new">{inject:i18n.get('invoicerequest.nouveau')}</a>
+        {/if}
+        {/if}
+        {#if state.invoice.onPreviewStep && !state.invoice.enteringOrderNumber}
+        <a class="btn btn-success" href="/invoice/preview">{inject:i18n.get('invoicerequest.validerVoirDocument')}</a>
+        {/if}
         {#if state.invoice.onInsertStep}
+        <button class="btn btn-success" type="submit" form="slipForm">{inject:i18n.get('invoicerequest.feuilleInsereeImprimer')}</button>
         <a href="/invoice/abandon" class="btn btn-muted">{inject:i18n.get('invoicerequest.interrompreLImpression')}</a>
         {#else}
         <a href="/invoice/abandon" class="btn btn-muted">{inject:i18n.get('invoicerequest.abandonner')}</a>
         {/if}
-        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 
 {#include keyboard-lib /}
 
 <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 
     /*
      * The fields of the mask this step carries, as the server describes them: the
@@ -433,5 +430,6 @@
         if (form) form.addEventListener('submit', refreshFields);
     })();
 </script>
+{#include screen-embed /}
 </body>
 </html>

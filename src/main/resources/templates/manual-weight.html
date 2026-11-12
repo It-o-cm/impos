@@ -23,17 +23,29 @@
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        /* The weight being typed: the same display as the price modal of the sale
+           screen. Without it the field had no box and nothing showed the figure. */
+        .price-input-display { font-size: var(--fs-field-num); text-align: right; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 12px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
         .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
         .main-area { display: flex; justify-content: center; align-items: center; }
         .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 24px 32px; width: 30rem; }
         .panel h2 { text-transform: uppercase; margin-bottom: 8px; text-align: center; letter-spacing: 1px; }
+        /* In the sale screen's modal the modal IS the panel and its title is the
+           panel's heading: no box in the box, no title said twice. */
+        html.in-modal .pos-terminal { grid-template-rows: 3.25rem 1fr 4.5rem; }
+        html.in-modal .panel { width: 100%; border: none; background: transparent; padding: 0 20px; }
+        html.in-modal .panel h2 { display: none; }
+        html.in-modal .main-area { align-items: flex-start; padding-top: 6px; }
+        html.in-modal .kb-area.pos-kb-compact .pos-key { padding: 15px; font-size: 1.5rem; }
         .hint { color: var(--text-muted); font-size: var(--fs-body); text-align: center; margin-bottom: 14px; }
+        /* In the sale's modal the title says it all. */
+        html.in-modal .hint { display: none; }
         .container-box { border: 1px solid var(--warning); color: var(--warning); border-radius: 8px; padding: 8px 12px; text-align: center; font-weight: bold; margin-bottom: 14px; }
         .kb-area { margin-top: 10px; }
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/manual-weight" data-modal-size="30rem fit">
 <div class="pos-terminal">
     <div class="top-bar">
         <span class="store-name">{inject:i18n.get('common.store')}</span>
@@ -57,8 +69,8 @@
     </div>
 
     <div class="bottom-nav">
-        <a class="btn btn-muted" href="/action/manual-weight/cancel">{inject:i18n.get('common.back')}</a>
         <button type="submit" form="weightForm" class="btn btn-success">{inject:i18n.get('common.validate')}</button>
+        <a class="btn btn-muted mk-back" href="/action/manual-weight/cancel">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 
@@ -78,5 +90,6 @@
         placeholder: "0"
     });
 </script>
+{#include screen-embed /}
 </body>
 </html>

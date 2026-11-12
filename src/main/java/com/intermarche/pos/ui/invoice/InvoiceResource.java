@@ -78,11 +78,20 @@ public class InvoiceResource {
      */
     @GET
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance showInvoiceScreen() {
+    public Response showInvoiceScreen() {
         LOGGER.info("Entering method showInvoiceScreen");
         invoiceService.open();
+        // No closed ticket to bill: the screen is not opened and the refusal is
+        // stated where every key of the TICKET menu states it, at the top of the
+        // sale's article list.
+        if (state.invoice.tickets.isEmpty()) {
+            state.ticket.setError(i18n.get(PosState.NO_TICKET_INVOICE_KEY));
+            state.touch();
+            LOGGER.info("Exiting method showInvoiceScreen: no ticket");
+            return Response.seeOther(java.net.URI.create("/")).build();
+        }
         LOGGER.info("Exiting method showInvoiceScreen");
-        return request();
+        return Response.ok(request()).build();
     }
 
     /**

@@ -87,7 +87,7 @@ public class TicketEmailResource {
         // keyboard over nothing would be the odd one out, and would make the operator
         // press a button that cannot work before being told.
         ticketService.resolveLastClosedTicketId(state);
-        if (!state.requireLastClosedTicket()) {
+        if (!state.requireLastClosedTicket(PosState.NO_LAST_TICKET_EMAIL_KEY)) {
             LOGGER.info("Exiting method showEmailScreen");
             return Response.seeOther(URI.create("/")).build();
         }
@@ -118,7 +118,7 @@ public class TicketEmailResource {
         }
         if (state.lastClosedTicketId == null) {
             LOGGER.info("Exiting method sendEmail");
-            return page(address, i18n.get(PosState.NO_LAST_TICKET_KEY), false);
+            return page(address, i18n.get(PosState.NO_LAST_TICKET_EMAIL_KEY), false);
         }
         if (!address.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
             LOGGER.info("Exiting method sendEmail");
@@ -206,7 +206,7 @@ public class TicketEmailResource {
         }
         if (state.lastClosedTicketId == null) {
             LOGGER.info("Exiting method sendSms");
-            return page(address, number, i18n.get(PosState.NO_LAST_TICKET_KEY), false, false);
+            return page(address, number, i18n.get(PosState.NO_LAST_TICKET_EMAIL_KEY), false, false);
         }
         if (!number.matches("[+0-9][0-9 .]{5,19}")) {
             LOGGER.info("Exiting method sendSms");

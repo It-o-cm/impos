@@ -41,11 +41,22 @@ class CustomerDocumentTest {
         return r;
     }
 
-    /** Negative pages clamp to zero and an empty history still offers destination entry. */
-    @Test void emptyHistoryAndNegativePage() {
-        var r = resource(); var view = r.show(-1);
-        verify(r.documents).list(0); verify(view).data("hasPrevious", false);
+    /** Negative pages clamp to zero. */
+    @Test void negativePage() {
+        var r = resource(); var d = copy();
+        when(r.documents.list(0)).thenReturn(List.of(d));
+        var view = (TemplateInstance) r.show(-1).getEntity();
+        verify(view).data("hasPrevious", false);
         verify(view).data("hasNext", false); verify(view).data("previous", 0);
+    }
+
+    /** With no issued copy at all the screen is not opened: the refusal is stated at the top of the sale's article list. */
+    @Test void emptyHistoryIsRefusedOnTheSaleScreen() {
+        var r = resource();
+        var response = r.show(0);
+        assertEquals("/", response.getLocation().toString());
+        assertEquals(r.i18n.get(PosState.NO_CUSTOMER_DOCUMENT_KEY), r.state.ticket.transientError);
+        verifyNoInteractions(r.template);
     }
 
     /** Full pages expose navigation and every allowed family resolves to a real bundle key. */
@@ -53,8 +64,9 @@ class CustomerDocumentTest {
         var r = resource(); var d = copy();
         for (var kind : CustomerDocument.Kind.values()) {
             d.kind = kind;
+            when(r.documents.list(0)).thenReturn(List.of(d));
             when(r.documents.list(2)).thenReturn(java.util.Collections.nCopies(20, d));
-            var view = r.show(2);
+            var view = (TemplateInstance) r.show(2).getEntity();
             verify(view, atLeastOnce()).data("hasPrevious", true);
             verify(view, atLeastOnce()).data("hasNext", true);
             assertNotEquals("customerdocs.kind" + kind.name(), r.i18n.get("customerdocs.kind" + kind.name()));
@@ -64,8 +76,10 @@ class CustomerDocumentTest {
     /** Training prevents both archive reads and delivery, even with a forged form. */
     @Test void trainingBlocksGetAndPost() {
         var r = resource(); r.state.trainingMode = true;
-        var view = r.show(0); r.send(12L, "client@example.test", 0);
-        verify(view, times(2)).data("error", r.i18n.get(PosState.TRAINING_FORBIDDEN_KEY));
+        assertEquals("/", r.show(0).getLocation().toString());
+        assertEquals(r.i18n.get(PosState.TRAINING_FORBIDDEN_KEY), r.state.ticket.transientError);
+        var view = r.send(12L, "client@example.test", 0);
+        verify(view).data("error", r.i18n.get(PosState.TRAINING_FORBIDDEN_KEY));
         verifyNoInteractions(r.mail, r.documents);
     }
 

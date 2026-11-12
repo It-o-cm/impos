@@ -136,11 +136,11 @@ public class DemoDegradedIT {
         scanCode(COFFEE_EAN);
         page.getByText("CAFÉ GRAINS 500G").waitFor();
         // The payment screen raises the exact red banner.
-        // The ENCAISSER link only exists in a server render that SEES the
-        // cart (the page was first rendered empty) — reload before clicking.
+        // The RÈGLEMENT key of the bottom bar is a link only in a server render
+        // that SEES the cart (the page was first rendered empty) — reload
+        // before clicking.
         page.reload();
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ENCAISSER").setExact(true)).click();
+        page.locator("a#payBtn").click();
         page.getByText("VALORISATION INDISPONIBLE — PRIX CATALOGUE APPLIQUÉS").waitFor();
         page.close();
     }

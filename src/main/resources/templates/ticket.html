@@ -12,21 +12,21 @@
 {/if}
 {#if state.ticket.transientError}
     {#if state.ticket.transientOk}
-    <div class="receipt-item notice-line">
+    <div class="receipt-item notice-line transient-msg" data-stamp="{state.ticket.transientStamp}">
         <div class="item-details">
             <strong>✔ {state.ticket.transientError}</strong>
         </div>
         <span class="price" style="color:var(--success);">{inject:i18n.get('ticket.ok')}</span>
     </div>
     {#else if state.ticket.transientWarn}
-    <div class="receipt-item warning-line">
+    <div class="receipt-item warning-line transient-msg" data-stamp="{state.ticket.transientStamp}">
         <div class="item-details">
             <strong>⚠️ {state.ticket.transientError}</strong>
         </div>
         <span class="price" style="color:var(--warning);">!</span>
     </div>
     {#else}
-    <div class="receipt-item error-line">
+    <div class="receipt-item error-line transient-msg" data-stamp="{state.ticket.transientStamp}">
         <div class="item-details">
             <strong>⚠️ {state.ticket.transientError}</strong>
         </div>

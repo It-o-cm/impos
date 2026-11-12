@@ -343,7 +343,7 @@ class MessagesTest {
     @Test
     void bothIsTheSingleLabelWithoutASecondLanguage() {
         Messages messages = newMessages();
-        assertEquals("A rendre", messages.both("customer.change"));
+        assertEquals("À rendre", messages.both("customer.change"));
         assertNull(messages.getSecondLang());
     }
 
@@ -355,7 +355,7 @@ class MessagesTest {
     void bothIsTheSingleLabelWhenTheSecondLanguageIsTheRenderedOne() {
         Messages messages = newMessages();
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("fr");
-        assertEquals("A rendre", messages.both("customer.change"));
+        assertEquals("À rendre", messages.both("customer.change"));
         assertNull(messages.getSecondLang());
     }
 
@@ -366,7 +366,7 @@ class MessagesTest {
     void bothIgnoresAnUnknownSecondLanguage() {
         Messages messages = newMessages();
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("de");
-        assertEquals("A rendre", messages.both("customer.change"));
+        assertEquals("À rendre", messages.both("customer.change"));
         assertNull(messages.getSecondLang());
     }
 
@@ -380,7 +380,7 @@ class MessagesTest {
     void forCustomerWithoutAChoiceRendersAsUsual() {
         Messages messages = newMessages();
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("nl");
-        assertEquals("Terug te geven / A rendre", messages.forCustomer(() -> messages.both("customer.change")));
+        assertEquals("Terug te geven / À rendre", messages.forCustomer(() -> messages.both("customer.change")));
         assertEquals("fr", messages.forCustomer(messages::getLang));
     }
 
@@ -426,7 +426,7 @@ class MessagesTest {
         Messages messages = newMessages();
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("fr");
         when(messages.posSettingsService.customerDisplayLanguage()).thenReturn(" NL ");
-        assertEquals("A rendre / Terug te geven", messages.forCustomerDisplay(() -> messages.both("customer.change")));
+        assertEquals("À rendre / Terug te geven", messages.forCustomerDisplay(() -> messages.both("customer.change")));
         assertEquals("nl", messages.forCustomerDisplay(messages::getLang));
         assertEquals("RETOUR", messages.get("common.back"));
         messages.state.customerLanguage = "pt";
@@ -463,7 +463,7 @@ class MessagesTest {
         assertEquals(messages.forCustomer(() -> messages.get("customer.change")),
                 messages.forCustomer(() -> messages.both("customer.change")));
         assertEquals("RETOUR", messages.get("common.back"));
-        assertEquals("Terug te geven / A rendre", messages.both("customer.change"));
+        assertEquals("Terug te geven / À rendre", messages.both("customer.change"));
     }
 
     /**
@@ -505,7 +505,7 @@ class MessagesTest {
         Messages messages = newMessages();
         when(messages.posSettingsService.customerSecondLanguage()).thenReturn("nl");
         assertEquals("nl", messages.getSecondLang());
-        assertEquals("Terug te geven / A rendre", messages.both("customer.change"));
+        assertEquals("Terug te geven / À rendre", messages.both("customer.change"));
     }
 
     /**

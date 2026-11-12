@@ -84,6 +84,13 @@ public class CashMenu extends PanacheEntity {
     public String ticketModel = "DETAILED";
 
     /**
+     * The key layout — tabs, keys, colours and labels — as {@link MenuLayout}
+     * JSON, or null for the standard layout reduced to {@link #menuKeys}.
+     */
+    @Column(name = "layout", length = 20000)
+    public String layout;
+
+    /**
      * Finds a model by its code.
      *
      * @param code the code, possibly null
@@ -142,6 +149,30 @@ public class CashMenu extends PanacheEntity {
      */
     public List<CashFunction> hiddenFunctionList() {
         return CashFunction.parseList(hiddenFunctions);
+    }
+
+    /**
+     * Returns the key layout the registers draw: the administered one,
+     * otherwise the standard one keeping the bar keys {@link #menuKeys} names,
+     * in its order.
+     *
+     * @return the layout, never null
+     */
+    public MenuLayout effectiveLayout() {
+        MenuLayout administered = MenuLayout.parse(layout);
+        if (administered != null) {
+            return administered;
+        }
+        MenuLayout standard = MenuLayout.standard();
+        List<String> keys = menuKeyList();
+        if (keys.isEmpty()) {
+            return standard;
+        }
+        MenuLayout shown = new MenuLayout();
+        for (String key : keys) {
+            shown.tabs.add(standard.tab(key));
+        }
+        return shown;
     }
 
     /**

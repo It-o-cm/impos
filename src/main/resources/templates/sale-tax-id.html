@@ -1,49 +1,85 @@
-{! Sale-only fiscal identity, independent from the invoice/customer creation flow (LC-08-06-02/-03).
- ! Opened by the payment screen with next=pay where the NIF is required (LC-08-06-01); a NIF
- ! scanned meanwhile (LC-08-06-05) is shown in the field by a light poll of /sale-tax-id/scanned. !}
+{! Sale-only fiscal identity, independent from the invoice/customer creation flow (LC-08-06-02/-03),
+ ! shown in a modal over the sale when opened from its key. Opened by the payment screen with
+ ! next=pay where the NIF is required (LC-08-06-01); a NIF scanned meanwhile (LC-08-06-05) is shown
+ ! in the field by a light poll of /sale-tax-id/scanned.
+ !
+ ! A NIF is digits (a Portuguese one is nine): the screen opens on the numeric pad, and ABC switches
+ ! to the letters a foreign identifier may carry, 123 back to the pad. VALIDER bottom left, ANNULER
+ ! bottom right. !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('saletaxid.title')}</title>
     <style>
         {#include theme /}
-        body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
-        .pos-terminal { grid-template-rows:3.75rem 1fr 5rem; }
-        .top-bar,.bottom-nav { display:flex; align-items:center; justify-content:space-between; padding:0 20px; border:1px solid var(--border-color); }
-        .top-bar { font-size:var(--fs-title); font-weight:bold; }
-        .main-area { display:flex; flex-direction:column; gap:12px; padding:16px; min-height:0; overflow-y:auto; }
-        .hint { font-size:var(--fs-body); }
-        .error { background:var(--danger); color:#fff; padding:10px; }
-        .display { border:2px solid var(--success); padding:12px; min-height:3.5rem; font-size:var(--fs-field); overflow-wrap:anywhere; }
-        #taxIdKeyboard { min-height:0; overflow-y:auto; }
+        body { background: var(--bg-page); color: var(--text-main); margin: 0; }
+        .pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+        .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+        .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+        .work { display: flex; flex-direction: column; gap: 10px; padding: 4px 20px 0; min-height: 0; max-width: 36rem; width: 100%; margin: 0 auto; box-sizing: border-box; }
+        .hint { color: var(--text-muted); font-size: var(--fs-row-sub); margin: 0; line-height: 1.35; }
+        html.in-modal .hint { display: none; }
+        .error { border: 2px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 8px 12px; font-weight: bold; font-size: var(--fs-body); }
+        .entry-row { display: flex; gap: 10px; align-items: stretch; }
+        .display { flex: 1; min-width: 0; box-sizing: border-box; font-size: var(--fs-field); padding: 8px 12px; border-radius: 4px;
+                   border: 2px solid var(--primary); background: var(--bg-page); color: var(--primary); font-weight: bold;
+                   overflow-wrap: anywhere; text-transform: uppercase; }
+        .entry-row .btn { min-width: 5.5rem; }
+        #taxIdKeyboard { min-height: 0; }
+        /* The ten-column letter pad shares the modal's width instead of imposing
+           its keys' natural width on a narrow terminal. */
+        #taxIdKeyboard .pos-keyboard--alpha { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+        #taxIdKeyboard .pos-keyboard--alpha .pos-key { min-width: 0; padding-left: 0; padding-right: 0; overflow: hidden; }
+        #taxIdKeyboard .pos-keyboard--alpha .pos-key--action, #taxIdKeyboard .pos-keyboard--alpha .pos-key--danger { font-size: var(--fs-key-sm); }
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+        .bottom-nav .btn { min-width: 11rem; }
+        .bottom-nav .end { margin-left: auto; }
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/sale-tax-id" data-modal-size="40rem fit">
 <div class="pos-terminal">
-    <header class="top-bar">{inject:i18n.get('saletaxid.title')}</header>
-    <main class="main-area">
-        <p class="hint">{inject:i18n.get('saletaxid.hint')}</p>
-        {#if scanHint}<p class="hint">{inject:i18n.get('saletaxid.scanHint')}</p>{/if}
+    <div class="top-bar"><span class="title">{inject:i18n.get('saletaxid.title')}</span></div>
+    <div class="work">
+        <p class="hint">{inject:i18n.get('saletaxid.hint')}{#if scanHint} {inject:i18n.get('saletaxid.scanHint')}{/if}</p>
         {#if error}<div class="error" role="alert">{error}</div>{/if}
         <form action="/sale-tax-id" method="post" id="taxIdForm">
-            <div id="taxIdDisplay" class="display pad-display"></div>
+            <div class="entry-row">
+                <div id="taxIdDisplay" class="display pad-display"></div>
+                <button type="button" class="btn btn-muted" id="taxIdKeys">ABC</button>
+            </div>
             <input type="hidden" id="taxIdHidden" name="taxId" value="{value}">
             <input type="hidden" name="next" value="{next}">
         </form>
         <div id="taxIdKeyboard"></div>
-    </main>
-    <footer class="bottom-nav">
-        <a href="/" class="btn btn-muted">{inject:i18n.get('common.cancel')}</a>
+    </div>
+    <div class="bottom-nav">
         <button type="submit" form="taxIdForm" class="btn btn-success">{inject:i18n.get('common.validate')}</button>
-    </footer>
+        <a href="/" class="btn btn-muted end">{inject:i18n.get('common.cancel')}</a>
+    </div>
 </div>
 {#include keyboard-lib /}
 <script>
-    PosInput.setup({ displayId:'taxIdDisplay', hiddenId:'taxIdHidden', containerId:'taxIdKeyboard',
-        keyboardType:'email', mode:'text', uppercase:true, maxLength:30,
-        initialValue:document.getElementById('taxIdHidden').value });
+    /* Digits first; the letters only when the identifier needs them. */
+    let lettersShown = /[A-Za-z]/.test(document.getElementById('taxIdHidden').value);
+
+    /* Draws the pad of the current mode over the value typed so far. */
+    function drawKeys() {
+        PosInput.setup({ displayId: 'taxIdDisplay', hiddenId: 'taxIdHidden', containerId: 'taxIdKeyboard',
+            keyboardType: lettersShown ? 'searchAlpha' : 'numpad', mode: 'text', uppercase: true, maxLength: 30,
+            initialValue: document.getElementById('taxIdHidden').value });
+        document.getElementById('taxIdKeys').textContent = lettersShown ? '123' : 'ABC';
+    }
+
+    /* ABC shows the letters, 123 the numeric pad. */
+    function toggleKeys() {
+        lettersShown = !lettersShown;
+        drawKeys();
+    }
+    document.getElementById('taxIdKeys').addEventListener('click', toggleKeys);
+    drawKeys();
+
     /* LC-08-06-05: a NIF scanned while this screen is open replaces what the field shows. */
     let knownScans = Number('{scans}');
     function watchScans() {
@@ -59,5 +95,6 @@
     }
     setInterval(watchScans, 1000);
 </script>
+{#include screen-embed /}
 </body>
 </html>

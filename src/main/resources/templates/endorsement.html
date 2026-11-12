@@ -43,8 +43,8 @@
     <div id="endorseKeyboardArea" class="endorse-kb-area"></div>
     <div id="endorseError" class="endorse-error" style="display:none;"></div>
     <div style="display:flex; gap:10px; margin-top:5px;">
-      <a href="/action/endorse-cancel" class="btn btn-muted" style="width:50%;">{inject:i18n.get('common.cancel')}</a>
       <button class="btn btn-warning" style="width:50%; color:black;" onclick="endorseNext()">{inject:i18n.get('lock.next')}</button>
+      <a href="/action/endorse-cancel" class="btn btn-muted" style="width:50%;">{inject:i18n.get('common.cancel')}</a>
     </div>
     <!-- LC-01-05-08 : quand le back-office a autorise le geste, une touche le
          valide sans code ; elle n'apparait qu'apres l'autorisation recue. -->
@@ -184,7 +184,31 @@
       }
     }
 
+    /* True while a screen shown in a modal over this page (the sale's screen
+       modal) is loading or carries this panel itself: the panel is then drawn
+       there, in front of the cashier, and this page's own stays down — nor does
+       it read the badge mailbox, which the modal's panel must receive.
+       @return true when the modal's screen answers the endorsement */
+    function answeredByModal() {
+      const host = document.getElementById('screenModal');
+      const frame = document.getElementById('screenModalFrame');
+      if (!host || !frame || !host.classList.contains('open')) return false;
+      try {
+        const inner = frame.contentDocument;
+        return !inner || inner.readyState !== 'complete' || !!inner.getElementById('endorseModal');
+      } catch (e) {
+        return false;
+      }
+    }
+
     function pollEndorsement() {
+      if (answeredByModal()) {
+        const own = document.getElementById('endorseModal');
+        if (own && own.classList.contains('active')) {
+          own.classList.remove('active'); resetEndorseState();
+        }
+        return;
+      }
       fetch('/endorsement-data')
               .then(r => r.json())
               .then(data => {

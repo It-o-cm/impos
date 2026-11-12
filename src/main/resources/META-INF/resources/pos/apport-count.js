@@ -117,8 +117,20 @@
     }
 
     /**
+     * Arms the pad on the first denomination of the tab shown, so the pad is
+     * there and ready from the start instead of appearing on the first tap.
+     */
+    function armFirst() {
+        var first = document.querySelector('.count-item');
+        if (first) {
+            selectItem(first);
+        }
+    }
+
+    /**
      * Swaps the denomination tab, reusing the count page's fragment endpoint;
-     * the counts already keyed survive the swap.
+     * the counts already keyed survive the swap, and the pad is armed on the
+     * new tab's first denomination.
      *
      * @param {string} type the tab: bills, coins or rolls
      * @param {Element} btnElement the tab button
@@ -133,6 +145,7 @@
             .then(function (html) {
                 document.getElementById('listContainer').innerHTML = html;
                 refreshDisplay();
+                armFirst();
             });
     }
 
@@ -153,7 +166,8 @@
     }
 
     /**
-     * Wires the denomination list of the apport screen, when the page carries it.
+     * Wires the denomination list of the apport screen, when the page carries it,
+     * and arms the pad on its first denomination.
      */
     function boot() {
         var listContainer = document.getElementById('listContainer');
@@ -167,6 +181,7 @@
             }
         });
         refreshDisplay();
+        armFirst();
     }
 
     window.ApportCount = { switchTab: switchTab, prepareApport: prepareApport };

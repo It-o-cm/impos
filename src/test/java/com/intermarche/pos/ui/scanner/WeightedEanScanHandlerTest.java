@@ -172,6 +172,81 @@ class WeightedEanScanHandlerTest {
     }
 
     /**
+     * BO-03-06-54: a loyalty card wears the 29 weight shape; the fallback leaves
+     * the deployed card range to the loyalty-card handler, while a 29 code
+     * outside it is still decoded as a weighed article.
+     */
+    @Test
+    void loyaltyCardsOfTheDeployedRangeAreLeftToTheirHandler() {
+        WeightedEanScanHandler handler = newHandler();
+        handler.weightPrefixes = Arrays.asList("29");
+        handler.fidelityPattern = "^299\\d{10}$";
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext card = new ScanContext("2990000000019", state);
+        ScanContext weighed = new ScanContext("2912345005009", state);
+        try (var ranges = noAdministeredRange();
+             MockedStatic<Product> products = mockStatic(Product.class)) {
+            handler.handle(card);
+            handler.handle(weighed);
+        }
+        assertFalse(card.handled);
+        assertTrue(weighed.handled);
+        verify(ticket).setError("ARTICLE BALANCE INTROUVABLE (12345)");
+    }
+
+    /**
+     * BO-03-06-54: the administered card range wins over the deployed one — a
+     * card of the administered range is left alone, a code of the deployed range
+     * only is weighed; a blank administered range falls back to the deployed one.
+     */
+    @Test
+    void theAdministeredLoyaltyRangeWinsOverTheDeployedOne() {
+        WeightedEanScanHandler handler = newHandler();
+        handler.weightPrefixes = Arrays.asList("29");
+        handler.fidelityPattern = "^299\\d{10}$";
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(handler.posSettingsService.fidelityCardPattern()).thenReturn(" ^2912\\d{9}$ ");
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext administered = new ScanContext("2912345005009", state);
+        ScanContext deployedOnly = new ScanContext("2990000000019", state);
+        try (var ranges = noAdministeredRange();
+             MockedStatic<Product> products = mockStatic(Product.class)) {
+            handler.handle(administered);
+            handler.handle(deployedOnly);
+        }
+        assertFalse(administered.handled);
+        assertTrue(deployedOnly.handled);
+        when(handler.posSettingsService.fidelityCardPattern()).thenReturn("  ");
+        ScanContext fallback = new ScanContext("2990000000019", newState(mock(TicketState.class)));
+        try (var ranges = noAdministeredRange();
+             MockedStatic<Product> products = mockStatic(Product.class)) {
+            handler.handle(fallback);
+        }
+        assertFalse(fallback.handled);
+    }
+
+    /**
+     * BO-03-06-54: with no card range at all (none administered, a blank
+     * deployed one) no 29 code is taken for a loyalty card.
+     */
+    @Test
+    void aBlankLoyaltyRangeClaimsNothing() {
+        WeightedEanScanHandler handler = newHandler();
+        handler.weightPrefixes = Arrays.asList("29");
+        handler.fidelityPattern = " ";
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(handler.posSettingsService.fidelityCardPattern()).thenReturn(null);
+        ScanContext code = new ScanContext("2990000000019", newState(mock(TicketState.class)));
+        try (var ranges = noAdministeredRange();
+             MockedStatic<Product> products = mockStatic(Product.class)) {
+            handler.handle(code);
+        }
+        assertTrue(code.handled);
+    }
+
+    /**
      * Assembles a mock {@link PosState} whose ticket sub-state is the supplied
      * mock, seeding the ticket's transient scanned-codes set.
      *

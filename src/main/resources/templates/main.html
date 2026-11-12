@@ -23,6 +23,12 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
+    <script>
+        /* L'écran de vente ne se dessine jamais DANS une modale : une redirection
+           vers la vente depuis le cadre recharge la page entière, avant que rien
+           ne s'y dessine. */
+        if (window.top !== window.self) { window.top.location.replace('/'); window.stop(); }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('main.ihmCaisseSupermarche')}</title>
@@ -124,7 +130,23 @@
                            border: 2px solid var(--border-strong); border-radius: 6px; padding: 3px 8px;
                            font-size: var(--fs-amount); font-weight: bold; text-align: right;
                            line-height: 1.4; min-height: 1.4em; overflow: hidden; }
-        .grid-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; flex: 1; min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+        /* Every menu's keys are the same size: the panel is cut into the six rows of
+           the fullest menu (twelve keys), whatever the menu shown holds. */
+        .grid-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; flex: 1; min-height: 0; grid-auto-rows: calc((100% - 5 * 6px) / 6); align-content: start; overflow-y: auto; }
+        /* THE PALETTE of the key layout (back office): saturated tiles that read
+           on the light and the dark theme alike; yellow and orange carry dark text. */
+        .btn-c-blue { --kc: #1f5fd6; --kt: #fff; }
+        .btn-c-green { --kc: #12804a; --kt: #fff; }
+        .btn-c-red { --kc: #c6282f; --kt: #fff; }
+        .btn-c-orange { --kc: #e07a10; --kt: #111; }
+        .btn-c-yellow { --kc: #e8c21c; --kt: #111; }
+        .btn-c-purple { --kc: #7a3fc2; --kt: #fff; }
+        .btn-c-teal { --kc: #0f8a8a; --kt: #fff; }
+        .btn-c-grey { --kc: #6b7280; --kt: #fff; }
+        .btn[class*="btn-c-"] { background-color: var(--kc); color: var(--kt); }
+        /* Only the tab shown is drawn in full colour; the others keep the bar's
+           muted face and carry their colour as a band along the bottom. */
+        .bottom-nav .btn.tab-idle { background-color: var(--muted); color: var(--text-main); box-shadow: inset 0 -5px 0 var(--kc); }
         .grid-buttons .btn { height: auto; min-height: 0; font-size: var(--fs-btn-sm); display: flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; padding: 0 4px; min-width: 0; overflow: hidden; }
         {! BO-03-10-16/17 : le modèle de menu caisse — touches masquées, colonnes, taille, ticket virtuel. !}
         {cashMenu.css.raw}
@@ -149,7 +171,27 @@
         /* Modale Prix */
         .price-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 90; justify-content: center; align-items: center; overflow-y: auto; }
         .price-modal.active { display: flex; }
-        .price-panel { background: var(--bg-panel); border: 2px solid var(--primary); border-radius: 12px; padding: 16px; width: 22.5rem; display: flex; flex-direction: column; gap: 10px; margin: auto; }
+        .price-panel, .price-box { background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: 16px; box-shadow: 0 28px 80px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3); padding: 16px; width: 22.5rem; display: flex; flex-direction: column; gap: 10px; margin: auto; }
+        /* LE MESSAGE D'UNE TOUCHE QUI NE PEUT PAS AGIR (fermer, vignettes, formation) :
+           une modale posée sur l'écran de vente, que l'opérateur acquitte. */
+        .message-box { width: 32rem; max-width: 92vw; padding: 0; gap: 0; overflow: hidden; }
+        .message-text { display: flex; align-items: center; gap: 16px; font-size: var(--fs-section); font-weight: 600; line-height: 1.4; padding: 26px 24px; }
+        .message-text::before { content: '!'; flex-shrink: 0; width: 2.4rem; height: 2.4rem; border-radius: 50%; display: grid; place-items: center; background: var(--warning); color: #000; font-size: 1.3rem; font-weight: 800; }
+        .message-foot { display: flex; justify-content: flex-end; padding: 14px 24px; background: var(--bg-inset); border-top: 1px solid var(--border-color); }
+        .message-foot .btn { min-width: 11rem; height: 3.25rem; border-radius: 10px; box-shadow: none; display: inline-flex; align-items: center; justify-content: center; }
+        /* LES ÉCRANS OUVERTS EN MODALE (recherche, info article, poids manuel) : la
+           page de l'écran, chargée dans un cadre posé sur l'écran de vente. Elle se
+           ferme par ses propres touches ; ce qui part ailleurs part en pleine page. */
+        .screen-modal { display: none; position: fixed; inset: 0; z-index: 95; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); align-items: center; justify-content: center; }
+        .screen-modal.open { display: flex; }
+        /* The frame IS the modal box: the same panel, border and corners as the
+           price modal. Its size is the one the screen asks for (data-modal-size on
+           its body), bounded by the terminal; it stays hidden until the screen has
+           drawn, so the box never shows empty or jumps to its size. */
+        .screen-modal iframe { width: min(94vw, 60rem); height: min(92vh, 40rem); border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-panel); box-shadow: 0 28px 80px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3); visibility: hidden; }
+        .screen-modal iframe.ready { visibility: visible; animation: screenModalIn 0.16s ease-out; }
+        @keyframes screenModalIn { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
+        @media (prefers-reduced-motion: reduce) { .screen-modal iframe.ready { animation: none; } }
         .price-title { font-size: var(--fs-title); font-weight: bold; color: var(--primary); text-align: center; }
         .price-target { color: var(--text-muted); font-size: var(--fs-label); text-align: center; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; }
         /* Le rappel de la ligne : la MEME lecture que sur le ticket (quantité en
@@ -186,6 +228,11 @@
         .overlay-offline { bottom: 5rem; z-index: 49; background: var(--warning); color: #000; letter-spacing: 2px; font-size: 0.95rem; display: none; }
         body[data-offline="true"] .overlay-offline { display: block; }
 
+        /* THE MESSAGE ZONE ANSWERS EVERY TIME. A key that gets the same answer as
+           the previous one would otherwise change nothing on screen, and the
+           operator would think it did not react: each new message flashes. */
+        .transient-msg.flash { animation: transientFlash 1.2s ease-out; }
+        @keyframes transientFlash { 0%, 35% { background: rgba(255, 196, 0, 0.35); } 100% { background: transparent; } }
     </style>
 </head>
 <body data-theme="{posTheme}" data-offline="{offline ?: false}">
@@ -267,13 +314,13 @@
          ! modale de contrôle d'âge. !}
         <span id="indicatorZone" data-request="{state.serviceRequest.name()}" data-arrived="{state.boMessageArrived}" style="display:flex; gap:10px; align-items:center;">
             {#if state.serviceRequest.name() == 'PENDING'}
-            <a href="/supervisor" class="ind-chip ind-request">{inject:i18n.get('supervisor.demandeEnCours')}{#if state.serviceRequestReason} : {state.serviceRequestReason}{/if}</a>
+            <a href="/supervisor" data-modal class="ind-chip ind-request">{inject:i18n.get('supervisor.demandeEnCours')}{#if state.serviceRequestReason} : {state.serviceRequestReason}{/if}</a>
             {/if}
             {#if state.serviceRequest.name() == 'ACKED'}
-            <a href="/supervisor" class="ind-chip ind-ack">{inject:i18n.get('supervisor.demandeAcquittee')}</a>
+            <a href="/supervisor" data-modal class="ind-chip ind-ack">{inject:i18n.get('supervisor.demandeAcquittee')}</a>
             {/if}
             {#if state.boMessageArrived}
-            <a href="/bo-message" class="ind-chip ind-message">{inject:i18n.get('supervisor.messageBo')}</a>
+            <a href="/bo-message" data-modal class="ind-chip ind-message">{inject:i18n.get('supervisor.messageBo')}</a>
             {/if}
         </span>
         <span id="opInfo">{inject:i18n.get('menu.caisse')} {inject:terminal.id} | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
@@ -304,153 +351,97 @@
             </div>
 
             <div class="grid-buttons">
-
-                {#if state.menu.key == 'articles'}
-                    <!-- ARTICLES : la saisie des articles (nomenclature expert, étape 8). -->
-                    <a href="/action/cancelLine" class="btn btn-muted">{inject:i18n.get('main.annulerLigne')}</a>
-                    <a href="/action/cancel-by-scan"
-                       class="btn {#if state.cancelByScanArmed}btn-warning{#else}btn-muted{/if}"
-                       {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}{inject:i18n.get('main.annulerScannez')}{#else}{inject:i18n.get('main.annulerParScan')}{/if}</a>
-                    <a href="/manual?cancel=true" class="btn btn-muted">{inject:i18n.get('main.cancelGroupArticle')}</a>
-                    <a href="/action/price-mod/quantity" data-prefill class="btn btn-muted">{inject:i18n.get('main.quantite')}</a>
-                    <!-- LC-02-02-03 : le poids BRUT se tape AVANT l'article, sur son
-                         ecran, puis l'article est nomme. La touche montre qu'un poids
-                         est arme — comme ANNULER PAR SCAN et A ENLEVER montrent le
-                         leur — et un second appui desarme : un chiffre arme que l'on
-                         ne voit pas se retrouve sur l'article suivant. Le poids lui
-                         meme est rappele par le bandeau, qui le porte en toutes
-                         lettres. -->
-                    <a href="{#if state.pendingManualWeightKg}/action/manual-weight/cancel{#else}/manual-weight{/if}"
-                       class="btn {#if state.pendingManualWeightKg}btn-warning{#else}btn-muted{/if}"
-                       {#if state.pendingManualWeightKg}style="color:black;"{/if}>{#if state.pendingManualWeightKg}{inject:i18n.get('main.poidsArme')}{#else}{inject:i18n.get('main.poidsManuel')}{/if}</a>
-                    <!-- LC-02-08-01 : une seule touche pour les deux gestes. -->
-                    <a href="/action/collect"
-                       class="btn {#if state.collectArmed}btn-warning{#else}btn-muted{/if}"
-                       {#if state.collectArmed}style="color:black;"{/if}>{#if state.collectArmed}{inject:i18n.get('main.enleverArme')}{#else}{inject:i18n.get('ticket.enlever')}{/if}</a>
-                    <a href="/action/repeat" class="btn btn-muted">{inject:i18n.get('main.repeterArticle')}</a>
-                    <a href="/fruits" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.fruitsAmpLegumes')}</a>
-                    <a href="/manual" class="btn btn-muted">{inject:i18n.get('main.saisieDirecte')}</a>
-                    {! BO-03-01-04/05 : les articles du niveau 0 sont des touches directes. !}
-                    {#for key in inject:manualService.levelZeroKeys()}
-                    <form action="/action/manual-add-known" method="POST" style="display:contents;">
-                        <input type="hidden" name="ean" value="{key.ean}">
-                        <button type="submit" class="btn btn-primary level-zero-key">{key.label}</button>
-                    </form>
-                    {/for}
-                    <!-- Un code tapé d'avance cherche DIRECTEMENT : l'écran de
-                         recherche ne s'ouvre que si le code ne désigne pas un
-                         article unique. -->
-                    <a href="/search" data-prefill data-prefill-href="/action/search/direct"
-                       data-prefill-param="q" class="btn btn-muted">{inject:i18n.get('main.recherche')}</a>
-                    <!-- EXP-43 : le sous-total sépare la part de chacun ; il s'imprime. -->
-                    <a href="/action/subtotal" class="btn btn-muted">{inject:i18n.get('main.sousTotal')}</a>
-                    <!-- EXP-93 : consultation article en lecture seule, aucun ajout. -->
-                    <a href="/article-info" class="btn btn-muted">{inject:i18n.get('main.infoArticle')}</a>
-
-                {#else if state.menu.key == 'caisse'}
-                    <!-- CAISSE : la tenue du poste (EXP-10) et la session. -->
-                    <a href="/action/lock" class="btn btn-muted">{inject:i18n.get('main.verrouiller')}</a>
-                    <a href="/close" class="btn btn-muted">{inject:i18n.get('main.fermer')}</a>
-                    <a href="/session" class="btn btn-success">{inject:i18n.get('main.sessionCaisse')}</a>
-                    <a href="/cash-calculator" class="btn btn-muted">{inject:i18n.get('main.calculatriceFond')}</a>
-                    <a href="/action/training" class="btn btn-muted">{#if state.trainingMode}{inject:i18n.get('main.k19-quitter-formation')}{#else}{inject:i18n.get('main.k19-mode-formation')}{/if}</a>
-                    <!-- BO-11-01-20 : déclaration des vignettes de la prise de poste. -->
-                    <a href="/vignettes" class="btn btn-muted">{inject:i18n.get('main.t21Vignettes')}</a>
-
-                {#else if state.menu.key == 'ticket'}
-                    <!-- TICKET : la vie du ticket et les documents qu'il produit. -->
-                    {#if state.visibleItems.isEmpty()}
-                        <a href="/parked" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.reprendreTicket')}</a>
-                    {#else}
-                        <a href="/action/parked/park" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.mettreAttente')}</a>
-                    {/if}
-                    <a href="/abandon" class="btn btn-danger">{inject:i18n.get('main.annulerTicket')}</a>
-                    <a href="/action/return-mode" class="btn {#if state.returnMode}btn-danger{#else}btn-muted{/if}">{#if state.returnMode}FIN MODE RETOUR{#else}MODE RETOUR{/if}</a>
-                    <a href="/return" class="btn btn-primary">{inject:i18n.get('common.back')}</a>
-                    {! LC-08-04-18 : en caisse portugaise, la touche FACTURE ouvre les documents fiscaux. !}
-                    <a href="{#if ptDocuments}/fiscal-pt{#else}/invoice{/if}" class="btn btn-primary">{inject:i18n.get('main.facture')}</a>
-                    <a href="/reprint" class="btn btn-primary">{inject:i18n.get('main.rechercheTicket')}</a>
-                    <!-- Les quatre touches DERNIER agissent sur la dernière vente clôturée
-                         (PosState.requireLastClosedTicket) : même refus, même message. -->
-                    <a href="/action/print-last" class="btn btn-muted">{inject:i18n.get('main.dernierTicket')}</a>
-                    <a href="/action/print-last-barcode" class="btn btn-muted">{inject:i18n.get('main.dernierCodeBarres')}</a>
-                    <a href="/action/print-last-card" class="btn btn-muted">{inject:i18n.get('main.dernierDuplicataCb')}</a>
-                    <a href="/ticket-email" class="btn btn-muted">{inject:i18n.get('main.dernierEmail')}</a>
-                    <a href="/customer-documents" class="btn btn-muted">{inject:i18n.get('customerdocs.title')}</a>
-
-                {#else if state.menu.key == 'generosite'}
-                    <!-- GÉNÉROSITÉ : fidélité, solde des avantages, et les deux gestes
-                         de remise — ce que l'on CONCÈDE au client. Ils étaient sous
-                         RÈGLEMENT, dont la touche va désormais droit à l'encaissement. -->
-                    <a href="/sale-tax-id" class="btn btn-muted">{inject:i18n.get('saletaxid.title')}</a>
-                    <a href="/fidelity" class="btn btn-muted">{inject:i18n.get('main.fidelite')}</a>
-                    <a href="/voucher-balance" class="btn btn-muted">{inject:i18n.get('main.soldeBonCarte')}</a>
-                    <!-- Une seule touche pour les trois façons de changer le prix d'une
-                         ligne : elle ouvre la modale sur la remise, les trois modes s'y échangent. -->
-                    <a href="/action/price-mod/remise" data-prefill class="btn btn-muted">{inject:i18n.get('main.remisePrix')}</a>
-                    <a href="/action/price-mod/global_remise" data-prefill class="btn btn-warning">{inject:i18n.get('main.remiseTicket')}</a>
-
-                {#else if state.menu.key == 'tiroir'}
-                    <!-- TIROIR : l'argent du tiroir. -->
-                    <a href="/cash-movement" class="btn btn-success">{inject:i18n.get('main.mouvement')}</a>
-                    <a href="/withdrawal" class="btn btn-success">{inject:i18n.get('main.prelevement')}</a>
-                    <a href="/apport" class="btn btn-success">{inject:i18n.get('main.apportMonnaie')}</a>
-                    <a href="/transfer" class="btn btn-success">{inject:i18n.get('main.transfertReglement')}</a>
-                    <a href="/financial-movement" class="btn btn-success">{inject:i18n.get('main.mvtFinancier')}</a>
-                    <a href="/change-order" class="btn btn-muted">{inject:i18n.get('main.commandeMonnaie')}</a>
-                    <a href="/action/deposit" class="btn btn-muted">{inject:i18n.get('main.deconsignation')}</a>
-                    <!-- BO-11-03-03 : niveau d'espèces du monnayeur. -->
-                    <a href="/cash-changer" class="btn btn-muted">{inject:i18n.get('main.t21Monnayeur')}</a>
-                    {#if state.visibleItems.isEmpty()}
-                    <!-- LC-12-01-01 : ouverture forcee du tiroir, hors transaction uniquement,
-                         motif administre puis aval superviseur. -->
-                    <a href="/drawer-open" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.ouvertureTiroir')}</a>
-                    {/if}
-
-                {#else}
-                    <!-- AUTRE : le reste — supervision, mode dégradé, réglages opérateur, rappel. -->
-                    <a href="/supervisor" class="btn btn-warning">{inject:i18n.get('main.appelSuperviseur')}</a>
-                    <form action="/action/monetics-degraded" method="POST" style="display:contents;">
-                        <button type="submit" class="btn btn-warning" style="color:#000;">{#if state.moneticsDegradedForced}{inject:i18n.get('main.k19-lever-degrade-monetique')}{#else}{inject:i18n.get('main.k19-forcer-degrade-monetique')}{/if}</button>
-                    </form>
-                    <!-- EXP-90/91/92 : rappel par code d'un devis, commande, bon de vente
-                         ou panier click&collect remis par le back-office. -->
-                    <a href="/recall" class="btn btn-muted">{inject:i18n.get('main.rappelCode')}</a>
-                    <!-- LC-01-08-04 : la touche de consultation du message
-                         back-office — l'indicateur de la barre du haut y mène
-                         aussi, l'exigence offre les deux chemins. -->
-                    <a href="/bo-message" class="btn btn-primary">{inject:i18n.get('supervisor.messageBo')}</a>
-                    <!-- LC-06-03 : creation d'une commande en caisse — le panier
-                         enregistre devient une commande, l'acompte est percu et
-                         le ticket d'acompte porte le code-barres de reprise. -->
-                    <a href="/order" class="btn btn-success">{inject:i18n.get('main.commande')}</a>
-                    <a href="/badge-print" class="btn btn-muted">{inject:i18n.get('main.badgeOperateur')}</a>
-                    <a href="/pin-change" class="btn btn-muted">{inject:i18n.get('main.changerCodePin')}</a>
-                    <a href="/theme-select" class="btn btn-muted">{inject:i18n.get('common.theme')}</a>
-                    {! LC-13-06-04 : changer la langue a tout moment, y compris pendant une
-                     ! transaction. Le parametre language.operator-change decide si le choix
-                     ! est pris ; l'ecran le dit plutot que de cacher la touche. !}
-                    <a href="/language-select" class="btn btn-muted">{inject:i18n.get('common.language')}</a>
-                    {! LC-09-01-04 : la touche du programme installe sur la caisse, presente
-                     ! des que le back-office en administre le chemin. !}
-                    {#if externalProgram}
-                    <form action="/action/external-program" method="POST" style="display:contents;">
-                        <button type="submit" class="btn btn-primary">{externalProgram}</button>
-                    </form>
-                    {/if}
-                    {! BO-03-09-27 : une touche par application tierce administree, ouverte
-                     ! par son rang pour qu'aucune adresse ne voyage dans l'URL de la caisse. !}
-                    {#for app in externalApps}
-                    <a href="/external-app/{app_index}" class="btn btn-primary">{app.label}</a>
-                    {/for}
-                    {! BO-03-09-10 : la file unique — l'hôtesse déclare la caisse disponible ou non. !}
-                    {#if singleQueue.enabled}
-                    <form action="/action/single-queue" method="POST" style="display:contents;">
-                        <button type="submit" class="btn {#if singleQueue.available}btn-success{#else}btn-danger{/if}">{#if singleQueue.available}{inject:i18n.get('queue.disponible')}{#else}{inject:i18n.get('queue.nonDisponible')}{/if}</button>
-                    </form>
-                    {/if}
+                {! THE GRID IS THE LAYOUT'S: the keys of the tab shown, in the order,
+                 ! colours and labels the back office gave them (CashMenuService).
+                 ! Each function keeps here what makes it live — its armed state,
+                 ! its refusal when it has nothing to work on. A key's colour and
+                 ! label are those at rest; an armed or toggled key keeps the
+                 ! colour and words of its state. !}
+                {#let shown=cashMenu.shown(state.currentTab())}
+                {#if shown}
+                {#for k in shown.keys}
+                {#when k.fn}
+                {#is 'CANCEL_LINE'}<a href="/action/cancelLine" class="btn {k.cls('btn-muted')}">{k.text('main.annulerLigne')}</a>
+                {#is 'CANCEL_BY_SCAN'}<a href="/action/cancel-by-scan" class="btn {#if state.cancelByScanArmed}btn-warning{#else}{k.cls('btn-muted')}{/if}" {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}{inject:i18n.get('main.annulerScannez')}{#else}{k.text('main.annulerParScan')}{/if}</a>
+                {#is 'CANCEL_GROUP'}<a href="/manual?cancel=true" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.cancelGroupArticle')}</a>
+                {#is 'QUANTITY'}<a href="/action/price-mod/quantity" data-prefill class="btn {k.cls('btn-muted')}">{k.text('main.quantite')}</a>
+                {! LC-02-02-03 : le poids BRUT se tape AVANT l'article ; la touche montre
+                 ! qu'un poids est armé, un second appui désarme. !}
+                {#is 'MANUAL_WEIGHT'}<a href="{#if state.pendingManualWeightKg}/action/manual-weight/cancel{#else}/manual-weight{/if}" {#if !state.pendingManualWeightKg}data-modal{/if} class="btn {#if state.pendingManualWeightKg}btn-warning{#else}{k.cls('btn-muted')}{/if}" {#if state.pendingManualWeightKg}style="color:black;"{/if}>{#if state.pendingManualWeightKg}{inject:i18n.get('main.poidsArme')}{#else}{k.text('main.poidsManuel')}{/if}</a>
+                {! LC-02-08-01 : une seule touche pour les deux gestes. !}
+                {#is 'COLLECT'}<a href="/action/collect" class="btn {#if state.collectArmed}btn-warning{#else}{k.cls('btn-muted')}{/if}" {#if state.collectArmed}style="color:black;"{/if}>{#if state.collectArmed}{inject:i18n.get('main.enleverArme')}{#else}{k.text('ticket.enlever')}{/if}</a>
+                {#is 'REPEAT'}<a href="/action/repeat" class="btn {k.cls('btn-muted')}">{k.text('main.repeterArticle')}</a>
+                {#is 'FRUITS'}<a href="/fruits" class="btn {k.cls('btn-warning')}" {#if k.standardColor}style="color:black;"{/if}>{k.text('main.fruitsAmpLegumes')}</a>
+                {#is 'MANUAL'}<a href="/manual" class="btn {k.cls('btn-muted')}">{k.text('main.saisieDirecte')}</a>
+                {! BO-03-01-04/05 : les articles du niveau 0 sont des touches directes. !}
+                {#is 'LEVEL_ZERO'}{#for key in inject:manualService.levelZeroKeys()}<form action="/action/manual-add-known" method="POST" style="display:contents;"><input type="hidden" name="ean" value="{key.ean}"><button type="submit" class="btn {k.cls('btn-primary')} level-zero-key">{key.label}</button></form>{/for}
+                {! Un code tapé d'avance cherche DIRECTEMENT : l'écran de recherche ne
+                 ! s'ouvre que si le code ne désigne pas un article unique. !}
+                {#is 'SEARCH'}<a href="/search" data-modal data-prefill data-prefill-href="/action/search/direct" data-prefill-param="q" class="btn {k.cls('btn-muted')}">{k.text('main.recherche')}</a>
+                {#is 'SUBTOTAL'}<a href="/action/subtotal" class="btn {k.cls('btn-muted')}">{k.text('main.sousTotal')}</a>
+                {#is 'ARTICLE_INFO'}<a href="/article-info" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.infoArticle')}</a>
+                {#is 'LOCK'}<a href="/action/lock" class="btn {k.cls('btn-muted')}">{k.text('main.verrouiller')}</a>
+                {#is 'CLOSE'}<a href="/close" class="btn {k.cls('btn-muted')}">{k.text('main.fermer')}</a>
+                {#is 'SESSION'}<a href="/session" data-modal class="btn {k.cls('btn-success')}">{k.text('main.sessionCaisse')}</a>
+                {#is 'CASH_CALCULATOR'}<a href="/cash-calculator" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.calculatriceFond')}</a>
+                {#is 'TRAINING'}<a href="/action/training" class="btn {k.cls('btn-muted')}">{#if state.trainingMode}{inject:i18n.get('main.k19-quitter-formation')}{#else}{k.text('main.k19-mode-formation')}{/if}</a>
+                {! BO-11-01-20 : déclaration des vignettes de la prise de poste. !}
+                {#is 'VIGNETTES'}<a href="/vignettes" class="btn {k.cls('btn-muted')}">{k.text('main.t21Vignettes')}</a>
+                {#is 'PARK'}{#if state.visibleItems.isEmpty()}<a href="/parked" data-modal class="btn {k.cls('btn-warning')}" {#if k.standardColor}style="color:black;"{/if}>{k.text('main.reprendreTicket')}</a>{#else}<a href="/action/parked/park" class="btn {k.cls('btn-warning')}" {#if k.standardColor}style="color:black;"{/if}>{k.text('main.mettreAttente')}</a>{/if}
+                {#is 'ABANDON'}<a href="/abandon" data-modal class="btn {k.cls('btn-danger')}">{k.text('main.annulerTicket')}</a>
+                {#is 'RETURN_MODE'}<a href="/action/return-mode" class="btn {#if state.returnMode}btn-danger{#else}{k.cls('btn-muted')}{/if}">{#if state.returnMode}FIN MODE RETOUR{#else}{k.plain('MODE RETOUR')}{/if}</a>
+                {#is 'RETURN'}<a href="/return" data-modal class="btn {k.cls('btn-primary')}">{k.text('common.back')}</a>
+                {! A key with nothing to work on is drawn inactive: no closed ticket, no
+                 ! last sale, no customer copy. Training keeps them live, its refusal
+                 ! names the mode. LC-08-04-18 : en caisse portugaise, la touche
+                 ! FACTURE ouvre les documents fiscaux. !}
+                {#is 'INVOICE'}{#if ptDocuments || closedTicketOnRecord}<a href="{#if ptDocuments}/fiscal-pt{#else}/invoice{/if}" data-modal class="btn {k.cls('btn-primary')}">{k.text('main.facture')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('main.facture')}</button>{/if}
+                {#is 'REPRINT'}{#if closedTicketOnRecord}<a href="/reprint" data-modal class="btn {k.cls('btn-primary')}">{k.text('main.rechercheTicket')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('main.rechercheTicket')}</button>{/if}
+                {#is 'PRINT_LAST'}{#if state.lastClosedTicketId != null || state.trainingMode}<a href="/action/print-last" class="btn {k.cls('btn-muted')}">{k.text('main.dernierTicket')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('main.dernierTicket')}</button>{/if}
+                {#is 'PRINT_LAST_BARCODE'}{#if state.lastClosedTicketId != null || state.trainingMode}<a href="/action/print-last-barcode" class="btn {k.cls('btn-muted')}">{k.text('main.dernierCodeBarres')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('main.dernierCodeBarres')}</button>{/if}
+                {#is 'PRINT_LAST_CARD'}{#if state.lastClosedTicketId != null || state.trainingMode}<a href="/action/print-last-card" class="btn {k.cls('btn-muted')}">{k.text('main.dernierDuplicataCb')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('main.dernierDuplicataCb')}</button>{/if}
+                {#is 'TICKET_EMAIL'}{#if state.lastClosedTicketId != null || state.trainingMode}<a href="/ticket-email" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.dernierEmail')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('main.dernierEmail')}</button>{/if}
+                {#is 'CUSTOMER_DOCUMENTS'}{#if customerDocumentOnRecord || state.trainingMode}<a href="/customer-documents" data-modal class="btn {k.cls('btn-muted')}">{k.text('customerdocs.title')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('customerdocs.title')}</button>{/if}
+                {#is 'SALE_TAX_ID'}{#if saleTaxIdKey}<a href="/sale-tax-id" data-modal class="btn {k.cls('btn-muted')}">{k.text('saletaxid.title')}</a>{/if}
+                {#is 'FIDELITY'}<a href="/fidelity" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.fidelite')}</a>
+                {#is 'VOUCHER_BALANCE'}<a href="/voucher-balance" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.soldeBonCarte')}</a>
+                {! Une seule touche pour les trois façons de changer le prix d'une ligne. !}
+                {#is 'DISCOUNT'}<a href="/action/price-mod/remise" data-prefill class="btn {k.cls('btn-muted')}">{k.text('main.remisePrix')}</a>
+                {#is 'TICKET_DISCOUNT'}<a href="/action/price-mod/global_remise" data-prefill class="btn {k.cls('btn-warning')}">{k.text('main.remiseTicket')}</a>
+                {#is 'CASH_MOVEMENT'}<a href="/cash-movement" data-modal class="btn {k.cls('btn-success')}">{k.text('main.mouvement')}</a>
+                {#is 'WITHDRAWAL'}<a href="/withdrawal" data-modal class="btn {k.cls('btn-success')}">{k.text('main.prelevement')}</a>
+                {#is 'FLOAT_SUPPLY'}<a href="/apport" data-modal class="btn {k.cls('btn-success')}">{k.text('main.apportMonnaie')}</a>
+                {#is 'TRANSFER'}<a href="/transfer" data-modal class="btn {k.cls('btn-success')}">{k.text('main.transfertReglement')}</a>
+                {#is 'FINANCIAL_MOVEMENT'}<a href="/financial-movement" data-modal class="btn {k.cls('btn-success')}">{k.text('main.mvtFinancier')}</a>
+                {#is 'CHANGE_ORDER'}<a href="/change-order" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.commandeMonnaie')}</a>
+                {#is 'DEPOSIT_RETURN'}<a href="/action/deposit" class="btn {k.cls('btn-muted')}">{k.text('main.deconsignation')}</a>
+                {! BO-11-03-03 : niveau d'espèces du monnayeur. !}
+                {#is 'CASH_CHANGER'}<a href="/cash-changer" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.t21Monnayeur')}</a>
+                {! LC-12-01-01 : ouverture forcée du tiroir, hors transaction uniquement. !}
+                {#is 'DRAWER_OPEN'}{#if state.visibleItems.isEmpty()}<a href="/drawer-open" data-modal class="btn {k.cls('btn-warning')}" {#if k.standardColor}style="color:black;"{/if}>{k.text('main.ouvertureTiroir')}</a>{/if}
+                {#is 'SUPERVISOR'}<a href="/supervisor" data-modal class="btn {k.cls('btn-warning')}">{k.text('main.appelSuperviseur')}</a>
+                {#is 'MONETICS_DEGRADED'}<form action="/action/monetics-degraded" method="POST" style="display:contents;"><button type="submit" class="btn {k.cls('btn-warning')}" {#if k.standardColor}style="color:#000;"{/if}>{#if state.moneticsDegradedForced}{inject:i18n.get('main.k19-lever-degrade-monetique')}{#else}{k.text('main.k19-forcer-degrade-monetique')}{/if}</button></form>
+                {! EXP-90/91/92 : rappel par code d'un devis, commande, bon de vente ou panier. !}
+                {#is 'RECALL'}<a href="/recall" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.rappelCode')}</a>
+                {! LC-01-08-04 : only a message or a survey to read opens the key. !}
+                {#is 'BO_MESSAGE'}{#if state.hasBackOfficeMessage()}<a href="/bo-message" data-modal class="btn {k.cls('btn-primary')}">{k.text('supervisor.messageBo')}</a>{#else}<button class="btn btn-muted" disabled>{k.text('supervisor.messageBo')}</button>{/if}
+                {! LC-06-03 : création d'une commande en caisse. !}
+                {#is 'ORDER'}<a href="/order" data-modal class="btn {k.cls('btn-success')}">{k.text('main.commande')}</a>
+                {#is 'BADGE_PRINT'}<a href="/badge-print" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.badgeOperateur')}</a>
+                {#is 'PIN_CHANGE'}<a href="/pin-change" data-modal class="btn {k.cls('btn-muted')}">{k.text('main.changerCodePin')}</a>
+                {#is 'THEME'}<a href="/theme-select" data-modal class="btn {k.cls('btn-muted')}">{k.text('common.theme')}</a>
+                {! LC-13-06-04 : changer la langue à tout moment. !}
+                {#is 'LANGUAGE'}<a href="/language-select" data-modal class="btn {k.cls('btn-muted')}">{k.text('common.language')}</a>
+                {! LC-09-01-04 : le programme installé sur la caisse, dès que son chemin est administré. !}
+                {#is 'EXTERNAL_PROGRAM'}{#if externalProgram}<form action="/action/external-program" method="POST" style="display:contents;"><button type="submit" class="btn {k.cls('btn-primary')}">{k.plain(externalProgram)}</button></form>{/if}
+                {! BO-03-09-27 : une touche par application tierce, ouverte par son rang. !}
+                {#is 'EXTERNAL_APPS'}{#for app in externalApps}<a href="/external-app/{app_index}" class="btn {k.cls('btn-primary')}">{app.label}</a>{/for}
+                {! BO-03-09-10 : la file unique — la caisse disponible ou non. !}
+                {#is 'SINGLE_QUEUE'}{#if singleQueue.enabled}<form action="/action/single-queue" method="POST" style="display:contents;"><button type="submit" class="btn {#if singleQueue.available}btn-success{#else}btn-danger{/if}">{#if singleQueue.available}{inject:i18n.get('queue.disponible')}{#else}{inject:i18n.get('queue.nonDisponible')}{/if}</button></form>{/if}
+                {/when}
+                {/for}
                 {/if}
-
+                {/let}
             </div>
 
             {! PRÉ-SAISIE : le pavé du COIN BAS DROIT. Il appartient à la colonne
@@ -469,23 +460,37 @@
          does one thing instead of two. The current menu is the one lit. -->
     <div class="bottom-nav">
         <a href="/maintenance" class="btn btn-muted">{inject:i18n.get('maintenance.title')}</a>
-        {#for m in cashMenu.menus}
+        {! The tabs of the layout, in its order, colours and labels. The tab lit
+         ! is the one whose keys the grid shows. !}
+        {#let lit=cashMenu.shown(state.currentTab())}
+        {#for m in cashMenu.tabs}
         {#if m.direct}
             <!-- UNE TOUCHE DIRECTE N'OUVRE PAS DE MENU : elle mène à son écran.
                  Le garde-fou est celui qu'avait la touche ENCAISSER — rien à
                  payer, rien à ouvrir : l'écran de règlement créerait sinon un
                  ticket brouillon à zéro. -->
             {#if state.ticket.totalAmount > 0}
-                <a id="payBtn" href="{m.destination}" class="btn btn-primary">{inject:i18n.get(m.labelKey)}</a>
+                <a id="payBtn" href="{m.destination}" class="btn {#if m.color}btn-c-{m.color}{#else}btn-primary{/if}">{#if m.label}{m.label}{#else}{inject:i18n.get(m.labelKey)}{/if}</a>
             {#else}
-                <button id="payBtn" class="btn btn-muted" disabled>{inject:i18n.get(m.labelKey)}</button>
+                <button id="payBtn" class="btn btn-muted" disabled>{#if m.label}{m.label}{#else}{inject:i18n.get(m.labelKey)}{/if}</button>
             {/if}
         {#else}
-        <a href="/action/menu/{m.key}"
-           class="btn {#if state.menu.key == m.key}btn-primary{#else}btn-muted{/if}">{inject:i18n.get(m.labelKey)}</a>
+        <a href="/action/menu/{m.id}"
+           class="btn {#if lit && lit.id == m.id}{#if m.color}btn-c-{m.color}{#else}btn-primary{/if}{#else}{m.cls}{/if}">{#if m.label}{m.label}{#else}{inject:i18n.get(m.labelKey)}{/if}</a>
         {/if}
         {/for}
+        {/let}
     </div>
+
+    {#if state.modalMessage}
+    <div class="price-modal active" id="messageModal" role="alertdialog">
+        <div class="price-panel message-box">
+            <div class="message-text">{state.modalMessage}</div>
+            <div class="message-foot"><a href="/action/message/close" class="btn btn-primary">{inject:i18n.get('main.messageOk')}</a></div>
+        </div>
+    </div>
+    {/if}
+    <div class="screen-modal" id="screenModal"><iframe id="screenModalFrame" title="" src="about:blank"></iframe></div>
 
     <!-- MODALE PRIX -->
     {#if state.ageCheck.active}
@@ -731,13 +736,13 @@
                 // still has to ask — a badge answers the password, not the
                 // tickets left in attente.
                 if (data.returnRequested) {
-                    window.location.href = '/return';
+                    ScreenModal.open('/return');
                     return;
                 }
                 // LC-06-02-04 / -08: a scanned quote or order waits for the
                 // cashier's choice on the recall screen.
                 if (data.documentRequested) {
-                    window.location.href = '/recall';
+                    ScreenModal.open('/recall');
                     return;
                 }
                 // LC-06-05-03: a scanned selfscanning basket is controlled
@@ -799,6 +804,7 @@
                 }
                 if (data.changed) {
                     document.getElementById('ticket-container').innerHTML = data.html;
+                    flashNewMessage();
                     document.getElementById('mainTotal').innerText = data.total + " €";
                     var fidEarn = document.getElementById('fidEarn');
                     fidEarn.textContent = data.fidelityEarn ? data.fidelityEarn : '';
@@ -847,6 +853,71 @@
         });
     }
 
+</script>
+<script>
+    /* Flashes the message zone when it carries a message the screen has not shown
+       yet — the stamp moves with every message posted, even a repeated one. The
+       last stamp shown survives the page reloads that follow each key. */
+    function flashNewMessage() {
+        var message = document.querySelector('#ticket-container .transient-msg');
+        if (!message) return;
+        var stamp = message.getAttribute('data-stamp');
+        var shown = null;
+        try { shown = sessionStorage.getItem('posMessageStamp'); } catch (e) { /* storage unavailable */ }
+        if (stamp === shown) return;
+        message.classList.remove('flash');
+        void message.offsetWidth;
+        message.classList.add('flash');
+        try { sessionStorage.setItem('posMessageStamp', stamp); } catch (e) { /* storage unavailable */ }
+    }
+    flashNewMessage();
+</script>
+<script>
+    /* Les écrans ouverts en modale. Une touche data-modal charge son écran dans le
+       cadre posé sur la vente. Ce clic passe APRÈS celui de la pré-saisie : une
+       valeur tapée d'avance garde son effet direct, et la modale ne s'ouvre que
+       sur une touche pressée sans rien d'autre. */
+    var ScreenModal = {
+        open: function (url) {
+            var frame = document.getElementById('screenModalFrame');
+            frame.classList.remove('ready');
+            frame.src = url;
+            document.getElementById('screenModal').classList.add('open');
+        },
+        close: function () {
+            var frame = document.getElementById('screenModalFrame');
+            frame.classList.remove('ready');
+            frame.src = 'about:blank';
+            document.getElementById('screenModal').classList.remove('open');
+        },
+        /* Sizes the box to what the screen asks for, then shows it. */
+        fit: function () {
+            var frame = document.getElementById('screenModalFrame');
+            var doc = frame.contentDocument;
+            if (!doc || !doc.body || frame.src === 'about:blank' || frame.contentWindow.location.href === 'about:blank') { return; }
+            /* A page that is not made for the modal (a screen the flow leads
+               to, a sale screen in the frame) takes the whole register. */
+            if (!doc.body.hasAttribute('data-modal-size')) {
+                window.location.href = frame.contentWindow.location.href;
+                return;
+            }
+            var size = (doc.body.getAttribute('data-modal-size') || '').split(' ');
+            if (size.length === 2) {
+                frame.style.width = 'min(94vw, ' + size[0] + ')';
+                /* "auto": the screen sets its own height once drawn. */
+                if (size[1] !== 'auto' && size[1] !== 'fit') { frame.style.height = 'min(92vh, ' + size[1] + ')'; }
+            }
+            frame.classList.add('ready');
+        }
+    };
+    document.getElementById('screenModalFrame').addEventListener('load', function () { ScreenModal.fit(); });
+    document.addEventListener('click', function (ev) {
+        if (ev.defaultPrevented) return;
+        var key = ev.target.closest('a[data-modal]');
+        if (!key) return;
+        ev.preventDefault();
+        ScreenModal.open(key.getAttribute('href'));
+    });
 </script>
 
 </body>

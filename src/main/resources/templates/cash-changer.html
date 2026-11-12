@@ -3,6 +3,8 @@
  ! Ce que le monnayeur contient, coupure par coupure, et ce qu'il signale hors
  ! de ses seuils. Les apports et prélèvements passent par le monnayeur quand
  ! le magasin l'administre.
+ ! IN A MODAL over the sale (TIROIR menu), read-only: RETOUR, bottom right, goes
+ ! back to the sale.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -12,36 +14,24 @@
   <title>{inject:i18n.get('changer.t21Titre')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); }
-    .main-area { display: flex; justify-content: center; align-items: center; overflow: auto; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 24px 32px; width: 36rem; max-width: 92vw; display: flex; flex-direction: column; gap: 14px; }
-    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
-    table { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
-    th, td { padding: 6px 8px; border-bottom: 1px solid var(--border-color); text-align: right; }
+  </style>
+  {#include modal-kit /}
+  <style>
+    .levels { flex: 1 1 auto; min-height: 0; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-inset); }
+    table { width: 100%; border-collapse: collapse; font-size: var(--fs-row); }
+    th, td { padding: 7px 12px; border-bottom: 1px solid var(--border-color); text-align: right; }
     th:first-child, td:first-child { text-align: left; }
-    .total td { font-weight: bold; }
-    .alert { border: 1px solid var(--warning); border-radius: 8px; padding: 10px; text-align: center; }
-    .hint { color: var(--text-muted); text-align: center; }
-    .row { display: flex; gap: 10px; }
-    .row .btn { flex: 1; }
+    th { position: sticky; top: 0; background: var(--bg-inset); color: var(--text-muted); text-transform: uppercase; font-size: var(--fs-label); letter-spacing: 1px; }
+    .total td { font-weight: bold; color: var(--primary); border-bottom: none; }
   </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="46rem fit" data-embed-stay="/cash-changer">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('changer.t21Titre')}</span>
-      <span id="clock"></span>
-    </div>
-    <div class="main-area">
-      <div class="panel">
-        <h2>{inject:i18n.get('changer.t21Titre')}</h2>
-        {#if alert}<div class="alert">{alert}</div>{/if}
-        {#if inventory}
+    <div class="mk-title"><span class="title">{inject:i18n.get('changer.t21Titre')}</span></div>
+    <div class="mk-body">
+      {#if alert}<div class="mk-outcome warn" role="alert">{alert}</div>{/if}
+      {#if inventory}
+      <div class="levels">
         <table id="changerLevels">
           <thead><tr><th>{inject:i18n.get('changer.t21Coupure')}</th><th>{inject:i18n.get('changer.t21Nombre')}</th><th>{inject:i18n.get('changer.t21Montant')}</th></tr></thead>
           <tbody>
@@ -51,19 +41,16 @@
           <tr class="total"><td>{inject:i18n.get('changer.t21Total')}</td><td></td><td id="changerTotal">{inject:units.money(inventory.total)} €</td></tr>
           </tbody>
         </table>
-        {#if viaMachine}<div class="hint">{inject:i18n.get('changer.t21ViaMachine')}</div>{/if}
-        {#else}
-        <div class="hint">{inject:i18n.get('changer.t21Indisponible')}</div>
-        {/if}
-        <div class="row">
-          <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
-        </div>
       </div>
+      {#if viaMachine}<div class="mk-hint">{inject:i18n.get('changer.t21ViaMachine')}</div>{/if}
+      {#else}
+      <div class="mk-empty">{inject:i18n.get('changer.t21Indisponible')}</div>
+      {/if}
     </div>
-    <div class="bottom-nav"></div>
+    <div class="mk-actions">
+      <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
+    </div>
   </div>
-  <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-  </script>
+  {#include screen-embed /}
 </body>
 </html>

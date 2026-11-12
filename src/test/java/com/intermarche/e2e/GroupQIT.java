@@ -110,7 +110,7 @@ public class GroupQIT {
         long before = movementCount();
         Page page = login();
         page.navigate(base.toString() + "cash-movement");
-        page.locator("#type").selectOption("CUSTOMER_DEPOSIT");
+        page.locator("label[for=type-CUSTOMER_DEPOSIT]").click();
         enterAmount(page, "#amountKbArea", "10,00");
         enterReference(page, "REF");
         page.getByRole(AriaRole.BUTTON,
@@ -120,7 +120,7 @@ public class GroupQIT {
         Assertions.assertNull(lastMovementTender(), "a customer down-payment records against cash (null tender)");
         closeDrawer();
         page.close();
-        // --- Unknown type: refused directly (the select cannot hold it, so post it) ---
+        // --- Unknown type: refused directly (the type toggles cannot hold it, so post it) ---
         long beforeBad = movementCount();
         postForm("action/cash-movement/record", "type=BOGUS&amount=10&reason=&paymentMethod=");
         Assertions.assertEquals(beforeBad, movementCount(), "an unknown movement type must record nothing");
@@ -130,7 +130,7 @@ public class GroupQIT {
         try {
             long beforeT = movementCount();
             t.navigate(base.toString() + "cash-movement");
-            t.locator("#type").selectOption("CUSTOMER_DEPOSIT");
+            t.locator("label[for=type-CUSTOMER_DEPOSIT]").click();
             enterAmount(t, "#amountKbArea", "10,00");
             // No reference needed: the training guard is the first check in record(),
             // short-circuiting before the per-type field validation (rejectionOf).
@@ -146,7 +146,7 @@ public class GroupQIT {
         long beforeHigh = movementCount();
         Page h = login();
         h.navigate(base.toString() + "cash-movement");
-        h.locator("#type").selectOption("CUSTOMER_DEPOSIT");
+        h.locator("label[for=type-CUSTOMER_DEPOSIT]").click();
         enterAmount(h, "#amountKbArea", "200,00");
         // The reference is mandatory even above the threshold: rejectionOf runs
         // before the endorsement park, so a blank reference would refuse the line
@@ -220,19 +220,26 @@ public class GroupQIT {
         // deposits do not). Two 6 € cash sales give a 12 € CASH theoretical.
         buildCashSale();
         buildCashSale();
-        // --- Nominal: 5 € from cash to cheque. The transfer screen's amount pad
-        //     does not bind its hidden field, so the amount is posted directly and
-        //     the recorded fact asserted on the CashMovement row. ---
+        // --- Nominal: 5 € from cash to cheque, keyed on the transfer screen's
+        //     pad, which posts the euros through its hidden field. ---
         long before = movementCount();
-        postForm("action/transfer/record", "from=CASH&to=CHEQUE&amount=5.00");
+        Page nominal = login();
+        nominal.navigate(base.toString() + "transfer");
+        nominal.locator("label[for=from-CASH]").click();
+        nominal.locator("label[for=to-CHEQUE]").click();
+        enterAmount(nominal, "#amountKbArea", "5,00");
+        nominal.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("VALIDER LE TRANSFERT").setExact(true)).click();
+        nominal.getByText("TRANSFERT ENREGISTRÉ").waitFor();
+        nominal.close();
         Assertions.assertEquals(before + 1, movementCount(), "a valid transfer must record exactly one row");
         Assertions.assertEquals("CHEQUE", lastMovementTransferTo(), "the transfer must carry its destination");
         // --- Source = destination → refused with the exact banner (the guard fires
         //     before the amount, so no pad amount is needed to reach it). ---
         Page same = login();
         same.navigate(base.toString() + "transfer");
-        same.locator("#from").selectOption("CASH");
-        same.locator("#to").selectOption("CASH");
+        same.locator("label[for=from-CASH]").click();
+        same.locator("label[for=to-CASH]").click();
         same.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER LE TRANSFERT").setExact(true)).click();
         same.getByText("SOURCE ET DESTINATION IDENTIQUES").waitFor();
@@ -344,6 +351,10 @@ public class GroupQIT {
     private void buildCashSale() {
         Page page = login();
         scan(EAN_HUILE);
+        // The bus scan makes the sale payable: the sale screen reloads itself
+        // once to turn RÈGLEMENT into a link. Navigating before that reload
+        // races it and aborts the navigation.
+        page.locator("a#payBtn").waitFor();
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();

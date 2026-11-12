@@ -1,10 +1,13 @@
 {!
- ! RAPPEL PAR CODE (RecallResource, EXP-90/91/92 + acompte EXP-85). The cashier
- ! keys the code the back office gave the customer; the register fetches the
- ! document (devis / commande / bon de vente / click&collect) from the store node
- ! and loads its lines into the sale. A second form records a down-payment
- ! attached to an order. The documents live on imedge — a standalone lane resolves
- ! nothing and shows DOCUMENT INTROUVABLE on the sale screen.
+ ! RAPPEL PAR CODE (RecallResource, EXP-90/91/92 + acompte EXP-85), shown in a
+ ! modal over the sale. The cashier keys the code the back office gave the
+ ! customer; the register fetches the document (devis / commande / bon de vente /
+ ! click&collect) from the store node and loads its lines into the sale. The
+ ! second card records a down-payment attached to an order. Both cards share one
+ ! keyboard, which follows the field touched. A recalled quote or order that
+ ! admits a deposit waits here for the cashier's choice (LC-06-02-04/-08).
+ ! The outcomes of the gestures (refusal, deposit recorded) stay in the modal;
+ ! a loaded document returns to the sale.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -14,53 +17,61 @@
   <title>{inject:i18n.get('recall.rappelCode')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
-    .main-area { display: flex; justify-content: center; align-items: center; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 32px; width: 34rem; display: flex; flex-direction: column; gap: 18px; }
-    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
-    .card { border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-    .card h3 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
-    .row { display: flex; gap: 10px; align-items: center; }
-    .row input { flex: 1; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; padding: 10px 12px; }
-    .row input.active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
-    .recall-kb { max-width: 30rem; margin: 0 auto; }
-    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
-    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
-    /* LC-06-02 : le document rappelé qui attend le choix du caissier. */
-    .panel.wide { width: 46rem; max-height: 100%; padding: 16px 20px; gap: 10px; }
-    .doc-lines { max-height: 11rem; overflow-y: auto; border-top: 1px solid var(--border-strong); }
+    body { background: var(--bg-page); color: var(--text-main); margin: 0; }
+    .pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+    .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+    .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+    .main-area { min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 20px 0; overflow-y: auto; }
+    .outcome { border-radius: 8px; padding: 8px 14px; font-weight: bold; font-size: var(--fs-body); border: 2px solid var(--success); color: var(--success); flex-shrink: 0; }
+    .outcome.err { border-color: var(--danger); color: var(--danger); }
+    .cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; flex-shrink: 0; }
+    .card { border: 2px solid var(--border-color); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--bg-row); }
+    .card.current { border-color: var(--primary); }
+    .card h3 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .card.current h3 { color: var(--primary); }
+    .card .btn { margin-top: auto; width: 100%; }
+    .label { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .field { font-size: var(--fs-field); font-weight: bold; color: var(--text-main); background: var(--bg-page); border: 2px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+    .field.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); color: var(--primary); }
+    .pair { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; }
+    .pair > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .keyboard { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: flex-start; }
+    .keyboard > div { width: 100%; max-width: 48rem; }
+    body .pos-kb-compact .pos-key { padding: 0.45em 4px; font-size: 1.15rem; }
+    .keyboard.narrow > div { max-width: 20rem; }
+    /* LC-06-02: the recalled document waiting for the cashier's choice. */
+    .doc { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 18px; }
+    .doc-left, .doc-right { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+    .doc-title { font-weight: bold; font-size: var(--fs-row); }
+    .doc-lines { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-inset); }
     .doc-lines table { width: 100%; border-collapse: collapse; font-size: var(--fs-row-sub); }
-    .doc-lines th { color: var(--text-muted); text-align: right; font-weight: normal; padding: 4px 6px; position: sticky; top: 0; background: var(--bg-panel); }
+    .doc-lines th { color: var(--text-muted); text-align: right; font-weight: normal; padding: 6px 8px; position: sticky; top: 0; background: var(--bg-inset); border-bottom: 1px solid var(--border-color); }
     .doc-lines th:first-child, .doc-lines td:first-child { text-align: left; }
-    .doc-lines td { text-align: right; padding: 4px 6px; border-bottom: 1px dashed var(--border-strong); }
-    .doc-totals { display: flex; justify-content: space-between; gap: 10px; font-size: var(--fs-body); }
+    .doc-lines td { text-align: right; padding: 5px 8px; border-bottom: 1px dashed var(--border-color); }
+    .doc-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex-shrink: 0; }
+    .doc-totals div { border: 1px solid var(--border-color); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; }
+    .doc-totals span { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
     .doc-totals strong { font-size: var(--fs-row); }
-    .doc-hint { font-size: var(--fs-label); color: var(--warning); }
-    .doc-actions { display: flex; gap: 10px; justify-content: space-between; }
+    .doc-totals .remaining strong { color: var(--primary); }
+    .doc-hint { font-size: var(--fs-label); color: var(--warning); font-weight: bold; }
+    .doc-right .keyboard > div { max-width: none; }
+    .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+    .bottom-nav .btn { min-width: 12rem; }
+    .bottom-nav .end { margin-left: auto; }
   </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/recall /action/recall" data-modal-size="{#if document}66rem{#else}64rem{/if} fit">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('recall.rappelCode2')}</span>
-      <span id="clock"></span>
-    </div>
+    <div class="top-bar"><span class="title">{inject:i18n.get('recall.rappelCode2')}</span></div>
     <div class="main-area">
-      <div class="panel {#if document}wide{/if}">
-        {#if error??}<div class="error-box">{error}</div>{/if}
-        {#if saved}<div class="ok-box">{inject:i18n.get('recall.acompteEnregistre')}</div>{/if}
-
-        {#if document}
-        {! LC-06-02-02/-04/-08 : le devis ou la commande de l'outil de gestion commerciale,
-         ! rappelé par son code. Le caissier y prend un acompte — obligatoire ou facultatif
-         ! selon le document — ou le règle dans la vente, acomptes repris au paiement. !}
-        <div class="card">
-          <h3>{inject:i18n.get(document.kindKey)} {document.code}{#if document.label} — {document.label}{/if}</h3>
+      {#if error??}<div class="outcome err" role="alert">{error}</div>{#else if saved}<div class="outcome" role="status">{inject:i18n.get('recall.acompteEnregistre')}</div>{/if}
+      {#if document}
+      {! LC-06-02-02/-04/-08: the quote or order of the commercial tool, recalled by
+       ! its code. The cashier takes a deposit on it — mandatory or optional
+       ! depending on the document — or settles it in the sale. !}
+      <div class="doc">
+        <div class="doc-left">
+          <div class="doc-title">{inject:i18n.get(document.kindKey)} {document.code}{#if document.label} — {document.label}{/if}</div>
           <div class="doc-lines">
             <table>
               <tr><th>{inject:i18n.get('recall.article')}</th><th>{inject:i18n.get('recall.qteCommandee')}</th><th>{inject:i18n.get('recall.qteLivree')}</th><th>{inject:i18n.get('recall.prixUnitaire')}</th><th>{inject:i18n.get('recall.total')}</th></tr>
@@ -70,84 +81,87 @@
             </table>
           </div>
           <div class="doc-totals">
-            <span>{inject:i18n.get('recall.total')} <strong>{documentTotal}</strong></span>
-            <span>{inject:i18n.get('recall.dejaVerse')} <strong>{documentPaid}</strong></span>
-            <span>{inject:i18n.get('recall.reste')} <strong>{documentRemaining}</strong></span>
+            <div><span>{inject:i18n.get('recall.total')}</span><strong>{documentTotal}</strong></div>
+            <div><span>{inject:i18n.get('recall.dejaVerse')}</span><strong>{documentPaid}</strong></div>
+            <div class="remaining"><span>{inject:i18n.get('recall.reste')}</span><strong>{documentRemaining}</strong></div>
           </div>
+        </div>
+        <form class="doc-right" method="post" action="/action/recall/document/deposit">
+          <div class="label">{inject:i18n.get('recall.montant')}</div>
+          <div id="dispDeposit" class="field pad-display" data-placeholder="0,00" onclick="activateField('deposit')"></div>
+          <input type="hidden" name="amount" id="valDeposit" value="">
           {#if document.depositRequired}<div class="doc-hint">{inject:i18n.get('recall.acompteObligatoire')}</div>{/if}
-          <form class="row" method="post" action="/action/recall/document/deposit">
-            <div id="dispDeposit" class="pad-display" data-placeholder="{inject:i18n.get('recall.montant')}" onclick="activateField('deposit')"></div>
-            <input type="hidden" name="amount" id="valDeposit" value="">
-            <button type="submit" class="btn btn-success">{inject:i18n.get('recall.enregistrerLAcompte')}</button>
-          </form>
-          <div class="doc-actions">
-            <form method="post" action="/action/recall/document/forget"><button type="submit" class="btn btn-muted">{inject:i18n.get('recall.mettreDeCote')}</button></form>
-            {#if !document.depositRequired}
-            <form method="post" action="/action/recall/document/settle"><button type="submit" class="btn btn-primary">{inject:i18n.get('recall.reglerDocument')}</button></form>
-            {/if}
-          </div>
-        </div>
-        {#else}
-        <div class="card">
+          <div class="keyboard pos-kb-compact"><div id="recallKbArea"></div></div>
+          <button type="submit" class="btn btn-success">{inject:i18n.get('recall.enregistrerLAcompte')}</button>
+        </form>
+      </div>
+      {#else}
+      <div class="cards">
+        <form class="card" id="cardRecall" method="post" action="/action/recall" onclick="activateField('code')">
           <h3>{inject:i18n.get('recall.devisCommandeBonVente')}</h3>
-          <form class="row" method="post" action="/action/recall">
-            <div id="dispCode" class="pad-display" data-placeholder="{inject:i18n.get('recall.codeDocument')}" onclick="activateField('code')"></div>
-            <input type="hidden" name="code" id="valCode" value="">
-            <button type="submit" class="btn btn-primary">{inject:i18n.get('recall.rappeler')}</button>
-          </form>
-        </div>
-
-        <div class="card">
+          <div class="label">{inject:i18n.get('recall.codeDocument')}</div>
+          <div id="dispCode" class="field pad-display" data-placeholder="—"></div>
+          <input type="hidden" name="code" id="valCode" value="">
+          <button type="submit" class="btn btn-primary">{inject:i18n.get('recall.rappeler')}</button>
+        </form>
+        <form class="card" id="cardDeposit" method="post" action="/action/recall/acompte">
           <h3>{inject:i18n.get('recall.acompteCommande')}</h3>
-          <form method="post" action="/action/recall/acompte">
-            <div class="row">
-              <div id="dispOrder" class="pad-display" data-placeholder="{inject:i18n.get('recall.nCommande')}" onclick="activateField('order')"></div>
+          <div class="pair">
+            <div>
+              <div class="label">{inject:i18n.get('recall.nCommande')}</div>
+              <div id="dispOrder" class="field pad-display" data-placeholder="—" onclick="activateField('order')"></div>
               <input type="hidden" name="orderReference" id="valOrder" value="">
             </div>
-            <div class="row">
-              <div id="dispAmount" class="pad-display" data-placeholder="{inject:i18n.get('recall.montant')}" onclick="activateField('amount')"></div>
+            <div>
+              <div class="label">{inject:i18n.get('recall.montant')}</div>
+              <div id="dispAmount" class="field pad-display" data-placeholder="0,00" onclick="activateField('amount')"></div>
               <input type="hidden" name="amount" id="valAmount" value="">
-              <button type="submit" class="btn btn-success">{inject:i18n.get('recall.enregistrerLAcompte')}</button>
             </div>
-          </form>
-        </div>
-        {/if}
-        {! UN seul pave pour les trois champs: PosInput est un singleton et
-         ! l'operateur n'en remplit qu'un a la fois. Un clic sur un champ
-         ! rebranche le pave dessus en restaurant ce qui y avait ete saisi —
-         ! meme geste que l'ecran de fermeture de caisse. !}
-        <div class="recall-kb pos-kb-compact" id="recallKbArea"></div>
+          </div>
+          <button type="submit" class="btn btn-success">{inject:i18n.get('recall.enregistrerLAcompte')}</button>
+        </form>
       </div>
+      {! ONE keyboard for the fields: PosInput is a singleton and the cashier fills
+       ! one field at a time. Touching a field plugs the keyboard into it again,
+       ! restoring what was keyed there. !}
+      <div class="keyboard pos-kb-compact" id="recallKb"><div id="recallKbArea"></div></div>
+      {/if}
     </div>
     <div class="bottom-nav">
-      <a class="btn btn-muted" href="/" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+      {#if document}
+      {#if !document.depositRequired}
+      <form method="post" action="/action/recall/document/settle"><button type="submit" class="btn btn-primary">{inject:i18n.get('recall.reglerDocument')}</button></form>
+      {/if}
+      <form method="post" action="/action/recall/document/forget"><button type="submit" class="btn btn-muted">{inject:i18n.get('recall.mettreDeCote')}</button></form>
+      {/if}
+      <a class="btn btn-muted end" href="/">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 
   {#include keyboard-lib /}
 
   <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
-    /* Les codes de document et les references de commande sont alphanumeriques
-       — ils viennent du back office ou de l'outil de gestion commerciale, en
-       majuscules et avec leur tiret (DV-0001, C04-CMD000001) —, l'acompte est
-       un montant. */
+    /* Document codes and order references are alphanumeric — they come from the
+       back office or the commercial tool, upper case and with their dash
+       (DV-0001, C04-CMD000001) —, the deposit is an amount. */
     const RECALL_FIELDS = {
-        code:   { display: 'dispCode',   hidden: 'valCode',   type: 'documentCode', mode: 'text', max: 30, uppercase: true },
-        order:  { display: 'dispOrder',  hidden: 'valOrder',  type: 'documentCode', mode: 'text', max: 30, uppercase: true },
-        amount: { display: 'dispAmount', hidden: 'valAmount', type: 'price',       mode: 'cents', max: 10 },
-        deposit: { display: 'dispDeposit', hidden: 'valDeposit', type: 'price',      mode: 'cents', max: 10 }
+        code:    { display: 'dispCode',    hidden: 'valCode',    card: 'cardRecall',  type: 'documentCode', mode: 'text',  max: 30, uppercase: true },
+        order:   { display: 'dispOrder',   hidden: 'valOrder',   card: 'cardDeposit', type: 'documentCode', mode: 'text',  max: 30, uppercase: true },
+        amount:  { display: 'dispAmount',  hidden: 'valAmount',  card: 'cardDeposit', type: 'price',        mode: 'cents', max: 10 },
+        deposit: { display: 'dispDeposit', hidden: 'valDeposit', card: null,          type: 'price',        mode: 'cents', max: 10 }
     };
 
+    /* Plugs the shared keyboard into a field and highlights it with its card.
+       @param name the field key in RECALL_FIELDS */
     function activateField(name) {
         const field = RECALL_FIELDS[name];
         if (!field || !document.getElementById(field.hidden)) { return; }
-        Object.values(RECALL_FIELDS).forEach(f => {
-            const el = document.getElementById(f.display);
-            if (el) { el.classList.remove('active'); }
-        });
+        document.querySelectorAll('.field').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.card').forEach(el => el.classList.remove('current'));
         document.getElementById(field.display).classList.add('active');
+        if (field.card) { document.getElementById(field.card).classList.add('current'); }
+        const kb = document.getElementById('recallKb');
+        if (kb) { kb.classList.toggle('narrow', field.mode === 'cents'); }
         PosInput.setup({
             displayId: field.display,
             hiddenId: field.hidden,
@@ -160,7 +174,15 @@
         });
     }
 
+    /* The deposit card's fields take the touch themselves: a tap on the card
+       elsewhere selects its first field. */
+    document.getElementById('cardDeposit') && document.getElementById('cardDeposit').addEventListener('click', function (event) {
+        if (event.target.closest('.field') || event.target.closest('button')) { return; }
+        activateField('order');
+    });
+
     activateField(document.getElementById('valDeposit') ? 'deposit' : 'code');
   </script>
+  {#include screen-embed /}
 </body>
 </html>

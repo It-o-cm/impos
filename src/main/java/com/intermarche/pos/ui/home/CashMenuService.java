@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.home;
 import com.intermarche.pos.domain.store.CashFunction;
 import com.intermarche.pos.domain.store.CashMenu;
 import com.intermarche.pos.domain.store.CheckoutPoint;
+import com.intermarche.pos.domain.store.MenuLayout;
 import com.intermarche.pos.service.CheckoutPointService;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosMenu;
@@ -51,6 +52,10 @@ public class CashMenuService {
     @Inject
     CheckoutPointService checkoutPointService;
 
+    /** The register's labels, for the language the keys are labelled in. */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /**
      * What the screens apply of the resolved model.
      *
@@ -58,8 +63,139 @@ public class CashMenuService {
      * @param menus the menu-bar keys to draw, in order
      * @param css the style rules of the sale screen
      * @param customerCss the style rules of the customer screen
+     * @param tabs the tabs of the bottom bar, in order, each with its keys
      */
-    public record View(String code, List<PosMenu> menus, String css, String customerCss) {
+    @io.quarkus.qute.TemplateData
+    public record View(String code, List<PosMenu> menus, String css, String customerCss, List<TabView> tabs) {
+
+        /**
+         * Builds a view without key layout, every standard tab drawn as before.
+         *
+         * @param code the code of the model in force, or null when none is
+         * @param menus the menu-bar keys to draw, in order
+         * @param css the style rules of the sale screen
+         * @param customerCss the style rules of the customer screen
+         */
+        public View(String code, List<PosMenu> menus, String css, String customerCss) {
+            this(code, menus, css, customerCss, List.of());
+        }
+
+        /**
+         * The tab whose keys the grid shows: the one asked for, otherwise the
+         * first tab with keys — a tab the layout no longer has never leaves
+         * the cashier in front of an empty grid.
+         *
+         * @param id the tab asked for
+         * @return the tab, or null when no tab carries keys
+         */
+        public TabView shown(String id) {
+            TabView first = null;
+            for (TabView tab : tabs) {
+                if (tab.id().equals(id) && !tab.direct()) {
+                    return tab;
+                }
+                if (first == null && !tab.direct()) {
+                    first = tab;
+                }
+            }
+            return first;
+        }
+    }
+
+    /**
+     * One tab of the bottom bar, as the layout gives it.
+     *
+     * @param id the tab id, a standard menu key or a created tab
+     * @param labelKey the bundle key of the standard label, null for a created tab
+     * @param label the administered label in the register's language, or null
+     * @param color the administered colour, or null for the standard one
+     * @param destination the screen the tab opens straight away, or null for a grid
+     * @param keys the keys of the grid, the hidden functions left out
+     */
+    @io.quarkus.qute.TemplateData
+    public record TabView(String id, String labelKey, String label, String color, String destination,
+                          List<KeyView> keys) {
+
+        /**
+         * Tells whether the tab opens a screen instead of showing keys.
+         *
+         * @return true for the settlement tab
+         */
+        public boolean direct() {
+            return destination != null;
+        }
+
+        /**
+         * The style class of the tab when another one is shown: the muted face,
+         * with its colour as a band when it has one.
+         *
+         * @return the class
+         */
+        public String cls() {
+            return color == null ? "btn-muted" : "btn-c-" + color + " tab-idle";
+        }
+    }
+
+    /**
+     * One key of a tab's grid, as the layout gives it.
+     *
+     * @param function the function of the key
+     * @param label the administered label in the register's language, or null
+     * @param color the administered colour, or null for the standard one
+     * @param i18n the register's labels, for the standard label
+     */
+    @io.quarkus.qute.TemplateData
+    public record KeyView(CashFunction function, String label, String color, com.intermarche.pos.ui.Messages i18n) {
+
+        /**
+         * The function's name, what the screen tells the keys apart by.
+         *
+         * @return the name
+         */
+        public String fn() {
+            return function.name();
+        }
+
+        /**
+         * The text of the key at rest: its administered label, else the
+         * standard one.
+         *
+         * @param bundleKey the bundle key of the standard label
+         * @return the text
+         */
+        public String text(String bundleKey) {
+            return label != null ? label : i18n.get(bundleKey);
+        }
+
+        /**
+         * The text of a key whose standard label is not a bundle entry (an
+         * administered name): its administered label, else that name.
+         *
+         * @param standard the standard text
+         * @return the text
+         */
+        public String plain(String standard) {
+            return label != null ? label : standard;
+        }
+
+        /**
+         * The style class of the key at rest: its colour, else its standard one.
+         *
+         * @param standard the standard class
+         * @return the class
+         */
+        public String cls(String standard) {
+            return color == null ? standard : "btn-c-" + color;
+        }
+
+        /**
+         * Tells whether the key keeps its standard colour.
+         *
+         * @return true when no colour is administered
+         */
+        public boolean standardColor() {
+            return color == null;
+        }
     }
 
     /**
@@ -72,7 +208,7 @@ public class CashMenuService {
         CheckoutPoint point = checkoutPointService.own();
         CashMenu menu = resolve(point);
         View view = new View(menu == null ? null : menu.code, menus(menu), css(menu, point),
-                customerCss(menu));
+                customerCss(menu), tabs(menu));
         LOGGER.info("Exiting method current");
         return view;
     }
@@ -297,5 +433,61 @@ public class CashMenuService {
             return "#cartLines{font-size:1.4em;}";
         }
         return "";
+    }
+
+    /**
+     * The tabs of the bottom bar: the model's layout — or the standard one —
+     * in the register's language, the functions hidden left out of the grids.
+     *
+     * @param menu the model, or null
+     * @return the tabs, in order
+     */
+    List<TabView> tabs(CashMenu menu) {
+        MenuLayout layout = menu == null ? MenuLayout.standard() : menu.effectiveLayout();
+        Set<CashFunction> hidden = hidden(menu);
+        String language = language();
+        List<TabView> tabs = new ArrayList<>();
+        for (MenuLayout.Tab tab : layout.tabs) {
+            List<KeyView> keys = new ArrayList<>();
+            for (MenuLayout.Key key : tab.keys) {
+                CashFunction function = key.function();
+                if (!hidden.contains(function)) {
+                    keys.add(new KeyView(function, key.label(language), key.color, i18n));
+                }
+            }
+            PosMenu standard = tab.custom() ? null : PosMenu.of(tab.id);
+            tabs.add(new TabView(tab.id, standard == null ? null : standard.getLabelKey(),
+                    tabLabel(tab, language), tab.color, standard == null ? null : standard.getDestination(), keys));
+        }
+        return tabs;
+    }
+
+    /**
+     * The administered label of a tab in a language; a created tab without
+     * one in that language takes its French one, else any, else a plain name.
+     *
+     * @param tab the tab
+     * @param language the language
+     * @return the label, or null for a standard tab keeping its standard label
+     */
+    static String tabLabel(MenuLayout.Tab tab, String language) {
+        String label = tab.label(language);
+        if (label != null || !tab.custom()) {
+            return label;
+        }
+        if (tab.label("fr") != null) {
+            return tab.label("fr");
+        }
+        return tab.labels.isEmpty() ? tab.id.toUpperCase(java.util.Locale.ROOT) : tab.labels.values().iterator().next();
+    }
+
+    /**
+     * The register's language, as the layout's labels are keyed.
+     *
+     * @return the two-letter language, fr when unknown
+     */
+    String language() {
+        String tag = i18n == null ? null : i18n.getLang();
+        return tag == null || tag.length() < 2 ? "fr" : tag.substring(0, 2).toLowerCase(java.util.Locale.ROOT);
     }
 }

@@ -94,6 +94,11 @@ public class PaymentResource {
     @DrawerMayBeOpen
     public Object showPaymentPage() {
         LOGGER.info("Entering method showPaymentPage");
+        // An empty basket has nothing to settle: the sale screen, not a payment.
+        if (state.nothingToPay()) {
+            LOGGER.info("Exiting method showPaymentPage: nothing to pay");
+            return Response.seeOther(URI.create("/")).build();
+        }
         if (!state.payment.paymentInProgress && !state.payment.transactionComplete
                 && posSettingsService.taxIdRequired()
                 && (state.ticket.customerTaxId == null || state.ticket.customerTaxId.isBlank())) {

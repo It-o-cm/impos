@@ -535,6 +535,30 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * LC-08-06-02: the NIF CLIENT key is hidden by default, shown on a
+     * Portuguese register whatever the key setting, and shown elsewhere when
+     * the store asks for it.
+     */
+    @Test
+    void saleTaxIdKeyFollowsPortugalOrItsSetting() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(service.saleTaxIdKey());
+        }
+        PosSettingsService portuguese = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fiscal.pt-documents", "true")));
+            assertTrue(portuguese.saleTaxIdKey());
+        }
+        PosSettingsService asked = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.tax-id-key", "true")));
+            assertTrue(asked.saleTaxIdKey());
+        }
+    }
+
+    /**
      * LC-14-03-01: the three metrology items are empty by default and read
      * their administered rows, trimmed.
      */

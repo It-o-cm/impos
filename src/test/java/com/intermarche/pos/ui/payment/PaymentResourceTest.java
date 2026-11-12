@@ -236,6 +236,20 @@ class PaymentResourceTest {
     }
 
     /**
+     * An empty basket with nothing under way reaches the sale screen, not a
+     * payment: no payment is opened, so the next sale is not refused.
+     */
+    @Test
+    void showPaymentPageSendsAnEmptyBasketBackToTheSale() {
+        PaymentResource resource = newResource();
+        when(resource.state.nothingToPay()).thenReturn(true);
+        Response response = (Response) resource.showPaymentPage();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.paymentService, never()).initPayment(any());
+    }
+
+    /**
      * LC-08-06-01: where the NIF is required, a payment that has not started and
      * carries no NIF — none chosen, or an empty one — goes first to the NIF
      * screen, and nothing is initialised.

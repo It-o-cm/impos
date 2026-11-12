@@ -120,6 +120,13 @@ public class GroupJIT {
     PosState posState;
 
     /**
+     * The back-office parameters, administered by J2 for the drawer rule of a
+     * training sale (BO-10-02-12).
+     */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettings;
+
+    /**
      * J1 — Entrée/sortie sous avenant (bannières orange sur tous les écrans, état propre à la sortie).
      * <p>
      * The manager-endorsed toggle enters training mode: the sale screen and the
@@ -186,6 +193,26 @@ public class GroupJIT {
         Assertions.assertNotNull(sessionBefore, "a session is open on the register before the training sale");
         String sessionNumber = sessionBefore.sessionNumber;
         long ticketsBefore = ticketCountOnC04();
+        // --- The shop opens no drawer in training (BO-10-02-12): the setting
+        //     defaults to the opening, so J2 administers the fiscal silence ---
+        String drawerInTraining = posSettings.value("drawer.open-in-training");
+        posSettings.store("drawer.open-in-training", "false");
+        try {
+            j2TrainingSale(page, sessionNumber, ticketsBefore);
+        } finally {
+            posSettings.store("drawer.open-in-training", drawerInTraining);
+        }
+        page.close();
+    }
+
+    /**
+     * Plays the J2 training sale on a shop that opens no drawer in training.
+     *
+     * @param page the Playwright page on the sale screen
+     * @param sessionNumber the number of the open session before the sale
+     * @param ticketsBefore the ticket rows of the register before the sale
+     */
+    private void j2TrainingSale(Page page, String sessionNumber, long ticketsBefore) {
         // --- Enter training, make sure the drawer starts shut ---
         toggleTraining(page);
         Assertions.assertTrue(posState.trainingMode, "the sale must be played in training mode");
@@ -243,7 +270,6 @@ public class GroupJIT {
         // --- Restore: leave training for a clean register ---
         toggleTraining(page);
         Assertions.assertFalse(posState.trainingMode, "the register must end back in normal mode");
-        page.close();
     }
 
     /**
@@ -484,6 +510,13 @@ public class GroupJIT {
      * @param page the Playwright page driving the register
      */
     private void goPay(Page page) {
+        // A cart rung over the bus makes the sale payable: the sale screen then
+        // reloads itself once to turn RÈGLEMENT into a link, and a navigation
+        // started during that reload is aborted. From the sale screen, wait for
+        // the link first.
+        if ("/".equals(java.net.URI.create(page.url()).getPath())) {
+            page.locator("a#payBtn").waitFor();
+        }
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
     }

@@ -5,6 +5,9 @@
  ! client to settle a customer-account debt. Above the administered threshold
  ! the movement is PARKED and the SHARED endorsement modal opens; it is written
  ! only once a manager answers. Outcome messages arrive via ?error= / ?ok=.
+ ! IN A MODAL over the sale (TIROIR menu): source and destination are rows of
+ ! toggles, the pad sits on the right; the outcome is stated at the top of the
+ ! modal and RETOUR goes back to the sale.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -14,79 +17,57 @@
   <title>{inject:i18n.get('financialmovement.mouvementFinancier')}</title>
   <style>
     {#include theme /}
-    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
-    .main-area { display: flex; justify-content: center; align-items: center; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 38.75rem; }
-    .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
-    .form-row { display: flex; align-items: center; gap: 15px; margin: 18px 0; justify-content: space-between; }
-    .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
-    .form-row select, .form-row input { width: 20rem; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
-    .hint { color: var(--text-muted); font-size: var(--fs-body); margin-top: 12px; }
-    .kb-display { text-align: right; }
-    .keyboard { max-width: 22rem; margin: 0 auto; }
-    .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
-    .btn { display: block; }
-    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
-    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
   </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="64rem fit"
+      data-embed-stay="/financial-movement /action/financial-movement /action/endorse-validate /action/endorse-self /action/endorse-cancel">
   <div class="pos-terminal">
-    <div class="top-bar">
-      <span class="store-name">{inject:i18n.get('common.store')}</span>
-      <span>{inject:i18n.get('financialmovement.mouvementFinancier2')}</span>
-      <span id="clock"></span>
-    </div>
+    <div class="mk-title"><span class="title">{inject:i18n.get('financialmovement.mouvementFinancier2')}</span></div>
 
-    <div class="main-area">
-      <div class="panel">
-        {#if error??}
-          <div class="error-box">{error}</div>
-        {/if}
-        {#if saved}
-          <div class="ok-box">{inject:i18n.get('financialmovement.mouvementEnregistre')}</div>
-        {/if}
+    <div class="mk-body">
+      {#if error??}
+        <div class="mk-outcome err" role="alert">{error}</div>
+      {#else if saved}
+        <div class="mk-outcome" role="status">{inject:i18n.get('financialmovement.mouvementEnregistre')}</div>
+      {/if}
 
-        <h2>{inject:i18n.get('financialmovement.mouvementFinancier3')}</h2>
-        <form method="post" action="/action/financial-movement/record">
-          <div class="form-row">
-            <label for="source">{inject:i18n.get('financialmovement.percu')}</label>
-            <select id="source" name="source">
+      <form id="financialForm" method="post" action="/action/financial-movement/record" class="mk-columns">
+        <div class="mk-column">
+          <div class="mk-field">
+            <div class="mk-label">{inject:i18n.get('financialmovement.percu')}</div>
+            <div class="mk-choices" id="source">
               {#for option in sources}
-                <option value="{option.key}">{option.label}</option>
+              <input type="radio" name="source" id="source-{option_index}" value="{option.key}"{#if option_isFirst} checked{/if}>
+              <label class="mk-choice" for="source-{option_index}">{option.label}</label>
               {/for}
-            </select>
+            </div>
           </div>
-          <div class="form-row">
-            <label for="destination">{inject:i18n.get('financialmovement.rendu')}</label>
-            <select id="destination" name="destination">
+          <div class="mk-field">
+            <div class="mk-label">{inject:i18n.get('financialmovement.rendu')}</div>
+            <div class="mk-choices" id="destination">
               {#for option in destinations}
-                <option value="{option.key}">{option.label}</option>
+              <input type="radio" name="destination" id="destination-{option_index}" value="{option.key}"{#if option_isFirst} checked{/if}>
+              <label class="mk-choice" for="destination-{option_index}">{option.label}</label>
               {/for}
-            </select>
+            </div>
           </div>
-          <div class="form-row">
-            <label for="amountDisplay">{inject:i18n.get('financialmovement.montant')}</label>
-            <div id="amountDisplay" class="kb-display pad-display"></div>
+          <div class="mk-field">
+            <label class="mk-label" for="amountDisplay">{inject:i18n.get('financialmovement.montant')}</label>
+            <div id="amountDisplay" class="mk-display mk-active pad-display"></div>
             <input type="hidden" id="amountHidden" name="amount" value="0">
           </div>
-          <div class="keyboard" id="amountKbArea"></div>
-
-          <div class="hint" id="managerHint" style="display:none;">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
-
-          <div class="actions">
-            <button type="submit" class="btn btn-success">{inject:i18n.get('financialmovement.enregistrerMouvement')}</button>
-          </div>
-        </form>
-      </div>
+          <div class="mk-notice" id="managerHint" style="display:none;">{#let shown=inject:units.money(threshold)}{inject:i18n.format('cashmovement.l19AvalManager', shown)}{/let}</div>
+        </div>
+        <div class="mk-column">
+          <div class="mk-keyboard" id="amountKbArea"></div>
+        </div>
+      </form>
     </div>
 
-    <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+    <div class="mk-actions">
+      <button type="submit" form="financialForm" class="btn btn-success">{inject:i18n.get('financialmovement.enregistrerMouvement')}</button>
+      <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 
@@ -94,12 +75,14 @@
   {#include endorsement /}
 
   <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
     const threshold = parseFloat("{threshold}");
     const amountHidden = document.getElementById('amountHidden');
     const managerHint = document.getElementById('managerHint');
-    function toggleManagerHint(value) {
-      const typed = parseFloat((value || '').replace(',', '.'));
+    /* Reads the euros the pad posts in the hidden field: the pad hands its
+       listener the digits of the cents, which read as euros announced the
+       endorsement a hundred times too early (5,00 € keyed read as 500 €). */
+    function toggleManagerHint() {
+      const typed = parseFloat((amountHidden.value || '').replace(',', '.'));
       managerHint.style.display = (!isNaN(typed) && typed > threshold) ? 'block' : 'none';
     }
     PosInput.setup({
@@ -112,7 +95,8 @@
         initialValue: '0',
         onChange: toggleManagerHint
     });
-    toggleManagerHint(amountHidden.value);
+    toggleManagerHint();
   </script>
+  {#include screen-embed /}
 </body>
 </html>

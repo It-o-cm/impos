@@ -88,13 +88,21 @@ public class CashSessionResource {
     @GET
     @Path("/session")
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance sessionPage(@QueryParam("error") String error) {
-        LOGGER.info("Entering method sessionPage with error: " + error);
+    public TemplateInstance sessionPage(@QueryParam("error") String error, @QueryParam("ok") String ok) {
+        LOGGER.info("Entering method sessionPage with error: " + error + ", ok: " + ok);
         String message = null;
         if ("open-failed".equals(error)) {
             message = i18n.get("op.ouvertureImpossibleSessionDeja");
         } else if ("no-session".equals(error)) {
             message = i18n.get("op.aucuneSessionOuverte");
+        } else if ("print-failed".equals(error)) {
+            message = i18n.get("session.impressionEchouee");
+        }
+        String notice = null;
+        if ("voucher".equals(ok)) {
+            notice = i18n.get("session.bordereauImprime");
+        } else if ("voucher-kept".equals(ok)) {
+            notice = i18n.get("session.bordereauSansImprimante");
         }
         // EXP-02: the float shown at opening is the report of the previous close
         // (what stayed in the drawer), not the administered default — which only
@@ -111,7 +119,9 @@ public class CashSessionResource {
                 .data("theoreticalFloat", theoretical != null
                         ? String.format("%.2f", theoretical).replace('.', ',') : null)
                 .data("drawerAlert", drawerCapAlert())
-                .data("error", message);
+                .data("error", message)
+                .data("notice", notice)
+                .data("noticeWarn", "voucher-kept".equals(ok));
     }
 
     /**
@@ -476,8 +486,13 @@ public class CashSessionResource {
         CashSessionService.SessionReport report = cashSessionService.buildReport(current);
         ticketPrinterService.printSettlementVoucher(report, state.getOperatorName());
         state.touch();
-        LOGGER.info("Exiting method printSettlementVoucher");
-        return Response.seeOther(URI.create("/session")).build();
+        // The printer's state after the print says what became of the paper:
+        // printed, kept with the register's printouts (no printer), or failed.
+        String printer = state.peripheralAvailability.get("hardware.printer");
+        String outcome = "FAILED".equals(printer) ? "error=print-failed"
+                : "ABSENT".equals(printer) ? "ok=voucher-kept" : "ok=voucher";
+        LOGGER.info("Exiting method printSettlementVoucher with outcome: " + outcome);
+        return Response.seeOther(URI.create("/session?" + outcome)).build();
     }
 
     /**

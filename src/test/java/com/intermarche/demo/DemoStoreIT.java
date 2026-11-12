@@ -144,14 +144,13 @@ public class DemoStoreIT {
         context.request().post(root + "api/pos/scan",
                 RequestOptions.create().setHeader("Content-Type", "text/plain").setData(COFFEE_EAN));
         page.getByText("CAFÉ GRAINS 500G").waitFor();
-        // The ENCAISSER link only exists in a server render that SEES the
+        // The RÈGLEMENT link only exists in a server render that SEES the
         // cart (this page was rendered while the cart was empty).
         page.reload();
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ENCAISSER").setExact(true)).click();
-        // Amounts are typed IN EUROS (the keypad accumulates keys verbatim),
-        // and the numpad only exists once the sub-form is open.
-        typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "50", "50");
+        page.locator("a#payBtn").click();
+        // Amounts are typed IN CENTS (every amount pad is a cents pad), and
+        // the numpad only exists once the sub-form is open.
+        typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "5000", "50,00");
         // Cash OPENS THE DRAWER and the sale screen is @DrawerMustBeClosed:
         // close it, then take the fiscal gesture by direct navigation (a
         // modal click races pay.html's version-change reload).
@@ -244,7 +243,7 @@ public class DemoStoreIT {
 
     /**
      * Opens a pay sub-form, clears the pre-filled amount, types the wanted
-     * one IN EUROS, verifies the sub-display captured it, and submits. Bounded
+     * one IN CENTS, verifies the sub-display captured it, and submits. Bounded
      * waits and three attempts: a click swallowed by pay.html's reload costs
      * a second, not a thirty-second timeout.
      *
@@ -252,7 +251,7 @@ public class DemoStoreIT {
      * @param modeButton the exact pay-mode button label
      * @param displayId the sub-form display id
      * @param formId the sub-form id
-     * @param digits the amount in euros, as typed
+     * @param digits the amount in cents, as typed (fifty euros is "5000")
      * @param expectedDisplay the display value proving capture
      */
     private void typeAmountVerified(Page page, String modeButton, String displayId,
@@ -261,6 +260,12 @@ public class DemoStoreIT {
             try {
                 Locator button = page.getByRole(AriaRole.BUTTON,
                         new Page.GetByRoleOptions().setName(modeButton).setExact(true));
+                // The payment keys show six at a time: a key past the main ones
+                // is reached through AUTRE.
+                Locator more = page.locator("#payMethods [data-pm=more]");
+                for (int pageTurn = 0; pageTurn < 4 && !button.isVisible() && more.isVisible(); pageTurn++) {
+                    more.click();
+                }
                 button.waitFor(new Locator.WaitForOptions().setTimeout(5000));
                 button.click(new Locator.ClickOptions().setForce(true));
                 page.locator(displayId)

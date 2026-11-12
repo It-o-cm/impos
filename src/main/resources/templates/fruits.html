@@ -132,7 +132,7 @@
                 </div>
             </div>
             <div class="plu-pagination pos-pager">
-                <a href="/" class="btn btn-sm btn-muted">{inject:i18n.get('common.back')}</a>
+                <a href="/" class="btn btn-sm btn-muted" style="margin-left:auto;">{inject:i18n.get('common.back')}</a>
             </div>
         </div>
 
@@ -140,11 +140,13 @@
             <div class="plu-modal-panel search-panel">
                 <div class="plu-modal-header">
                     <span class="plu-modal-title">{inject:i18n.get('fruits.rechercherProduit2')}</span>
-                    <button class="btn btn-sm btn-muted" onclick="closePluSearch()">RETOUR</button>
                 </div>
                 <div id="pluSearchDisplay" class="plu-search-input pad-display" data-placeholder="{inject:i18n.get('fruits.tapezNom')}"></div>
                 <div id="pluSearchKb" class="plu-kb-area"></div>
                 <div class="plu-search-results" id="pluSearchResults"><div class="plu-search-empty">{inject:i18n.get('fruits.tapezRechercher')}</div></div>
+                <div style="display:flex; justify-content:flex-end; margin-top:auto; padding-top:10px; flex-shrink:0;">
+                    <button class="btn btn-sm btn-muted" onclick="closePluSearch()">RETOUR</button>
+                </div>
             </div>
         </div>
 
@@ -152,11 +154,13 @@
             <div class="plu-modal-panel code-panel">
                 <div class="plu-modal-header">
                     <span class="plu-modal-title">{inject:i18n.get('fruits.codePlu')}</span>
-                    <button class="btn btn-sm btn-muted" onclick="closePluCode()">RETOUR</button>
                 </div>
                 <div id="pluCodeDisplay" class="plu-code-display pad-display"></div>
                 <div id="pluCodeNumpad" class="plu-kb-area"></div>
-                <a href="#" id="pluCodeValidate" class="btn btn-lg btn-success" style="width:100%;">{inject:i18n.get('common.validate')}</a>
+                <div style="display:flex; gap:10px;">
+                    <a href="#" id="pluCodeValidate" class="btn btn-lg btn-success" style="flex:1;">{inject:i18n.get('common.validate')}</a>
+                    <button class="btn btn-lg btn-muted" onclick="closePluCode()">RETOUR</button>
+                </div>
             </div>
         </div>
         </div>

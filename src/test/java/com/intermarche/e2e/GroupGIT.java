@@ -259,7 +259,7 @@ public class GroupGIT {
         closeDrawer();
         payCashComplete(register, "1000");
         display.getByText("MERCI !").waitFor();
-        display.getByText("Rendu : 6,00 €").waitFor();
+        display.getByText("À rendre : 6,00 €").waitFor();
         Assertions.assertTrue(display.locator("#digitalZone").textContent().contains("/t/"),
                 "the thank-you screen must show the digital-receipt link");
 
@@ -581,6 +581,13 @@ public class GroupGIT {
      * @param page the Playwright page driving the register
      */
     private void goPay(Page page) {
+        // A cart rung over the bus makes the sale payable: the sale screen then
+        // reloads itself once to turn RÈGLEMENT into a link, and a navigation
+        // started during that reload is aborted. From the sale screen, wait for
+        // the link first.
+        if ("/".equals(java.net.URI.create(page.url()).getPath())) {
+            page.locator("a#payBtn").waitFor();
+        }
         page.navigate(base.toString() + "pay");
         page.getByText("RESTE :").waitFor();
     }

@@ -2498,6 +2498,7 @@ public class RefApplyService {
             menu.cashierScreen = dto.cashierScreen;
             menu.customerScreen = dto.customerScreen;
             menu.ticketModel = dto.ticketModel;
+            menu.layout = dto.layout;
             menu.persist();
             seen.add(menu.code);
         }

@@ -151,7 +151,9 @@ class PosStateTest {
         state.blockingArticleMessage = "Read before continuing";
         state.blockingArticleMessageId = "message-1";
         state.ticketCurrentPage = 5;
+        state.customTab = "x1";
         state.clearTicket();
+        assertNull(state.customTab);
         verify(state.ticket).clear();
         verify(state.fidelity).clear();
         verify(state.payment).reset();
@@ -855,7 +857,7 @@ class PosStateTest {
         PosState state = newState();
         state.trainingMode = true;
         state.lastClosedTicketId = 42L;
-        assertFalse(state.requireLastClosedTicket());
+        assertFalse(state.requireLastClosedTicket(PosState.NO_LAST_TICKET_PRINT_KEY));
         verify(state.ticket).setError("FONCTION INDISPONIBLE EN FORMATION");
         assertEquals(1, state.version);
     }
@@ -870,8 +872,8 @@ class PosStateTest {
         PosState state = newState();
         state.trainingMode = false;
         state.lastClosedTicketId = null;
-        assertFalse(state.requireLastClosedTicket());
-        verify(state.ticket).setError("AUCUN TICKET");
+        assertFalse(state.requireLastClosedTicket(PosState.NO_LAST_TICKET_PRINT_KEY));
+        verify(state.ticket).setError("RÉIMPRESSION IMPOSSIBLE : AUCUNE VENTE TERMINÉE SUR CETTE CAISSE");
         assertEquals(1, state.version);
     }
 
@@ -884,7 +886,7 @@ class PosStateTest {
         PosState state = newState();
         state.trainingMode = false;
         state.lastClosedTicketId = 42L;
-        assertTrue(state.requireLastClosedTicket());
+        assertTrue(state.requireLastClosedTicket(PosState.NO_LAST_TICKET_PRINT_KEY));
         verifyNoInteractions(state.ticket);
         assertEquals(0, state.version);
     }
@@ -1066,5 +1068,56 @@ class PosStateTest {
         org.junit.jupiter.api.Assertions.assertFalse(state.administeredDegradedActive(false, 15));
         org.junit.jupiter.api.Assertions.assertNull(state.administeredDegradedSince);
         org.junit.jupiter.api.Assertions.assertTrue(state.administeredDegradedActive(true, 0));
+    }
+
+    /** LC-13-02-05/-07: the maintenance screen owns the scans only while it is open and still polling. */
+    @Test
+    void maintenanceScreenActiveOnlyWhileOpenAndFresh() {
+        PosState state = new PosState();
+        state.maintenanceSeenAt = System.currentTimeMillis();
+        assertFalse(state.maintenanceScreenActive());
+        state.maintenanceScreenOpen = true;
+        assertTrue(state.maintenanceScreenActive());
+        state.maintenanceSeenAt = System.currentTimeMillis() - PosState.MAINTENANCE_FRESHNESS_MS - 1_000L;
+        assertFalse(state.maintenanceScreenActive());
+    }
+
+    /** The payment screen has nothing to settle only with no payment, no closed sale and no line. */
+    @Test
+    void nothingToPayOnlyOnAnIdleEmptyBasket() {
+        PosState state = new PosState();
+        assertTrue(state.nothingToPay());
+        state.payment.paymentInProgress = true;
+        assertFalse(state.nothingToPay());
+        state.payment.paymentInProgress = false;
+        state.payment.transactionComplete = true;
+        assertFalse(state.nothingToPay());
+        state.payment.transactionComplete = false;
+        state.ticket.items.add(new com.intermarche.pos.ui.ticket.TicketState.TicketItem());
+        assertFalse(state.nothingToPay());
+    }
+
+    /** The back-office key opens on a message, on a survey, and on neither stays shut. */
+    @Test
+    void hasBackOfficeMessageOnAMessageOrASurvey() {
+        PosState state = new PosState();
+        assertFalse(state.hasBackOfficeMessage());
+        state.backOfficeMessage = null;
+        assertFalse(state.hasBackOfficeMessage());
+        state.backOfficeMessage = "INVENTAIRE A 18H";
+        assertTrue(state.hasBackOfficeMessage());
+        state.backOfficeMessage = "";
+        state.backOfficeSurvey = org.mockito.Mockito.mock(PosState.BackOfficeSurvey.class);
+        assertTrue(state.hasBackOfficeMessage());
+    }
+
+    /** The tab shown is the created tab chosen, else the standard menu. */
+    @Test
+    void currentTabIsTheCreatedTabElseTheMenu() {
+        PosState state = new PosState();
+        state.menu = PosMenu.TIROIR;
+        assertEquals("tiroir", state.currentTab());
+        state.customTab = "x2";
+        assertEquals("x2", state.currentTab());
     }
 }

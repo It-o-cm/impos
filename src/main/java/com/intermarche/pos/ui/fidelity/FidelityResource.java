@@ -96,6 +96,28 @@ public class FidelityResource {
                 .data("consultation", fidelityService.loadConsultation(state));
     }
 
+    /**
+     * Tells the fidelity screen which card the sale carries right now, so the
+     * screen notices a card SCANNED while it is open: the scan chain attaches
+     * the card (or parks a replacement awaiting the operator's answer) on the
+     * server, and the screen, which was showing the state before the scan,
+     * goes back to the sale where that card — or the replacement question — is
+     * shown. Read-only: nothing is consumed or changed.
+     *
+     * @return {@code active}, the attached card {@code label} (empty without a
+     *         card) and {@code replacementPending}
+     */
+    @GET
+    @Path("/fidelity/status")
+    @Produces(MediaType.APPLICATION_JSON)
+    public java.util.Map<String, Object> fidelityStatus() {
+        java.util.Map<String, Object> status = new java.util.HashMap<>();
+        status.put("active", state.fidelity.active);
+        status.put("label", state.fidelity.active && state.fidelity.label != null ? state.fidelity.label : "");
+        status.put("replacementPending", state.fidelity.pendingReplacementCard != null);
+        return status;
+    }
+
     // --- Action ---
 
     /**

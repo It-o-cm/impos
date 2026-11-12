@@ -29,6 +29,15 @@
             flex-shrink: 0;
         }
         .overlay-title { font-size: var(--fs-title); }
+        /* In the sale screen's modal (ANNULER PAR GROUPE): the modal is the panel,
+           its title in the primary colour like every modal of the register. */
+        html.in-modal .overlay { background: var(--bg-panel); -webkit-backdrop-filter: none; backdrop-filter: none; border-radius: 0; }
+        html.in-modal .overlay-title { font-weight: bold; text-transform: uppercase; }
+        /* The modal's bands: the title band on top, the keys band at the bottom. */
+        html.in-modal .overlay { padding: 0; }
+        html.in-modal .overlay-header { margin: 0; padding-bottom: 0; height: 3.25rem; flex-shrink: 0; }
+        html.in-modal .manual-form { padding: 16px 20px; }
+        html.in-modal .overlay .mk-actions { height: 4.5rem; flex-shrink: 0; display: flex; align-items: center; }
         .manual-form { display: flex; gap: 20px; flex: 1; min-height: 0; }
 
         .product-selection {
@@ -52,14 +61,21 @@
             border-left: 4px solid var(--primary); flex-shrink: 0;
         }
 
+        /* THE TILES HAVE ONE SIZE, whatever the room left on the screen: a group
+           with three entries no longer draws three giant keys, and a group with
+           forty no longer crushes them. What does not fit scrolls, vertically,
+           inside the grid; the toolbar and the price panel stay where they are. */
         .product-grid {
             flex: 1; display: grid;
             grid-template-columns: repeat({gridColumns}, minmax(0, 1fr));
-            grid-template-rows: repeat({gridRows}, minmax(0, 1fr));
-            grid-auto-rows: minmax(0, 1fr);
+            grid-auto-rows: 6.5rem;
+            align-content: start;
             gap: 8px;
             min-height: 0;
-            height: 100%;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            touch-action: pan-y;
+            padding-right: 4px;
         }
 
         .grid-btn {
@@ -121,12 +137,12 @@
 
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/manual" data-modal-size="74rem 40rem">
 
 <div class="pos-terminal">
     <div class="overlay active">
-        <div class="overlay-header">
-            <div class="overlay-title">{#if cancelMode}{inject:i18n.get('manual.cancelTitle')}{#else}{inject:i18n.get('manual.saisieDirecte2')}{/if}</div>
+        <div class="overlay-header mk-title">
+            <div class="overlay-title title">{#if cancelMode}{inject:i18n.get('manual.cancelTitle')}{#else}{inject:i18n.get('manual.saisieDirecte2')}{/if}</div>
         </div>
 
         <div class="manual-form">
@@ -157,7 +173,7 @@
 
                 <div class="product-grid" id="productGrid">
                     {#if isRoot}
-                        {#if cancelMode}<a href="/" class="grid-btn back-btn">{inject:i18n.get('common.back')}</a>{#else}
+                        {#if !cancelMode}
                         <button type="button" class="grid-btn skip-btn" onclick="selectProduct(this, '{inject:i18n.get('manual.produitNonReconnu')}', '')">{inject:i18n.get('manual.nonReconnu')}</button>{/if}
                     {#else}
                         <a href="{parentUrl}{#if cancelMode}?cancel=true{/if}" class="grid-btn back-btn">&lt; {inject:i18n.get('common.back')}</a>
@@ -186,12 +202,6 @@
                 {/if}
             </div>
 
-            {#if cancelMode}
-            <div class="price-section">
-                <p>{inject:i18n.get('manual.cancelHelp')}</p>
-                <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
-            </div>
-            {/if}
             <div class="price-section"{#if cancelMode} style="display:none;"{/if}>
                 <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:var(--fs-section);">{inject:i18n.get('manual.saisieQuantite')}</div>
                 <div id="displayValue" class="price-display pad-display" data-placeholder="1"></div>
@@ -225,11 +235,16 @@
                 <div class="numpad-dynamic-area" id="keyboardArea"></div>
 
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <a href="/" class="btn btn-muted" style="flex:0 0 8.125rem; display:flex; align-items:center; justify-content:center;">{inject:i18n.get('common.back')}</a>
                     <button type="button" class="btn btn-success" style="flex:1;" onclick="submitForm()">{inject:i18n.get('common.validate')}</button>
+                    <a href="/" class="btn btn-muted" style="flex:0 0 8.125rem; display:flex; align-items:center; justify-content:center;">{inject:i18n.get('common.back')}</a>
                 </div>
             </div>
         </div>
+        {#if cancelMode}
+        <div class="mk-actions">
+            <a href="/" class="btn btn-muted mk-back">{inject:i18n.get('common.back')}</a>
+        </div>
+        {/if}
     </div>
 </div>
 
@@ -380,5 +395,6 @@
     }
 </script>
 
+{#include screen-embed /}
 </body>
 </html>

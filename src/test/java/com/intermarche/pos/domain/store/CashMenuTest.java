@@ -71,4 +71,25 @@ class CashMenuTest {
         assertEquals("STANDARD", CashMenu.normalized("HUGE", CashMenu.CASHIER_SCREENS));
         assertEquals("DETAILED", CashMenu.normalized(null, CashMenu.TICKET_MODELS));
     }
+
+    /** The administered layout is the one drawn. */
+    @Test
+    void effectiveLayoutIsTheAdministeredOne() {
+        CashMenu menu = new CashMenu();
+        menu.menuKeys = "ticket";
+        menu.layout = "{\"tabs\":[{\"id\":\"x1\"}]}";
+        assertEquals(List.of(), menu.effectiveLayout().standardTabIds());
+        assertEquals("x1", menu.effectiveLayout().tabs.get(0).id);
+    }
+
+    /** Without layout, the standard one, reduced to the bar keys named when there are some. */
+    @Test
+    void effectiveLayoutFallsBackOnTheStandardOne() {
+        CashMenu menu = new CashMenu();
+        assertEquals(CashMenu.MENU_KEYS, menu.effectiveLayout().standardTabIds());
+        menu.menuKeys = "ticket;articles";
+        MenuLayout layout = menu.effectiveLayout();
+        assertEquals(List.of("ticket", "articles"), layout.standardTabIds());
+        assertEquals(11, layout.tab("ticket").keys.size());
+    }
 }

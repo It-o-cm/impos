@@ -194,14 +194,28 @@ public class ReprintService {
         LOGGER.info("Entering method print with ticketId: " + ticketId);
         if (state.trainingMode) {
             state.ticket.setError(i18n.get("op.reimpressionIndisponibleFormation"));
+            printed(i18n.get("op.reimpressionIndisponibleFormation"), false);
             state.touch();
             LOGGER.info("Exiting method print");
             return;
         }
         if (ticketId != null) {
             ticketPrinterService.printTicket(ticketId);
+            printed(i18n.get("op.ticketReimprime"), true);
         }
         LOGGER.info("Exiting method print");
+    }
+
+    /**
+     * Records the outcome of a print made from the detail view, stated at the top
+     * of that ticket's view (the register's sale message zone is behind the modal).
+     *
+     * @param message the operator-facing outcome
+     * @param ok true for a print done, false for a refusal
+     */
+    private void printed(String message, boolean ok) {
+        state.reprint.printOutcome = message;
+        state.reprint.printOutcomeOk = ok;
     }
 
     /**
@@ -252,6 +266,7 @@ public class ReprintService {
         LOGGER.info("Entering method printExchange with ticketId: " + ticketId);
         if (state.trainingMode) {
             state.ticket.setError(i18n.get("op.impressionIndisponibleFormation"));
+            printed(i18n.get("op.impressionIndisponibleFormation"), false);
             state.touch();
             LOGGER.info("Exiting method printExchange");
             return;
@@ -259,6 +274,7 @@ public class ReprintService {
         if (ticketId != null) {
             ticketPrinterService.printExchangeVoucher(ticketId,
                     new java.util.LinkedHashSet<>(state.reprint.exchangeSelection));
+            printed(i18n.get("op.bonEchangeImprime"), true);
         }
         state.reprint.clearExchange();
         state.touch();
@@ -272,6 +288,7 @@ public class ReprintService {
         LOGGER.info("Entering method startForeign");
         state.reprint.foreignTicketNumber = "";
         state.reprint.foreignError = "";
+        state.reprint.printOutcome = "";
         state.touch();
         LOGGER.info("Exiting method startForeign");
     }
@@ -317,6 +334,7 @@ public class ReprintService {
             return;
         }
         ticketPrinterService.printRenderedTicket(rendered.get());
+        printed(i18n.get("op.ticketReimprime"), true);
         state.touch();
         LOGGER.info("Exiting method printForeign");
     }

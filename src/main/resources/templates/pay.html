@@ -23,7 +23,7 @@
         /* Header & Footer */
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
-        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
 
         /* Main Layout */
         .main-area { display: grid; grid-template-columns: 1.5fr 1fr; background-color: var(--bg-dark); }
@@ -68,15 +68,25 @@
         /* Colonne verticale des moyens de paiement */
         .pay-methods { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
         .pay-methods .btn { padding: 0 10px; height: 100%; font-size: var(--fs-btn); display: flex; align-items: center; justify-content: center; line-height: 1.1; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+        /* The column shows six keys at a time (pay-methods.js): the main methods
+           first, AUTRE replaces them by the following ones, PRINCIPAUX brings them
+           back. A hidden key keeps its place and its form, it is only not drawn. */
+        .pay-methods .pm-off { display: none !important; }
+        /* Every drawn key takes an EQUAL share of the column, the navigation row
+           included: with a basis of 100 % each, the row of two keys was crushed. */
+        .pay-methods > *, .pay-methods > form > .btn { flex: 1 1 0; min-height: 0; }
+        .pay-methods > form > .btn { width: 100%; }
+        .pay-methods .pm-nav { display: flex; gap: 8px; flex: 1; min-height: 0; }
+        .pay-methods .pm-nav .btn { flex: 1; min-width: 0; padding: 0 6px; font-size: var(--fs-btn-sm); }
 
         /* Zone principale : historique agrandi + saisie/numpad */
         .pay-main { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; }
 
         /* Historique */
-        .pay-history { display: flex; flex-direction: column; background: #0d0d0d; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; min-height: 0; }
-        .pay-history-title { padding: 10px 14px; font-weight: bold; font-size: var(--fs-label); color: var(--text-muted); border-bottom: 1px solid var(--border-color); background: #161616; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+        .pay-history { display: flex; flex-direction: column; background: var(--bg-inset); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; min-height: 0; }
+        .pay-history-title { padding: 10px 14px; font-weight: bold; font-size: var(--fs-label); color: var(--text-muted); border-bottom: 1px solid var(--border-color); background: var(--bg-panel); text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
         .pay-history-list { flex: 1; padding: 4px 0; min-height: 0; }
-        .pay-history-empty { color: #444; text-align: center; padding: 30px 10px; font-size: var(--fs-body); }
+        .pay-history-empty { color: var(--text-muted); text-align: center; padding: 30px 10px; font-size: var(--fs-body); }
         /* Mode liste pleine (clavier fermé) : on affiche la page courante. */
         .pay-history-entry { display: none; }
         .pay-history-entry.on-page { display: flex; }
@@ -88,12 +98,12 @@
         .pay-history-nav .nav-btn { padding: 8px 14px; font-size: var(--fs-btn-sm); box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
         .pay-history-nav .nav-info { color: var(--text-muted); font-size: var(--fs-label); font-weight: bold; }
 
-        .pay-history-entry { justify-content: space-between; padding: 12px 16px; font-size: var(--fs-row); border-bottom: 1px solid #1a1a1a; }
+        .pay-history-entry { justify-content: space-between; padding: 12px 16px; font-size: var(--fs-row); border-bottom: 1px solid var(--border-color); }
 
         .phe-method { color: var(--text-muted); }
         .phe-sub { font-size: var(--fs-row-sub); color: #666; margin-left: 8px; }
         .phe-amount { color: var(--success); font-weight: bold; }
-        .pay-history-remaining { padding: 12px 16px; border-top: 1px solid var(--border-color); background: #161616; font-weight: bold; font-size: var(--fs-row); flex-shrink: 0; text-align: center; }
+        .pay-history-remaining { padding: 12px 16px; border-top: 1px solid var(--border-color); background: var(--bg-panel); font-weight: bold; font-size: var(--fs-row); flex-shrink: 0; text-align: center; }
 
         /* Bons d'achat */
         .btn-voucher { background-color: #7B1FA2; }
@@ -192,8 +202,9 @@
 
     <div class="main-area"></div>
     <div class="bottom-nav">
-        <a href="/action/payment-return" class="btn btn-danger">{inject:i18n.get('common.cancel')}</a>
+        {! The way back to the sale is ALWAYS the last key, bottom right. !}
         <a href="/abandon" class="btn btn-danger">{inject:i18n.get('pay.annulerTicket')}</a>
+        <a href="/action/payment-return" class="btn btn-danger">{inject:i18n.get('common.cancel')}</a>
     </div>
 
     <!-- Overlay Principal Paiement -->
@@ -491,7 +502,7 @@
                 </div>
 
                 <!-- Colonne moyens de paiement -->
-                <div class="pay-methods">
+                <div class="pay-methods" id="payMethods">
                     {#if offeredTenders.contains('CARD')}
                     <button class="btn btn-primary" onclick="payWith('card')">{inject:i18n.get('pay.carteBancaire')}</button>
                     {#if cashbackEnabled}
@@ -568,6 +579,10 @@
                     <button class="btn" style="background-color:#6D4C41;" onclick="openInput('giftcard')">{inject:i18n.get('pay.carteCadeau')}</button>
                     <button class="btn" style="background-color:#6D4C41;" onclick="openInput('sogec')">{inject:i18n.get('pay.bonSogec')}</button>
                     <a href="/action/donation" class="btn" style="background-color:#00897B;">{inject:i18n.get('pay.arrondiSolidaire')}</a>
+                    <div class="pm-nav">
+                        <button type="button" class="btn btn-muted" data-pm="main">{inject:i18n.get('pay.moyensPrincipaux')}</button>
+                        <button type="button" class="btn btn-muted" data-pm="more">{inject:i18n.get('pay.autresMoyens')}</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -997,6 +1012,7 @@
 
     {#include keyboard-lib /}
 <script src="/pos/pay-code-entry.js"></script>
+<script src="/pos/pay-methods.js"></script>
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 

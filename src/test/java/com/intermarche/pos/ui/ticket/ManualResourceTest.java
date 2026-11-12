@@ -252,7 +252,7 @@ class ManualResourceTest {
     @Test
     void cancellationTemplateHasItsOwnActionAndNavigation() throws Exception {
         String source = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/templates/manual.html"));
-        source = source.replace("{#include theme /}", "").replace("{#include keyboard-lib /}", "")
+        source = source.replace("{#include theme /}", "").replace("{#include keyboard-lib /}", "").replace("{#include screen-embed /}", "")
                 .replaceAll("\\{inject:i18n\\.(?:get|format)\\('[^']+'[^}]*\\)\\}", "LABEL");
         var engine = io.quarkus.qute.Engine.builder().addDefaults()
                 .addValueResolver(new io.quarkus.qute.ReflectionValueResolver()).build();

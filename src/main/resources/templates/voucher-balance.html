@@ -1,118 +1,104 @@
 {!
- ! Stored-value balance consultation (LC-02-09-04): gift cards and credit
- ! notes live in the LOCAL registry (stored_values) — the balance answer is
- ! authoritative and needs no external hub. Read-only: nothing here touches
- ! the ticket or the registry.
+ ! Stored-value balance consultation (LC-02-09-04), shown in a modal over the
+ ! sale: gift cards and credit notes live in the LOCAL registry (stored_values),
+ ! so the balance answer is authoritative and needs no external hub; a NEXO
+ ! prepaid card is asked of the hub (BO-03-02-37). Read-only: nothing here
+ ! touches the ticket or the registry.
  !
- ! Two columns: the answer on the left, the entry on the right — the same shape as
- ! the other lookup screens of the register.
+ ! One column, read from top to bottom: the answer (or, before any consultation,
+ ! what to do), the number typed, the keypad. CONSULTER bottom left, RETOUR
+ ! bottom right. The answer is the figure the customer came for, so it is the
+ ! only thing sized like a total.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{inject:i18n.get('voucherbalance.soldeBonCarteCadeau')}</title>
     <style>
         {#include theme /}
-        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        body { background-color: var(--bg-page); color: var(--text-main); margin: 0; }
+        .pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+        .top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+        .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+        .work { display: flex; flex-direction: column; gap: 10px; padding: 4px 20px 0; min-height: 0; max-width: 34rem; width: 100%; margin: 0 auto; box-sizing: border-box; }
 
-        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
-        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
-
-        .side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; min-height: 0; }
-
-        /* The answer, when there is one: the balance is the figure the customer
-           came for, so it is the only thing sized like a total. */
-        .answer { background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 8px; padding: 14px; }
+        .answer { border: 2px solid var(--border-color); border-radius: 8px; padding: 10px 14px; min-height: 5.5rem; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; }
+        .answer.idle { color: var(--text-muted); text-align: center; font-size: var(--fs-body); }
         .answer.found { border-color: var(--success); }
         .answer.unknown { border-color: var(--danger); }
-        .answer-kind { color: var(--text-muted); font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; }
-        .answer-number { font-size: var(--fs-row); font-weight: bold; margin-top: 2px; }
-        .answer-status { color: var(--text-muted); font-size: var(--fs-row-sub); margin-top: 6px; }
-        .answer-balance { color: var(--success); font-size: var(--fs-total-xl); font-weight: bold; margin-top: 6px; }
+        .answer-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+        .answer-kind { color: var(--text-muted); font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        .answer-number { font-size: var(--fs-row-sub); color: var(--text-muted); }
+        .answer-balance { color: var(--success); font-size: var(--fs-total-xl); font-weight: bold; line-height: 1.1; margin-top: 4px; }
+        .answer-status { color: var(--text-muted); font-size: var(--fs-row-sub); margin-top: 2px; }
         .answer-unknown { color: var(--danger); font-size: var(--fs-body); font-weight: bold; }
 
-        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-        .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
-        .display { width: 100%; font-size: var(--fs-field); padding: 10px 12px; border-radius: 4px;
-                   border: 2px solid var(--border-strong); background: var(--bg-panel);
-                   color: var(--text-main); text-align: left; flex-shrink: 0; }
-        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
-        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
+        .field-label { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        .display { width: 100%; box-sizing: border-box; font-size: var(--fs-field); padding: 8px 12px; border-radius: 4px;
+                   border: 2px solid var(--primary); background: var(--bg-page); color: var(--primary); font-weight: bold; }
+        .keyboard { min-height: 0; }
 
-        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
-        /* The application's button base, declared verbatim as every screen does; the
-           theme include supplies the colour modifiers ALONE. Without this the
-           buttons of this screen rendered as bare links. */
+        .bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+        .bottom-nav .btn { min-width: 11rem; }
+        .bottom-nav .end { margin-left: auto; }
+            /* In the sale's modal an idle balance says nothing: the field speaks for itself. */
+        html.in-modal .answer.idle { display: none; }
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-embed-stay="/voucher-balance /action/voucher-balance" data-modal-size="34rem fit">
 <div class="pos-terminal">
 
-    <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('voucherbalance.soldeBonCarteCadeau2')}</span>
-        <span id="clock"></span>
-    </div>
+    <div class="top-bar"><span class="title">{inject:i18n.get('voucherbalance.soldeBonCarteCadeau2')}</span></div>
 
-    <div class="main-area">
-        <form class="work" method="post" action="/action/voucher-balance">
-
-            <div class="side">
-                {#if result}
-                    {#if result.blank}
-                    <div class="answer unknown">
-                        <div class="answer-unknown">{inject:i18n.get('voucherbalance.aucunNumeroSaisi')}</div>
-                        <div class="answer-status">{inject:i18n.get('voucherbalance.tapezNumeroBonPave')}</div>
-                    </div>
-                    {#else if result.refusal}
-                    {! BO-03-02-37 : le type de carte prepayee interdit la consultation,
-                     ! ou le service tiers l'a refusee. !}
-                    <div class="answer unknown">
-                        <div class="answer-unknown">{result.refusal}</div>
-                    </div>
-                    {#else if result.found}
-                    <div class="answer found">
-                        <div class="answer-kind">{result.kindLabel}</div>
-                        <div class="answer-number">N° {result.number}</div>
-                        <div class="answer-status">Statut : {result.statusLabel}</div>
-                        <div class="answer-balance">{result.balanceFormatted} €</div>
-                    </div>
-                    {#else}
-                    <div class="answer unknown">
-                        <div class="answer-unknown">{inject:i18n.get('voucherbalance.bonInconnuRegistre')}</div>
-                        <div class="answer-status">{inject:i18n.get('voucherbalance.verifiezNumeroSaisi')}</div>
-                    </div>
-                    {/if}
-                {/if}
+    <form class="work" method="post" action="/action/voucher-balance" id="vbForm">
+        {#if result}
+            {#if result.blank}
+            <div class="answer unknown" role="alert">
+                <div class="answer-unknown">{inject:i18n.get('voucherbalance.aucunNumeroSaisi')}</div>
+                <div class="answer-status">{inject:i18n.get('voucherbalance.tapezNumeroBonPave')}</div>
             </div>
-
-            <div class="entry">
-                <div class="entry-title">{inject:i18n.get('voucherbalance.numeroBon')}</div>
-                <div id="vbDisplay" class="display pad-display"></div>
-                <input type="hidden" name="number" id="vbHidden" value="{number}">
-                <div class="keyboard pos-kb-compact" id="vbKbArea"></div>
-                <div class="actions">
-                    <button type="submit" class="btn btn-primary">{inject:i18n.get('voucherbalance.consulter')}</button>
+            {#else if result.refusal}
+            {! BO-03-02-37 : le type de carte prepayee interdit la consultation,
+             ! ou le service tiers l'a refusee. !}
+            <div class="answer unknown" role="alert">
+                <div class="answer-unknown">{result.refusal}</div>
+            </div>
+            {#else if result.found}
+            <div class="answer found" role="status">
+                <div class="answer-head">
+                    <span class="answer-kind">{result.kindLabel}</span>
+                    <span class="answer-number">N° {result.number}</span>
                 </div>
+                <div class="answer-balance">{result.balanceFormatted} €</div>
+                <div class="answer-status">{inject:i18n.get('voucherbalance.statut')} : {result.statusLabel}{#if result.validUntilFormatted} · {inject:i18n.get('voucherbalance.valableJusquAu')} {result.validUntilFormatted}{/if}</div>
             </div>
+            {#else}
+            <div class="answer unknown" role="alert">
+                <div class="answer-unknown">{inject:i18n.get('voucherbalance.bonInconnuRegistre')}</div>
+                <div class="answer-status">{inject:i18n.get('voucherbalance.verifiezNumeroSaisi')}</div>
+            </div>
+            {/if}
+        {#else}
+            <div class="answer idle">{inject:i18n.get('voucherbalance.tapezNumeroBonPave')}</div>
+        {/if}
 
-        </form>
-    </div>
+        <div class="field-label">{inject:i18n.get('voucherbalance.numeroBon')}</div>
+        <div id="vbDisplay" class="display pad-display"></div>
+        <input type="hidden" name="number" id="vbHidden" value="{number}">
+        <div class="keyboard" id="vbKbArea"></div>
+    </form>
 
     <div class="bottom-nav">
-        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        <button type="submit" form="vbForm" class="btn btn-primary">{inject:i18n.get('voucherbalance.consulter')}</button>
+        <a href="/" class="btn btn-muted end">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 
 {#include keyboard-lib /}
 
 <script>
-    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-
     PosInput.setup({
         displayId: 'vbDisplay',
         hiddenId: 'vbHidden',
@@ -123,5 +109,6 @@
         initialValue: document.getElementById('vbHidden').value || ''
     });
 </script>
+{#include screen-embed /}
 </body>
 </html>

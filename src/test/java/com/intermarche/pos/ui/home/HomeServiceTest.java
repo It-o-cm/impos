@@ -193,6 +193,44 @@ class HomeServiceTest {
     }
 
     /**
+     * {@code selectTab()} shows a tab the back office created, in any case, and
+     * bumps the version.
+     */
+    @Test
+    void selectTabShowsACreatedTab() {
+        service.selectTab(" X12 ");
+        assertEquals("x12", service.state.customTab);
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code selectTab()} shows a standard menu and forgets the created tab; an
+     * unreadable key lands on the sale menu.
+     */
+    @Test
+    void selectTabShowsAStandardMenu() {
+        service.state.customTab = "x1";
+        service.selectTab("ticket");
+        assertNull(service.state.customTab);
+        assertEquals(com.intermarche.pos.ui.PosMenu.TICKET, service.state.menu);
+        service.selectTab(null);
+        assertEquals(com.intermarche.pos.ui.PosMenu.ARTICLES, service.state.menu);
+    }
+
+    /**
+     * {@code selectTab()} on the settlement key keeps the tab shown: the key
+     * opens a screen, it is not a menu.
+     */
+    @Test
+    void selectTabKeepsTheTabOnTheSettlementKey() {
+        service.state.customTab = "x1";
+        service.state.menu = com.intermarche.pos.ui.PosMenu.CAISSE;
+        service.selectTab("reglement");
+        assertEquals("x1", service.state.customTab);
+        assertEquals(com.intermarche.pos.ui.PosMenu.CAISSE, service.state.menu);
+    }
+
+    /**
      * Adds {@code count} lines to the ticket, giving the one at {@code markIndex}
      * the uid {@code markUid} so a test can select it by identity.
      *
@@ -568,7 +606,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastTicketPrintsNothingWhenGuardRefuses() {
-        when(service.state.requireLastClosedTicket()).thenReturn(false);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_PRINT_KEY)).thenReturn(false);
         service.printLastTicket();
         // The RECOVERY still happens, and must: the DERNIER keys work on the last
         // sale this REGISTER closed, not the last one this PROCESS closed, so the
@@ -584,7 +622,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastTicketReprintsWhenGuardAllows() {
-        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_PRINT_KEY)).thenReturn(true);
         service.state.lastClosedTicketId = 42L;
         service.printLastTicket();
         verify(service.ticketService).reprintTicket(42L);
@@ -598,7 +636,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastTicketBarcodePrintsNothingWhenGuardRefuses() {
-        when(service.state.requireLastClosedTicket()).thenReturn(false);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_BARCODE_KEY)).thenReturn(false);
         service.printLastTicketBarcode();
         verify(service.ticketService).resolveLastClosedTicketId(service.state);
         verifyNoMoreInteractions(service.ticketService);
@@ -610,7 +648,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastTicketBarcodePrintsWhenGuardAllows() {
-        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_BARCODE_KEY)).thenReturn(true);
         service.state.lastClosedTicketId = 42L;
         service.printLastTicketBarcode();
         verify(service.ticketService).printTicketIdentityBarcode(42L);
@@ -625,7 +663,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastCardReceiptDuplicatePrintsNothingWhenGuardRefuses() {
-        when(service.state.requireLastClosedTicket()).thenReturn(false);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_CARD_KEY)).thenReturn(false);
         service.printLastCardReceiptDuplicate();
         verify(service.ticketService).resolveLastClosedTicketId(service.state);
         verifyNoMoreInteractions(service.ticketService);
@@ -637,7 +675,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastCardReceiptDuplicatePrintsWhenGuardAllows() {
-        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_CARD_KEY)).thenReturn(true);
         service.state.lastClosedTicketId = 42L;
         when(service.ticketService.printCardReceiptDuplicate(42L)).thenReturn(1);
         service.printLastCardReceiptDuplicate();
@@ -651,7 +689,7 @@ class HomeServiceTest {
      */
     @Test
     void printLastCardReceiptDuplicateTellsWhenTheSaleCarriedNoCard() {
-        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        when(service.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_CARD_KEY)).thenReturn(true);
         service.state.lastClosedTicketId = 42L;
         when(service.ticketService.printCardReceiptDuplicate(42L)).thenReturn(0);
         service.printLastCardReceiptDuplicate();
@@ -675,13 +713,13 @@ class HomeServiceTest {
     }
 
     /**
-     * {@code openPriceMod()} on QUANTITY with NO line selected opens the modal on
-     * no line at all instead of refusing the gesture: the figure about to be keyed
-     * is for the article the cashier is about to ring ({@code LC-02-13-04/05/06}).
+     * {@code openPriceMod()} on QUANTITY on an EMPTY ticket opens the modal on no
+     * line at all instead of refusing the gesture: the figure about to be keyed is
+     * for the article the cashier is about to ring ({@code LC-02-13-04/05/06}).
      */
     @Test
-    void openPriceModQuantityWithoutSelectionTargetsTheNextArticle() {
-        when(service.state.getSelectedItem()).thenReturn(null);
+    void openPriceModQuantityOnAnEmptyTicketTargetsTheNextArticle() {
+        when(service.state.getTargetItem()).thenReturn(null);
         service.openPriceMod("quantity");
         verify(service.state.priceModState).set(PriceModType.QUANTITY, null, "PROCHAIN ARTICLE");
         verify(service.state.ticket, never())
@@ -690,35 +728,19 @@ class HomeServiceTest {
     }
 
     /**
-     * THE ARMING FIRES EVEN WITH ARTICLES ALREADY ON THE TICKET, and this is the
-     * case that was broken: the key read {@code getTargetItem()}, which answers
-     * the LAST line when nothing is selected, so a quantity keyed on a running
-     * sale landed on the article just rung instead of arming for the next one.
-     * The key reads the explicit selection now, and the fallback is left to the
-     * price gestures it was written for.
+     * {@code openPriceMod()} on QUANTITY with no line selected on a running sale
+     * targets the LAST line, the one {@code getTargetItem()} answers: the
+     * article just rung is the one the cashier corrects.
      */
     @Test
-    void openPriceModQuantityArmsEvenWhenTheTicketCarriesLines() {
+    void openPriceModQuantityWithoutSelectionTargetsTheLastLine() {
         TicketState.TicketItem last = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         when(service.state.getTargetItem()).thenReturn(last);
-        when(service.state.getSelectedItem()).thenReturn(null);
         service.openPriceMod("quantity");
-        verify(service.state.priceModState).set(PriceModType.QUANTITY, null, "PROCHAIN ARTICLE");
+        verify(service.state.priceModState).set(PriceModType.QUANTITY, "A", "L", last.getHtml(),
+                last.getPriceFormatted(), last.getModifierLabel());
         verify(service.state.ticket, never())
                 .setError(org.mockito.ArgumentMatchers.anyString());
-    }
-
-    /**
-     * {@code openPriceMod()} on QUANTITY WITH a line selected still targets that
-     * line — the other arm of the same guard, and the gesture that existed first.
-     */
-    @Test
-    void openPriceModQuantityWithASelectionStillTargetsThatLine() {
-        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
-        when(service.state.getSelectedItem()).thenReturn(it);
-        service.openPriceMod("quantity");
-        verify(service.state.priceModState).set(PriceModType.QUANTITY, "A", "L", it.getHtml(),
-                it.getPriceFormatted(), it.getModifierLabel());
         verify(service.state).touch();
     }
 
@@ -892,7 +914,7 @@ class HomeServiceTest {
     void requestTrainingToggleRefusedWhenCartNotEmpty() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
         service.requestTrainingToggle();
-        verify(service.state.ticket).setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+        assertEquals("Mode formation impossible : une vente est en cours. Terminez, mettez en attente ou abandonnez le ticket d’abord.", service.state.modalMessage);
         verify(service.state).touch();
         verifyNoInteractions(service.endorsementService);
     }
@@ -905,7 +927,7 @@ class HomeServiceTest {
     void requestTrainingToggleRefusedWhenPaymentInProgress() {
         service.state.payment.paymentInProgress = true;
         service.requestTrainingToggle();
-        verify(service.state.ticket).setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+        assertEquals("Mode formation impossible : une vente est en cours. Terminez, mettez en attente ou abandonnez le ticket d’abord.", service.state.modalMessage);
         verify(service.state).touch();
         verifyNoInteractions(service.endorsementService);
     }
@@ -4281,5 +4303,33 @@ class HomeServiceTest {
         assertTrue(service.decrementByScan("A"));
         assertEquals(0, new BigDecimal("2.0").compareTo(it.quantity));
         verify(service.state.ticket).setNotice("1,5 UNITE(S) RETIREE(S) DE LA LIGNE");
+    }
+
+    /**
+     * {@code anyClosedTicket} answers whether a closed ticket is on record,
+     * both arms: none, then one.
+     */
+    @Test
+    void anyClosedTicketCountsTheClosedTickets() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> PanacheEntityBase.count("status", com.intermarche.pos.domain.sale.Ticket.TicketStatus.CLOSED)).thenReturn(0L);
+            assertFalse(service.anyClosedTicket());
+            ms.when(() -> PanacheEntityBase.count("status", com.intermarche.pos.domain.sale.Ticket.TicketStatus.CLOSED)).thenReturn(1L);
+            assertTrue(service.anyClosedTicket());
+        }
+    }
+
+    /**
+     * {@code anyCustomerDocument} answers whether a customer copy is on
+     * record, both arms: none, then one.
+     */
+    @Test
+    void anyCustomerDocumentCountsTheCopies() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::count).thenReturn(0L);
+            assertFalse(service.anyCustomerDocument());
+            ms.when(PanacheEntityBase::count).thenReturn(2L);
+            assertTrue(service.anyCustomerDocument());
+        }
     }
 }

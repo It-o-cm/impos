@@ -380,7 +380,7 @@ public class DemoIT {
     /**
      * demo05a — Module VI.1 : the meal-voucher cap, proven by the DECREMENT.
      * <p>
-     * ENCAISSER shows the green AVANTAGES banner (second live engine proof).
+     * RÈGLEMENT shows the green AVANTAGES banner (second live engine proof).
      * A 999,00 € TR (above any plausible base) is submitted; the registered
      * amount is read as the drop of
      * the engine-fed meal base ({@code valuationMealEligible} before minus
@@ -391,8 +391,7 @@ public class DemoIT {
     @Test
     void demo05a_module6_tr_plafonne_par_l_assiette() {
         Page page = openSaleScreen();
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ENCAISSER").setExact(true)).click();
+        page.locator("a#payBtn").click();
         // Fidelity-leg lesson applied here too: wait for the BUTTON we use
         // next, and prove the advantages banner through the SERVER oracle
         // (the banner text exists in pay.html but its display is a timing
@@ -413,7 +412,7 @@ public class DemoIT {
         org.junit.jupiter.api.Assumptions.assumeTrue(baseBefore != null && baseBefore.signum() > 0,
                 "the engine returned no MEAL_VOUCHER base for this cart — check the "
                         + "engine seed (POMMES family TR flags) before the demo");
-        typeAmountVerified(page, "TICKET RESTO", "#trDisplay", "#trForm", "999", "999");
+        typeAmountVerified(page, "TICKET RESTO", "#trDisplay", "#trForm", "99900", "999,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("TICKET RESTO").setExact(true)).waitFor();
         BigDecimal baseAfter = posState.payment.valuationMealEligible;
@@ -455,10 +454,9 @@ public class DemoIT {
     void demo05b_module6_tpe_refus_puis_accord() {
         String root = base.toString();
         Page page = openSaleScreen();
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ENCAISSER").setExact(true)).click();
+        page.locator("a#payBtn").click();
         // --- Refuse path ---
-        typeAmountVerified(page, "CARTE BANCAIRE", "#cardDisplay", "#cardForm", "5", "5");
+        typeAmountVerified(page, "CARTE BANCAIRE", "#cardDisplay", "#cardForm", "500", "5,00");
         waitForPendingCard(6000); // the TPE request must EXIST before refusing
         APIResponse refusal = context.request()
                 .post(root + "api/hardware/tpe/refuse", RequestOptions.create());
@@ -474,7 +472,7 @@ public class DemoIT {
                         .noneMatch(p -> "CARD".equals(p.method)),
                 "module VI.2: un refus TPE ne doit enregistrer AUCUN paiement carte");
         // --- Accept path (5,00 € card, kept for the closing) ---
-        typeAmountVerified(page, "CARTE BANCAIRE", "#cardDisplay", "#cardForm", "5", "5");
+        typeAmountVerified(page, "CARTE BANCAIRE", "#cardDisplay", "#cardForm", "500", "5,00");
         waitForPendingCard(6000);
         APIResponse accept = context.request()
                 .post(root + "api/hardware/tpe/accept", RequestOptions.create());
@@ -497,9 +495,8 @@ public class DemoIT {
     @Test
     void demo05c_module6_especes_et_moment_fiscal() {
         Page page = openSaleScreen();
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("ENCAISSER").setExact(true)).click();
-        typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "50", "50");
+        page.locator("a#payBtn").click();
+        typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "5000", "50,00");
         // Completion modal — the demo's VI.7 sequence: IMPRIMER first (the
         // original print, draft still OPEN), THEN the fiscal closing. The
         // embedded simulator's printer buffer is readable, so the PRINTED
@@ -854,11 +851,10 @@ public class DemoIT {
      * @param modeButton the exact pay-mode button label (e.g. "ESPÈCES")
      * @param displayId the sub-form display id (e.g. "#cashDisplay")
      * @param formId the sub-form id (e.g. "#cashForm")
-     * @param digits the digits to tap — the amount IN EUROS: keyboard-lib's
-     *        payment mode accumulates keys verbatim (no cents convention —
-     *        typing "5000" would mean five thousand euros)
-     * @param expectedDisplay the display value proving capture — the MIRROR
-     *        of the keys typed (e.g. "50" for fifty euros)
+     * @param digits the digits to tap — the amount IN CENTS: every amount pad
+     *        of the register is a cents pad, so fifty euros is keyed "5000"
+     * @param expectedDisplay the display value proving capture — the euros the
+     *        pad shows for the keys typed (e.g. "50,00" for fifty euros)
      */
     private void typeAmountVerified(Page page, String modeButton, String displayId,
                                     String formId, String digits, String expectedDisplay) {
@@ -866,6 +862,12 @@ public class DemoIT {
             try {
                 Locator button = page.getByRole(AriaRole.BUTTON,
                         new Page.GetByRoleOptions().setName(modeButton).setExact(true));
+                // The payment keys show six at a time: a key past the main ones
+                // is reached through AUTRE.
+                Locator more = page.locator("#payMethods [data-pm=more]");
+                for (int pageTurn = 0; pageTurn < 4 && !button.isVisible() && more.isVisible(); pageTurn++) {
+                    more.click();
+                }
                 button.waitFor(new Locator.WaitForOptions().setTimeout(5000));
                 button.click(new Locator.ClickOptions().setForce(true));
                 // The numpad only EXISTS once openInput rendered it into the

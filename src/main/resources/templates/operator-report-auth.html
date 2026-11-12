@@ -1,20 +1,43 @@
+{!
+ ! CA THÉORIQUE OPÉRATEUR — supervisor approval (LC-12-07-01), shown in the
+ ! session modal over the sale. The supervisor identifies (badge, quick PIN or
+ ! identifier + PIN) on the shared panel; the main key, bottom left, opens the
+ ! operator's figures, RAPPORT X the register-wide report; RETOUR, bottom right,
+ ! goes back to the session. A refusal is stated at the top, without figures.
+!}
 <!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{inject:i18n.get('operatorReport.title')}</title><style>
 {#include theme /}
-body { background:var(--bg-page); color:var(--text-main); display:flex; justify-content:center; align-items:center; min-height:100vh; }
-.pos-terminal { display:flex; flex-direction:column; gap:12px; padding:20px; overflow:auto; }
-form { display:flex; flex-direction:column; gap:10px; max-width:32rem; margin:auto; width:100%; }
-.sup-field { padding:10px; border:2px solid var(--primary); border-radius:6px; }
-.error { color:var(--danger); }
-</style></head><body data-theme="{posTheme}"><div class="pos-terminal">
-<h1>{inject:i18n.get('operatorReport.title')}</h1>
-{#if error}<p class="error">{error}</p>{/if}
-<form method="post" action="/session/x-report/authorized" onsubmit="return SupAuth.fill(this)">
-{#include supervisor-auth padContainer='reportKeyboard' displayClass='sup-field' /}
-<input type="hidden" name="supervisor"><input type="hidden" name="supervisorPassword">
-<input type="hidden" name="print" value="{print}"><div id="reportKeyboard" class="pos-kb-compact"></div>
-<button class="btn btn-primary" type="submit">{#if print}{inject:i18n.get('operatorReport.print')}{#else}{inject:i18n.get('operatorReport.approve')}{/if}</button>
-<button class="btn btn-muted" type="submit" formaction="/session/x-report/register-authorized">{#if print}{inject:i18n.get('sessionreport.imprimerRapportX')}{#else}{inject:i18n.get('sessionreport.rapportX')}{/if}</button>
-</form><a class="btn btn-muted" href="/session">{inject:i18n.get('common.back')}</a>
-</div>{#include keyboard-lib /}<script>SupAuth.focus();</script></body></html>
+body { background: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.pos-terminal { grid-template-rows: 3.25rem minmax(0, 1fr) 4.5rem; background: var(--bg-panel); }
+.top-bar { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+.top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; letter-spacing: 0.5px; }
+.main-area { min-height: 0; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+.main-area form { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.sup-field { padding: 10px; border: 2px solid var(--primary); border-radius: 6px; }
+.refusal { padding: 10px 14px; border-radius: 8px; border: 2px solid var(--danger); color: var(--danger); font-weight: bold; }
+.bottom-nav { display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+.bottom-nav .btn { min-width: 11rem; }
+.bottom-nav .end { margin-left: auto; }
+</style></head>
+<body data-theme="{posTheme}" data-modal-size="48rem fit" data-embed-stay="/session /action/session/x-report">
+<div class="pos-terminal">
+  <div class="top-bar"><span class="title">{inject:i18n.get('operatorReport.title')}</span></div>
+  <div class="main-area">
+    {#if error}<div class="refusal mk-outcome err" role="alert">{error}</div>{/if}
+    <form method="post" action="/session/x-report/authorized" id="reportAuthForm" onsubmit="return SupAuth.fill(this)">
+      {#include supervisor-auth padContainer='reportKeyboard' displayClass='sup-field pad-display' /}
+      <input type="hidden" name="supervisor"><input type="hidden" name="supervisorPassword">
+      <input type="hidden" name="print" value="{print}"><div id="reportKeyboard" class="pos-kb-compact"></div>
+    </form>
+  </div>
+  <div class="bottom-nav">
+    <button class="btn btn-primary" type="submit" form="reportAuthForm">{#if print}{inject:i18n.get('operatorReport.print')}{#else}{inject:i18n.get('operatorReport.approve')}{/if}</button>
+    <button class="btn btn-muted" type="submit" form="reportAuthForm" formaction="/session/x-report/register-authorized">{#if print}{inject:i18n.get('sessionreport.imprimerRapportX')}{#else}{inject:i18n.get('sessionreport.rapportX')}{/if}</button>
+    <a class="btn btn-muted mk-back end" href="/session">{inject:i18n.get('common.back')}</a>
+  </div>
+</div>
+{#include keyboard-lib /}<script>SupAuth.focus();</script>
+{#include screen-embed /}
+</body></html>

@@ -340,6 +340,13 @@ public class TicketState implements Serializable {
     public boolean transientWarn = false;
 
     /**
+     * Counts the messages posted to the message zone. A key pressed twice that
+     * gets the same answer twice must still visibly answer: the screen flashes
+     * the zone whenever this number moves, even when the text did not change.
+     */
+    public long transientStamp = 0L;
+
+    /**
      * Attaches the parent POS state so that mutations can bump its version.
      *
      * @param parent the owning POS state
@@ -1068,6 +1075,7 @@ public class TicketState implements Serializable {
         this.transientError = err;
         this.transientOk = false;
         this.transientWarn = false;
+        this.transientStamp++;
         onChange();
     }
 
@@ -1081,6 +1089,7 @@ public class TicketState implements Serializable {
         this.transientError = message;
         this.transientOk = true;
         this.transientWarn = false;
+        this.transientStamp++;
         onChange();
     }
 
@@ -1095,6 +1104,7 @@ public class TicketState implements Serializable {
         this.transientError = message;
         this.transientOk = false;
         this.transientWarn = true;
+        this.transientStamp++;
         onChange();
     }
 

@@ -203,6 +203,9 @@ public class HomeResource {
                     .data("reasons", homeService.cancelReasons());
         }
         resolveArticleCodes();
+        // The DERNIER keys are live only with a last sale: after a restart its
+        // memory is recovered from the database before the keys are drawn.
+        ticketService.resolveLastClosedTicketId(state);
         LOGGER.info("Exiting method home");
         return main.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
@@ -213,6 +216,10 @@ public class HomeResource {
                 // BO-03-07-03/-06: the administered keys on the ticket total.
                 .data("ticketDiscountPresets", homeService.ticketDiscountPresets())
                 .data("ptDocuments", posSettingsService.ptDocuments())
+                .data("saleTaxIdKey", posSettingsService.saleTaxIdKey())
+                // TICKET menu: a key with nothing to work on is drawn inactive.
+                .data("closedTicketOnRecord", homeService.anyClosedTicket())
+                .data("customerDocumentOnRecord", homeService.anyCustomerDocument())
                 .data("offline", homeService.offlineAppearance())
                 .data("cashMenu", cashMenuService.current())
                 .data("singleQueue", singleQueueService.view())
@@ -547,6 +554,21 @@ public class HomeResource {
     }
 
     /**
+     * Acknowledges the message modal of the sale screen and closes it.
+     *
+     * @return a redirect to the home page
+     */
+    @GET
+    @Path("/action/message/close")
+    public Response closeMessage() {
+        LOGGER.info("Entering method closeMessage");
+        state.modalMessage = null;
+        state.touch();
+        LOGGER.info("Exiting method closeMessage");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
      * Requests the endorsed training-mode toggle.
      *
      * @return a redirect to the home page (the endorsement modal opens)
@@ -602,7 +624,7 @@ public class HomeResource {
     @Path("/action/menu/{key}")
     public TemplateInstance showMenu(@jakarta.ws.rs.PathParam("key") String key) {
         LOGGER.info("Entering method showMenu with key: " + key);
-        homeService.selectMenu(com.intermarche.pos.ui.PosMenu.of(key));
+        homeService.selectTab(key);
         LOGGER.info("Exiting method showMenu");
         return home();
     }

@@ -54,6 +54,15 @@ public class PosState implements Serializable {
     /** LC-13-02-05/-07: no maintenance screen scan can register a sale item. */
     public boolean maintenanceScreenOpen = false;
 
+    /**
+     * How long the maintenance page may stay silent and still own the scans: it
+     * asks for its content every two seconds while it is on display.
+     */
+    public static final long MAINTENANCE_FRESHNESS_MS = 5_000L;
+
+    /** LC-13-02-05/-07: when the maintenance page last asked for its content, in epoch milliseconds. */
+    public volatile long maintenanceSeenAt = 0L;
+
     /** LC-13-02-09/-14: latest independently classified peripheral states. */
     public java.util.Map<String, String> peripheralAvailability = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -63,6 +72,16 @@ public class PosState implements Serializable {
 
     /** LC-13-02-05/-07: latest simulator or forwarded diagnostic label. */
     public String maintenanceScanCode = "";
+
+    /** LC-13-02-05/-07: the scan peripheral whose test is running (scanner or handheld), empty otherwise. */
+    public String maintenanceScanDevice = "";
+
+    /**
+     * A refusal the sale screen states in a message modal until the operator
+     * acknowledges it (a key that cannot act now: close, vignettes, training).
+     * Null when no message is waiting.
+     */
+    public String modalMessage = null;
 
     /** LC-13-03-03: bridge confirmation page independent of the register process. */
     public String workstationControlUrl = "";
@@ -594,11 +613,26 @@ public class PosState implements Serializable {
         return i18n;
     }
 
-    /**
-     * Bundle key of the one answer the register gives when a function needs a
-     * closed ticket and there is none (LC-13-06).
-     */
-    public static final String NO_LAST_TICKET_KEY = "op.aucunTicket";
+    /** Refusal of DERNIER : TICKET with no sale finished on this register (LC-13-06). */
+    public static final String NO_LAST_TICKET_PRINT_KEY = "op.refusDernierTicket";
+
+    /** Refusal of DERNIER : CODE-BARRES with no sale finished on this register (LC-13-06). */
+    public static final String NO_LAST_TICKET_BARCODE_KEY = "op.refusDernierCodeBarres";
+
+    /** Refusal of DERNIER : DUPLICATA CB with no sale finished on this register (LC-13-06). */
+    public static final String NO_LAST_TICKET_CARD_KEY = "op.refusDernierDuplicataCb";
+
+    /** Refusal of DERNIER : PAR EMAIL with no sale finished on this register (LC-13-06). */
+    public static final String NO_LAST_TICKET_EMAIL_KEY = "op.refusDernierEmail";
+
+    /** Refusal of FACTURE with no closed ticket to bill (LC-13-06). */
+    public static final String NO_TICKET_INVOICE_KEY = "op.refusFacture";
+
+    /** Refusal of RECHERCHE TICKET with no closed ticket in the history (LC-13-06). */
+    public static final String NO_TICKET_REPRINT_KEY = "op.refusRechercheTicket";
+
+    /** Refusal of DOCUMENTS CLIENT with no customer document issued (LC-13-06). */
+    public static final String NO_CUSTOMER_DOCUMENT_KEY = "op.refusDocumentsClient";
 
     /**
      * Bundle key of the one answer the register gives when training mode forbids
@@ -619,10 +653,14 @@ public class PosState implements Serializable {
      * when the answer is no: the message is already on the sale screen and the
      * state already touched.
      *
+     * <p>The refusal names the function and what it lacks — a bare « AUCUN
+     * TICKET » told the operator neither which key answered nor why.
+     *
+     * @param refusalKey bundle key of the refusal naming the function refused
      * @return true when there is a last closed ticket and the register is not
      *         in training mode; false after the refusal has been posted
      */
-    public boolean requireLastClosedTicket() {
+    public boolean requireLastClosedTicket(String refusalKey) {
         if (trainingMode) {
             // Training touches no real document: no duplicata, no counter bump,
             // and no number that could name a sale that never happened.
@@ -631,7 +669,7 @@ public class PosState implements Serializable {
             return false;
         }
         if (lastClosedTicketId == null) {
-            ticket.setError(i18n.get(NO_LAST_TICKET_KEY));
+            ticket.setError(i18n.get(refusalKey));
             touch();
             return false;
         }
@@ -792,6 +830,18 @@ public class PosState implements Serializable {
     /** The button menu currently shown; the sale gestures when the screen opens. */
     public PosMenu menu = PosMenu.ARTICLES;
 
+    /** The tab created by the back office currently shown, or null when a standard menu is. */
+    public String customTab;
+
+    /**
+     * The tab the grid shows: the created tab chosen, else the standard menu.
+     *
+     * @return the tab id
+     */
+    public String currentTab() {
+        return customTab != null ? customTab : menu.getKey();
+    }
+
     /**
      * Returns the five menus in tab order — what the bottom bar renders.
      *
@@ -835,6 +885,7 @@ public class PosState implements Serializable {
         complementaryPendingEan = null;
         ticket.clear();
         menu = PosMenu.ARTICLES;
+        customTab = null;
         fidelity.clear();
         payment.reset();
         selectedTicketIndex = -1;
@@ -1045,6 +1096,44 @@ public class PosState implements Serializable {
      */
     public boolean isLocked() {
         return auth.isLocked;
+    }
+
+    /**
+     * Tells whether the back office left something to read on this register: a
+     * message, or a survey waiting for its answer. The MESSAGE BACK-OFFICE key
+     * only opens when there is.
+     *
+     * @return true when a back-office message or survey is waiting
+     */
+    public boolean hasBackOfficeMessage() {
+        return (backOfficeMessage != null && !backOfficeMessage.isEmpty()) || backOfficeSurvey != null;
+    }
+
+    /**
+     * Tells whether the payment screen has nothing to settle: no payment under
+     * way, no closed transaction to show, and no line on the ticket. Reached that
+     * way — a reload of the payment screen racing NOUVELLE VENTE, a stale link —
+     * the screen must not open a payment on an empty basket, which would refuse
+     * the next sale as a sale during payment.
+     *
+     * @return true when there is nothing to pay
+     */
+    public boolean nothingToPay() {
+        return !payment.paymentInProgress && !payment.transactionComplete && ticket.items.isEmpty();
+    }
+
+    /**
+     * Tells whether the maintenance screen is on display right now (LC-13-02-05/-07):
+     * opened and still asking for its content. A screen left without its exit key —
+     * a lock, a navigation, a closed window — stops capturing scans within a few
+     * seconds, instead of swallowing the badges and the articles of the screens that
+     * follow it.
+     *
+     * @return true while scans belong to the maintenance screen
+     */
+    public boolean maintenanceScreenActive() {
+        return maintenanceScreenOpen
+                && System.currentTimeMillis() - maintenanceSeenAt <= MAINTENANCE_FRESHNESS_MS;
     }
 
     /**

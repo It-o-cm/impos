@@ -12,6 +12,7 @@ import org.mockito.MockedStatic;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -146,6 +147,8 @@ class ReprintServiceTest {
         service.printExchange(5L);
         verify(service.ticketPrinterService).printExchangeVoucher(eq(5L), any());
         verify(service.state.reprint).clearExchange();
+        assertEquals("BON POUR ÉCHANGE IMPRIMÉ", service.state.reprint.printOutcome);
+        assertTrue(service.state.reprint.printOutcomeOk);
     }
 
     /**
@@ -159,6 +162,8 @@ class ReprintServiceTest {
         service.printExchange(5L);
         verify(service.state.ticket).setError("IMPRESSION INDISPONIBLE EN FORMATION");
         verifyNoInteractions(service.ticketPrinterService);
+        assertEquals("IMPRESSION INDISPONIBLE EN FORMATION", service.state.reprint.printOutcome);
+        assertFalse(service.state.reprint.printOutcomeOk);
     }
 
     /**
@@ -189,6 +194,8 @@ class ReprintServiceTest {
                 .thenReturn(java.util.Optional.of("TICKET RENDU"));
         service.printForeign("C09-000012");
         verify(service.ticketPrinterService).printRenderedTicket("TICKET RENDU");
+        assertEquals("TICKET RÉIMPRIMÉ", service.state.reprint.printOutcome);
+        assertTrue(service.state.reprint.printOutcomeOk);
     }
 
     /**
@@ -266,8 +273,10 @@ class ReprintServiceTest {
     @Test
     void startForeignOpensTheForeignMask() {
         ReprintService service = newService();
+        service.state.reprint.printOutcome = "TICKET RÉIMPRIMÉ";
         service.startForeign();
         verify(service.state).touch();
+        assertEquals("", service.state.reprint.printOutcome);
     }
 
     // --- loadHistory ---
@@ -306,6 +315,8 @@ class ReprintServiceTest {
         verify(service.state.ticket).setError("RÉIMPRESSION INDISPONIBLE EN FORMATION");
         verify(service.state).touch();
         verifyNoInteractions(service.ticketPrinterService);
+        assertEquals("RÉIMPRESSION INDISPONIBLE EN FORMATION", service.state.reprint.printOutcome);
+        assertFalse(service.state.reprint.printOutcomeOk);
     }
 
     /**
@@ -320,6 +331,8 @@ class ReprintServiceTest {
         verify(service.ticketPrinterService).printTicket(42L);
         verify(service.state.ticket, never()).setError(any());
         verify(service.state, never()).touch();
+        assertEquals("TICKET RÉIMPRIMÉ", service.state.reprint.printOutcome);
+        assertTrue(service.state.reprint.printOutcomeOk);
     }
 
     /**
@@ -334,6 +347,7 @@ class ReprintServiceTest {
         verifyNoInteractions(service.ticketPrinterService);
         verify(service.state.ticket, never()).setError(any());
         verify(service.state, never()).touch();
+        assertNotEquals("TICKET RÉIMPRIMÉ", service.state.reprint.printOutcome);
     }
 
     /**

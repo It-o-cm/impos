@@ -10,6 +10,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -29,15 +30,33 @@ public class CustomerDocumentResource {
     /** Existing tactile keyboard and customer-copy selection page. */
     @Inject @Location("customer-documents") Template template;
 
-    /** Opens a page of issued copies, without requiring a previous sale.
+    /** Opens a page of issued copies, without requiring a previous sale. In training,
+     * or with no issued copy at all, the screen is not opened: the refusal is stated
+     * where every key of the TICKET menu states it, at the top of the sale's article list.
      * @param page zero-based history page
-     * @return customer-only history and destination entry
+     * @return customer-only history and destination entry, or the sale screen with the refusal
      */
     @GET
     @Produces(MediaType.TEXT_HTML)
     @com.intermarche.pos.ui.DrawerMayBeOpen
-    public TemplateInstance show(@QueryParam("page") @DefaultValue("0") int page) {
-        return page(page, "", state.trainingMode ? i18n.get(PosState.TRAINING_FORBIDDEN_KEY) : "", "");
+    public Response show(@QueryParam("page") @DefaultValue("0") int page) {
+        if (state.trainingMode) {
+            return refused(PosState.TRAINING_FORBIDDEN_KEY);
+        }
+        if (documents.list(0).isEmpty()) {
+            return refused(PosState.NO_CUSTOMER_DOCUMENT_KEY);
+        }
+        return Response.ok(page(page, "", "", "")).build();
+    }
+
+    /** States a refusal at the top of the sale's article list and goes back to the sale.
+     * @param key the message key of the refusal
+     * @return the redirect to the sale screen
+     */
+    private Response refused(String key) {
+        state.ticket.setError(i18n.get(key));
+        state.touch();
+        return Response.seeOther(java.net.URI.create("/")).build();
     }
 
     /** Sends the selected persisted customer copy; no arbitrary content is accepted.

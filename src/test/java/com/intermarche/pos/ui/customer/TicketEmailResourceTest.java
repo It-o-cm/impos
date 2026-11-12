@@ -83,7 +83,7 @@ class TicketEmailResourceTest {
     @Test
     void showEmailScreenRedirectsWhenNoLastTicket() {
         TicketEmailResource resource = newResource();
-        when(resource.state.requireLastClosedTicket()).thenReturn(false);
+        when(resource.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_EMAIL_KEY)).thenReturn(false);
         Object result = resource.showEmailScreen();
         Response response = (Response) result;
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
@@ -99,7 +99,7 @@ class TicketEmailResourceTest {
     @Test
     void showEmailScreenOffersEmptyAddressWhenHolderUnknown() {
         TicketEmailResource resource = newResource();
-        when(resource.state.requireLastClosedTicket()).thenReturn(true);
+        when(resource.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_EMAIL_KEY)).thenReturn(true);
         resource.state.fidelity.holderEmail = null;
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.showEmailScreen());
@@ -117,7 +117,7 @@ class TicketEmailResourceTest {
     @Test
     void showEmailScreenPreFillsHeldEditableAddress() {
         TicketEmailResource resource = newResource();
-        when(resource.state.requireLastClosedTicket()).thenReturn(true);
+        when(resource.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_EMAIL_KEY)).thenReturn(true);
         resource.state.fidelity.holderEmail = "jean@example.fr";
         when(resource.posSettingsService.ticketEmailEditable()).thenReturn(true);
         TemplateInstance view = stubPage(resource);
@@ -157,7 +157,7 @@ class TicketEmailResourceTest {
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.sendEmail(null));
         verify(view).data("address", "");
-        verify(view).data("error", "AUCUN TICKET");
+        verify(view).data("error", "ENVOI DU TICKET IMPOSSIBLE : AUCUNE VENTE TERMINÉE SUR CETTE CAISSE");
         verify(view).data("sent", false);
         verify(resource.ticketMailService, never()).send(any(), anyString());
     }
@@ -257,7 +257,7 @@ class TicketEmailResourceTest {
         resource.state.lastClosedTicketId = null;
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.sendSms("0612345678"));
-        verify(view).data("error", "AUCUN TICKET");
+        verify(view).data("error", "ENVOI DU TICKET IMPOSSIBLE : AUCUNE VENTE TERMINÉE SUR CETTE CAISSE");
         verify(resource.ticketSmsService, never()).send(any(), anyString());
     }
 
@@ -334,7 +334,7 @@ class TicketEmailResourceTest {
         var resource = newResource();
         resource.state.lastClosedTicketEmail = "client@example.test";
         resource.state.fidelity.clear();
-        when(resource.state.requireLastClosedTicket()).thenReturn(true);
+        when(resource.state.requireLastClosedTicket(PosState.NO_LAST_TICKET_EMAIL_KEY)).thenReturn(true);
         var page = stubPage(resource);
         assertSame(page, resource.showEmailScreen());
         verify(page).data("address", "client@example.test");

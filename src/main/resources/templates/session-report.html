@@ -40,11 +40,11 @@
            theme include supplies the colour modifiers alone. */
     </style>
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="64rem 42rem" data-embed-stay="/session /action/session/x-report">
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">{inject:i18n.get('sessionreport.rapportXLecture')}</span>
+        <span class="store-name title">{inject:i18n.get('sessionreport.rapportXLecture')}</span>
         <span id="clock"></span>
     </div>
 
@@ -106,13 +106,14 @@
     </div>
 
     <div class="bottom-nav">
-        <a href="/session" class="btn btn-muted">{inject:i18n.get('sessionreport.retourSession')}</a>
         <a href="/action/session/x-report" class="btn btn-primary">{inject:i18n.get('sessionreport.imprimerRapportX')}</a>
+        <a href="/session" class="btn btn-muted mk-back">{inject:i18n.get('sessionreport.retourSession')}</a>
     </div>
 </div>
 
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 </script>
+{#include screen-embed /}
 </body>
 </html>

@@ -4,7 +4,7 @@
  ! authoritative one re-runs inside the creation transaction).
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,7 +18,9 @@
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
     .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
 
-    .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
+    /* Three columns: the ticket's lines; the amount and its pad; the reason and the
+       means of the refund. Every key stays in sight, nothing scrolls off. */
+    .main-area { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; min-height: 0; }
 
     .list-panel { display: flex; flex-direction: column; border-right: 1px solid var(--border-color); min-height: 0; position: relative; }
 
@@ -44,7 +46,7 @@
       display: flex; flex-direction: column; flex-shrink: 0;
     }
     .receipt-line.has-return { border-left: 4px solid var(--primary); background: rgba(0, 85, 255, 0.1); }
-    .receipt-line.selected { background: #252525; border: 1px solid var(--primary); z-index: 2; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+    .receipt-line.selected { background: var(--bg-row); border: 1px solid var(--primary); z-index: 2; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
 
     .line-content { display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit; }
     .item-qty-info { font-weight: bold; margin-right: 8px; font-size: var(--fs-row-sub); color: var(--warning); }
@@ -56,20 +58,21 @@
     .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-strong); align-items: center; justify-content: center; gap: 10px; }
     .receipt-line.selected .qty-controls { display: flex; }
 
-    .btn-qty { width: 3.125rem; height: 2.5rem; background: #333; border: 1px solid var(--border-strong); color: white; font-size: var(--fs-btn-lg); font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
-    .btn-qty:active { background: #444; }
+    .btn-qty { width: 3.125rem; height: 2.5rem; background: var(--bg-row); border: 1px solid var(--border-strong); color: var(--text-main); font-size: var(--fs-btn-lg); font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+    .btn-qty:active { filter: brightness(0.88); }
     .btn-qty.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
     .qty-input-display { font-size: var(--fs-field); font-weight: bold; color: var(--warning); background: var(--bg-page); border: 1px solid var(--border-strong); width: 3.125rem; text-align: center; padding: 4px; border-radius: 4px; }
 
     .btn-validate-line { background: var(--success); color: white; border: none; width: 3.125rem; height: 2.5rem; border-radius: 6px; font-size: var(--fs-btn); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
-    .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: #111; }
+    .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: var(--bg-inset); }
 
     .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 3.125rem; z-index: 5; }
     .nav-btn { height: 2rem; min-width: 6.25rem; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: var(--fs-btn-sm); }
     .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
 
-    .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; }
+    .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; overflow-y: auto; }
+    .action-panel + .action-panel { border-left: 1px solid var(--border-color); gap: 8px; }
 
     #ticketActionsZone { display: flex; flex-direction: column; height: 100%; }
     .overlay-title { font-size: var(--fs-title); margin-bottom: 10px; text-align: center; }
@@ -84,7 +87,7 @@
 
     #numpadContainer { width: 100%; margin-bottom: 8px; flex-shrink: 0; min-height: 0; }
 
-    .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
+    .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
     .return-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
     .reason-btn { flex: 1 1 45%; text-align: center; padding: 6px 4px; border-radius: 6px; text-decoration: none; font-size: var(--fs-label); border: 1px solid var(--border-strong); color: var(--text-main); background: var(--bg-page); }
@@ -93,16 +96,16 @@
     .btn { height: 2.625rem; display: flex; align-items: center; justify-content: center; padding: 0 12px; }
 
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 5rem; }
-    .btn-back { background: var(--bg-row); color: var(--text-main); padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
 
   </style>
+  {#include modal-kit /}
 </head>
-<body data-theme="{posTheme}">
+<body data-theme="{posTheme}" data-modal-size="84rem 48rem" data-embed-stay="/return /action/return-type /action/endorse-validate /action/endorse-self /action/endorse-cancel">
 
 <div class="pos-terminal">
   <div class="top-bar">
     <span class="store-name">{inject:i18n.get('common.store')}</span>
-    <span id="screenTitle">{inject:i18n.get('returndetail.retourClient')}</span>
+    <span id="screenTitle" class="title">{inject:i18n.get('returndetail.retourClient')}</span>
     <span id="clock">--:--:--</span>
   </div>
 
@@ -118,7 +121,7 @@
       {#if state.refund.infoMessage??}
       {! LC-05-03-01 : l'article dematerialise attend son code, puis annonce ce
        ! qu'il porte encore et ce qui sera rembourse a sa desactivation. !}
-      <div style="margin: 8px 20px 0; background: rgba(46,125,50,0.15); border: 1px solid var(--success); color: var(--success); padding: 8px; font-weight: bold; font-size: var(--fs-label); text-align: center; border-radius: 6px;">{state.refund.infoMessage}</div>
+      <div class="mk-outcome" role="status" style="margin: 8px 20px 0;">{state.refund.infoMessage}</div>
       {/if}
 
       <div class="content-area">
@@ -223,6 +226,10 @@
           <button type="submit" class="btn btn-muted">{inject:i18n.get('returndetail.article')}</button>
         </form>
 
+      </div>
+    </div>
+    <div class="action-panel">
+      <div class="means">
         {#if reasons && !reasons.isEmpty()}
         <!-- LC-05-05-01/02 : le motif de retour, choisi dans la liste
              paramétrée au BackOffice, s'applique à tout le retour. Le choix
@@ -243,7 +250,7 @@
 
         <div class="payment-grid">
           {#if state.refund.errorMessage??}
-            <div style="grid-column: 1 / -1; background: rgba(211,47,47,0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; font-size: var(--fs-label); text-align: center; border-radius: 6px;">{state.refund.errorMessage}</div>
+            <div class="mk-outcome err" role="alert" style="grid-column: 1 / -1;">{state.refund.errorMessage}</div>
           {/if}
           <a href="/return/pay/cash" class="btn btn-success" onclick="return submitAction(this);">{inject:i18n.get('returndetail.especes')}</a>
           <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">{inject:i18n.get('returndetail.carteBancaire')}</a>
@@ -253,7 +260,7 @@
            ! hand the amount back onto their account. The partial-amount form
            ! above lets one return be split across several of these means
            ! (LC-05-06-01), leg by leg. !}
-          <a href="/return/pay/credit" class="btn btn-info" style="grid-column: 1 / -1;" onclick="return submitAction(this);">CRÉDIT CLIENT{#if state.refund.creditAccountName??} — {state.refund.creditAccountName}{/if}</a>
+          <a href="/return/pay/credit" class="btn btn-muted" style="grid-column: 1 / -1;" onclick="return submitAction(this);">CRÉDIT CLIENT{#if state.refund.creditAccountName??} — {state.refund.creditAccountName}{/if}</a>
           {! Les trois champs de ce panneau etaient libres — numero de compte,
            ! identifiant et code superviseur — et la borne n'a pas de clavier. Ils
            ! empruntent desormais le pave du montant: un clic le rebranche sur le
@@ -282,7 +289,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/return/leave" class="btn-back">{inject:i18n.get('common.back')}</a>
+    <a href="/return/leave" class="btn btn-muted mk-back" style="margin-left:auto;">{inject:i18n.get('common.back')}</a>
   </div>
 </div>
 
@@ -387,6 +394,7 @@
 </div>
 <script>setTimeout(() => { window.location.href = '/return'; }, 2000);</script>
 {/if}
+{#include screen-embed /}
 </body>
 </html>
 

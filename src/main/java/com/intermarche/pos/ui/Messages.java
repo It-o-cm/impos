@@ -369,7 +369,7 @@ public class Messages {
     /**
      * Returns a label in BOTH languages of a bilingual store, second language
      * first and separated by a slash — the shape the requirement spells out,
-     * {@code "Terug te geven / A rendre"} (LC-13-06-06 / -11).
+     * {@code "Terug te geven / À rendre"} (LC-13-06-06 / -11).
      *
      * <p>Falls back to the single resolved label when no second language is
      * administered, when it is the resolved one, or when the two renderings are

@@ -16,8 +16,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * JAX-RS resource of the PIN change page for the logged-in operator: same
- * page on success (confirmation) and on failure (typed error, retry). The
+ * JAX-RS resource of the PIN change page for the logged-in operator: back to
+ * the sale on success (confirmation in its message zone), same page on failure
+ * (typed error, retry). The
  * current-PIN verification is direct — it does not increment the shared
  * lockout counter (see {@code AuthService}).
  */
@@ -67,15 +68,16 @@ public class PinChangeResource {
     /**
      * Applies a PIN change for the logged-in operator.
      * <p>
-     * On success, the page is shown again with a confirmation; on failure, it is shown
-     * again with the corresponding error so the operator can retry.
+     * On success, the register returns to the sale, whose message zone confirms the
+     * change; on failure, the page is shown again with the corresponding error so
+     * the operator can retry.
      *
      * @param currentPin the operator's current PIN
      * @param newPin the desired new PIN
      * @param confirmPin the confirmation of the new PIN
-     * @return a 303 redirect to the PIN change page (PRG pattern, so a
-     *         browser reload never replays the POST) carrying the success or
-     *         error message as a query parameter
+     * @return a 303 redirect (PRG pattern, so a browser reload never replays the
+     *         POST): to the sale on success, to the PIN change page carrying the
+     *         error message as a query parameter otherwise
      */
     @POST
     @Path("/action/pin-change")
@@ -91,8 +93,10 @@ public class PinChangeResource {
             LOGGER.info("Exiting method changePin");
             return Response.seeOther(URI.create("/pin-change?error=" + encode(error))).build();
         }
+        // The change is done: back to the sale, which states it in its message zone.
+        state.ticket.setNotice(i18n.get("op.codePinModifie"));
         LOGGER.info("Exiting method changePin");
-        return Response.seeOther(URI.create("/pin-change?success=" + encode(i18n.get("op.codePinModifie")))).build();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

@@ -269,6 +269,24 @@ class HomeResourceTest {
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.home());
         verify(mainView).data("ptDocuments", false);
+        verify(mainView).data("closedTicketOnRecord", false);
+        verify(mainView).data("customerDocumentOnRecord", false);
+    }
+
+    /**
+     * The TICKET menu learns whether a closed ticket and a customer copy are on
+     * record, so its keys with nothing to work on are drawn inactive.
+     */
+    @Test
+    void homeTellsWhetherTheTicketKeysHaveSomethingToWorkOn() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.homeService.anyClosedTicket()).thenReturn(true);
+        when(resource.homeService.anyCustomerDocument()).thenReturn(true);
+        TemplateInstance mainView = stubMain(resource);
+        resource.home();
+        verify(mainView).data("closedTicketOnRecord", true);
+        verify(mainView).data("customerDocumentOnRecord", true);
     }
 
     /**
@@ -532,6 +550,20 @@ class HomeResourceTest {
     }
 
     /**
+     * {@code closeMessage()} acknowledges the sale screen's message modal and
+     * goes back to the sale.
+     */
+    @Test
+    void closeMessageClearsTheModalMessage() {
+        HomeResource resource = newResource();
+        resource.state.modalMessage = "refused";
+        Response response = resource.closeMessage();
+        assertEquals("/", response.getLocation().toString());
+        assertNull(resource.state.modalMessage);
+        verify(resource.state).touch();
+    }
+
+    /**
      * {@code toggleTraining()} requests the endorsed toggle and redirects home when
      * the terminal is unlocked.
      */
@@ -588,20 +620,20 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.showMenu("client"));
-        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.GENEROSITE);
+        verify(resource.homeService).selectTab("client");
     }
 
     /**
-     * {@code showMenu()} lands on the ARTICLES menu when the key is unreadable: a
-     * stale link must never leave the cashier in front of a blank grid.
+     * {@code showMenu()} hands an unreadable key to the tab selection, which
+     * lands it on the ARTICLES menu.
      */
     @Test
-    void showMenuFallsBackToTheSaleMenu() {
+    void showMenuHandsAnyKeyToTheTabSelection() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.showMenu("rayon"));
-        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.ARTICLES);
+        verify(resource.homeService).selectTab("rayon");
     }
 
     // --- Ticket navigation ---

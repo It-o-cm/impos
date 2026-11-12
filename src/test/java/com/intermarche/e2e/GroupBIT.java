@@ -487,8 +487,9 @@ public class GroupBIT {
         // Drill into a leaf family and add a known product with quantity 2.
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("Instruments de Cuisine").setExact(true)).click();
-        page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName(LABEL_POELE).setExact(true)).click();
+        // An article tile names its price beside its label: the tile is found by
+        // the label it shows.
+        page.locator("button.article-tile").filter(new Locator.FilterOptions().setHasText(LABEL_POELE)).first().click();
         tapDigits(page.locator("#keyboardArea"), "2");
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("VALIDER").setExact(true)).click();
         // The ticket LINE, not the label anywhere on screen: the message zone of
@@ -580,8 +581,10 @@ public class GroupBIT {
         scan(DEPOSIT_VOUCHER);
         Assertions.assertEquals(1, posState.ticket.items.size(),
                 "a deposit voucher scanned during a payment must add no line");
-        Assertions.assertEquals("CODE INCONNU: " + DEPOSIT_VOUCHER, posState.ticket.transientError,
-                "during a payment the deposit falls through to the unknown-code fallback");
+        // BO-10-02-15: the code falls through to the article fallback, which a
+        // settlement under way refuses with its own sentence.
+        Assertions.assertEquals("VENTE INTERDITE PENDANT LE REGLEMENT", posState.ticket.transientError,
+                "during a payment the deposit falls through to the article fallback, refused while settling");
         page2.close();
     }
 
@@ -721,9 +724,15 @@ public class GroupBIT {
         // THE LABEL IS THE BUTTON: the native radio is hidden by the screen's
         // own CSS (.reason-btn input { display: none }) and the label around it
         // carries the look and the touch target, as a finger needs.
-        page.locator("label.reason-btn").first().click();
-        page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName("ABANDONNER LE TICKET").setExact(true)).click();
+        // The ABANDON screen opens in the modal over the sale: its keys are in the
+        // modal's frame, and its confirmation is carried out by the whole page.
+        com.microsoft.playwright.FrameLocator modal = page.frameLocator("#screenModalFrame");
+        modal.locator("label.reason-btn").first().click();
+        modal.getByRole(AriaRole.BUTTON,
+                new com.microsoft.playwright.FrameLocator.GetByRoleOptions().setName("ABANDONNER LE TICKET").setExact(true)).click();
+        // The abandon is parked for the manager only once the sale page shows its
+        // approval: a badge presented before is not an approval.
+        page.getByText("AUTORISATION REQUISE").waitFor();
         approveEndorsementWithManager(page);
         page.getByText("CLIENT SUIVANT").waitFor();
         Assertions.assertTrue(posState.ticket.items.isEmpty(), "the cancelled ticket must clear the screen");
@@ -830,9 +839,10 @@ public class GroupBIT {
             posSettings.store("gs1.expiry-alert", "NONE");
         }
         // --- Carried count while the quantity key is armed → QUANTITÉ DÉJÀ PORTÉE ---
+        // The ticket is left EMPTY: with no line selected the quantity key targets
+        // the last line of a running sale, and only arms for the next article
+        // when there is no line yet.
         Page pageQ = freshSale();
-        scan(EAN_HUILE);
-        pageQ.getByText(LABEL_HUILE).waitFor();
         pageQ.navigate(base.toString() + "action/price-mod/quantity");
         pageQ.locator("#priceKbArea").waitFor();
         scan(GS1_HUILE + "(30)3");

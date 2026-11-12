@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.auth;
 
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.TestMessages;
+import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -80,19 +81,21 @@ class PinChangeResourceTest {
     }
 
     /**
-     * {@code changePin(...)} redirects to the PIN change page carrying the
-     * URL-encoded success message when the change succeeds (error null arm;
+     * {@code changePin(...)} returns to the sale screen when the change succeeds
+     * and states the confirmation in the sale's message zone (error null arm;
      * PRG pattern).
      */
     @Test
-    void changePinRedirectsWithSuccessWhenServiceReturnsNull() {
+    void changePinReturnsToSaleWithNoticeWhenServiceReturnsNull() {
         PinChangeResource resource = newResource();
+        resource.state.ticket = mock(TicketState.class);
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.authService.changePin(resource.state, "1111", "2222", "2222"))
                 .thenReturn(null);
         Response response = resource.changePin("1111", "2222", "2222");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
-        assertEquals("/pin-change?success=Code+PIN+modifi%C3%A9", response.getLocation().toString());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.state.ticket).setNotice("Code PIN modifié");
         verify(resource.authService).changePin(resource.state, "1111", "2222", "2222");
     }
 }
