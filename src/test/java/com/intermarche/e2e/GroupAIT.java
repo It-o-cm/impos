@@ -115,29 +115,29 @@ public class GroupAIT {
      * name-bound {@code @DrawerMustBeClosed} drawer guard (a JAX-RS
      * {@code ContainerRequestFilter}) never sees it, and the session/PIN lock is
      * enforced inside resource methods it never routes through. This scenario
-     * graves that "public probe" contract into the campaign: run FIRST on the
-     * fresh boot (before ANY login, the register still locked), a plain
-     * {@code GET /q/health} answers {@code 200} anonymously. It then opens the
-     * drawer on the hardware bus and re-asserts {@code 200} — the probe stays
-     * reachable drawer-OPEN as well as drawer-closed — before pushing the drawer
-     * shut again to leave a clean drawer-closed register for A1.
+     * verifies that an anonymous request succeeds with the register locked
+     * in both physical drawer states.
      */
     @Test
     void a0_sonde_sante_publique_anonyme() {
-        // Anonymous probe on the still-locked register, before any login: the
-        // non-application endpoint must answer 200 with no badge and no session.
-        APIResponse locked = context.request().get(base.toString() + "q/health");
-        Assertions.assertEquals(200, locked.status(),
-                "GET /q/health must answer 200 anonymously, before any login");
-        // Force the drawer OPEN on the hardware bus (the live simulator) and
-        // re-probe: the probe escapes the drawer guard, so it stays 200 while a
-        // guarded screen would divert to /drawer-error.
-        context.request().post(base.toString() + "api/hardware/drawer/open", RequestOptions.create());
-        APIResponse drawerOpen = context.request().get(base.toString() + "q/health");
-        Assertions.assertEquals(200, drawerOpen.status(),
-                "GET /q/health must answer 200 with the drawer physically open");
-        // Restore a drawer-closed register so A1 opens its session cleanly.
-        closeDrawer();
+        Page page = context.newPage();
+        try {
+            page.navigate(base.toString() + "lock");
+            closeDrawer();
+            Assertions.assertEquals(200, context.request().get(base.toString() + "q/health").status(),
+                    "The anonymous probe must be reachable with the drawer closed");
+            APIResponse opened = context.request().post(
+                    base.toString() + "api/hardware/drawer/open", RequestOptions.create());
+            Assertions.assertEquals(200, opened.status(), "The simulator must accept the drawer opening");
+            Assertions.assertEquals(200, context.request().get(base.toString() + "q/health").status(),
+                    "The anonymous probe must stay reachable with the drawer open");
+        } finally {
+            try {
+                closeDrawer();
+            } finally {
+                page.close();
+            }
+        }
     }
 
     /**
@@ -789,7 +789,9 @@ public class GroupAIT {
      * clearing the drawer guard.
      */
     private void closeDrawer() {
-        context.request().post(base.toString() + "api/hardware/drawer/close", RequestOptions.create());
+        APIResponse closed = context.request().post(
+                base.toString() + "api/hardware/drawer/close", RequestOptions.create());
+        Assertions.assertEquals(200, closed.status(), "The simulator must accept the drawer closing");
     }
 
     /**

@@ -69,7 +69,7 @@ public class DemoFidIT {
     private static final String FID_CARD = "2990000000019";
 
     /** The external imfid base URL the demo runs against. */
-    private static final String IMFID_URL = "http://localhost:8060";
+    private static final String IMFID_URL = System.getProperty("pos.demo.fidelity.url", "http://localhost:8060");
 
     /** The imfid POS machine account (dev bootstrap). */
     private static final String IMFID_BASIC = "Basic "
@@ -121,6 +121,8 @@ public class DemoFidIT {
      * spec's card discriminant (299 + 10 digits).
      */
     public static class FidProfile extends E2eTestProfile implements QuarkusTestProfile {
+        private final String terminalId = demoTerminalId("FID");
+
         /**
          * Adds the loyalty configuration on top of the shared e2e profile.
          *
@@ -131,7 +133,8 @@ public class DemoFidIT {
             java.util.Map<String, String> config =
                     new java.util.HashMap<>(super.getConfigOverrides());
             // Real engine: this demo class runs under the full stack.
-            config.put("pos.valuation.url", "http://localhost:8090");
+            config.put("pos.valuation.url", demoValuationUrl());
+            config.put("pos.terminal.id", terminalId);
             config.put("pos.fid.url", IMFID_URL);
             config.put("pos.fid.user", "pos");
             config.put("pos.fid.password", "pos-password");
@@ -291,6 +294,7 @@ public class DemoFidIT {
         typeAmountVerified(page, "CAGNOTTE", "#fidDisplay", "#fidForm", "100", "1,00");
         Assertions.assertNotNull(posState.payment.fidReservationId,
                 "module VI.4bis: le bail imfid doit être posé (reservationId)");
+        page.locator("form[action='/action/fidelity-signature'] button[value='true']").click();
         typeAmountVerified(page, "ESPÈCES", "#cashDisplay", "#cashForm", "5000", "50,00");
         String printed = printAndWait(page, "CAGNOTTE DU JOUR");
         Assertions.assertTrue(printed.contains("CAGNOTTE DU JOUR"),
@@ -473,44 +477,21 @@ public class DemoFidIT {
      */
     private void typeAmountVerified(Page page, String modeButton, String displayId,
                                     String formId, String digits, String expectedDisplay) {
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            try {
-                Locator button = page.getByRole(AriaRole.BUTTON,
-                        new Page.GetByRoleOptions().setName(modeButton).setExact(true));
-                // The payment keys show six at a time: a key past the main ones
-                // is reached through AUTRE.
-                Locator more = page.locator("#payMethods [data-pm=more]");
-                for (int pageTurn = 0; pageTurn < 4 && !button.isVisible() && more.isVisible(); pageTurn++) {
-                    more.click();
-                }
-                button.waitFor(new Locator.WaitForOptions().setTimeout(5000));
-                button.click(new Locator.ClickOptions().setForce(true));
-                // The numpad only EXISTS once openInput rendered it into the
-                // sub-form: wait for the sub-display, not for the keys. A
-                // mode click swallowed by a re-render used to blow up 30 s
-                // later on a key that never came.
-                page.locator(displayId)
-                        .waitFor(new Locator.WaitForOptions().setTimeout(5000));
-                // CARTE/CHÈQUE/CAGNOTTE arrive PRE-FILLED with the remaining
-                // due, and a buffer already holding two decimals REJECTS every
-                // further key — clearing first is what the cashier does.
-                page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
-                                new Locator.GetByRoleOptions().setName("C").setExact(true))
-                        .click(new Locator.ClickOptions().setTimeout(5000).setForce(true));
-                tapDigits(page, "#payNumpadZone", digits);
-                // The display is a TEXT element, not a field: a till has no physical
-                // keyboard, so nothing on these screens is an <input> the pad fills.
-                if (expectedDisplay.equals(page.locator(displayId).innerText().trim())) {
-                    page.locator(formId + " button[type=submit]").click();
-                    return;
-                }
-            } catch (Exception retryable) {
-                // Swallowed click or version-change reload: start clean.
-            }
-            page.reload();
+        Locator button = page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName(modeButton).setExact(true));
+        Locator more = page.locator("#payMethods [data-pm=more]");
+        for (int pageTurn = 0; pageTurn < 4 && !button.isVisible() && more.isVisible(); pageTurn++) {
+            more.click();
         }
-        Assertions.fail("saisie impossible sur " + modeButton + " après 3 essais — "
-                + "afficheur " + displayId + " jamais à " + expectedDisplay);
+        button.click();
+        Locator display = page.locator(displayId);
+        display.waitFor();
+        page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        tapDigits(page, "#payNumpadZone", digits);
+        com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat(display)
+                .hasText(expectedDisplay);
+        page.locator(formId + " button[type=submit]").click();
     }
 
 

@@ -91,6 +91,8 @@ public class DemoStoreIT {
      * the demo's exact two-node wiring.
      */
     public static class StoreLinkedProfile extends E2eTestProfile {
+        private final String terminalId = demoTerminalId("STORE");
+
 
         /**
          * Supplies the shared e2e overrides plus the store link.
@@ -101,7 +103,8 @@ public class DemoStoreIT {
         public Map<String, String> getConfigOverrides() {
             Map<String, String> overrides = new HashMap<>(super.getConfigOverrides());
             // Real engine: this demo class runs under the full stack.
-            overrides.put("pos.valuation.url", "http://localhost:8090");
+            overrides.put("pos.valuation.url", demoValuationUrl());
+            overrides.put("pos.terminal.id", terminalId);
             overrides.put("pos.sync.store-url", STORE_URL);
             return overrides;
         }

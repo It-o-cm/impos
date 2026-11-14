@@ -110,6 +110,56 @@ public class GroupMIT {
     URL base;
 
     /**
+     * M0 — The seven standard menu destinations are rendered in order and
+     * expose the cashier's actions under their assigned tabs.
+     */
+    @Test
+    void m0_seven_standard_menu_destinations() {
+        ensureOpenSession();
+        try (Page page = freshLogin(CASHIER_BADGE, CASHIER_PIN)) {
+            Assertions.assertEquals(java.util.List.of(
+                    "ARTICLES", "CAISSE", "RÈGLEMENT", "TICKET", "GÉNÉROSITÉ", "TIROIR", "AUTRE"),
+                    page.locator(".bottom-nav > a[href^='/action/menu/'], .bottom-nav > #payBtn")
+                            .allTextContents().stream().map(String::strip).toList());
+            assertMenuActions(page, "articles", "/manual", "/action/price-mod/quantity",
+                    "/action/subtotal", "/article-info");
+            assertMenuActions(page, "caisse", "/action/lock", "/close", "/session",
+                    "/cash-calculator", "/action/training");
+            assertMenuActions(page, "ticket", "/parked", "/abandon", "/return");
+            assertMenuActions(page, "generosite", "/fidelity", "/voucher-balance",
+                    "/action/price-mod/remise", "/action/price-mod/global_remise");
+            assertMenuActions(page, "tiroir", "/cash-movement", "/withdrawal", "/apport",
+                    "/transfer", "/action/deposit");
+            assertMenuActions(page, "autre", "/supervisor", "/badge-print", "/recall",
+                    "/pin-change", "/theme-select");
+            page.locator(".grid-buttons form[action='/action/monetics-degraded'] button").waitFor();
+            APIResponse scan = context.request().post(base.toString() + "api/pos/scan",
+                    RequestOptions.create().setHeader("Content-Type", "text/plain").setData("3300000000006"));
+            Assertions.assertTrue(scan.ok(), "the scanner must accept the oil article");
+            assertMenuActions(page, "ticket", "/action/parked/park");
+            page.locator(".bottom-nav a#payBtn").click();
+            page.locator(".total-amount").first().waitFor();
+            APIResponse payment = context.request().post(base.toString() + "action/pay-cash",
+                    RequestOptions.create().setForm(com.microsoft.playwright.options.FormData.create()
+                            .set("given", "6,00")).setMaxRedirects(0));
+            Assertions.assertEquals(303, payment.status(), "the fixture sale must accept the cash payment");
+            closeDrawer();
+            page.getByRole(AriaRole.LINK,
+                    new Page.GetByRoleOptions().setName("NOUVELLE VENTE").setExact(true)).click();
+            page.getByText("TOTAL À PAYER").waitFor();
+            assertMenuActions(page, "ticket", "/invoice", "/reprint", "/action/print-last");
+        }
+    }
+
+    /** Opens one menu tab and checks the visibility of its expected links. */
+    private void assertMenuActions(Page page, String tab, String... actions) {
+        page.locator(".bottom-nav a[href='/action/menu/" + tab + "']").click();
+        for (String action : actions) {
+            page.locator(".grid-buttons a[href='" + action + "']").waitFor();
+        }
+    }
+
+    /**
      * M1 — Cascade (préférence caissier &gt; défaut magasin &gt; défaut intégré).
      * <p>
      * Marie carries the seeded {@code clair} preference, so from her unlock every
@@ -254,9 +304,10 @@ public class GroupMIT {
         assertScreenLight(page, "manual", "SAISIE DIRECTE");
         assertScreenLight(page, "fruits", "FRUITS, LÉGUMES & FRAIS");
         assertScreenLight(page, "fidelity", "PROGRAMME DE FIDÉLITÉ");
-        // With no ticket printed yet the reprint key stays on the sale and states
-        // the absence at the top of the article list.
-        assertScreenLight(page, "reprint", "RECHERCHE IMPOSSIBLE");
+        page.navigate(base.toString() + "reprint");
+        page.getByText("RÉIMPRESSION TICKET", new Page.GetByTextOptions().setExact(true))
+                .or(page.getByText("RECHERCHE IMPOSSIBLE")).first().waitFor();
+        assertLightTheme(page, "reprint");
         assertScreenLight(page, "return", "RETOUR CLIENT");
         assertScreenLight(page, "parked", "Tickets en attente");
         assertScreenLight(page, "pin-change", "CHANGER MON CODE PIN");
@@ -358,6 +409,11 @@ public class GroupMIT {
     private void assertScreenLight(Page page, String route, String anchor) {
         page.navigate(base.toString() + route);
         page.getByText(anchor).first().waitFor();
+        assertLightTheme(page, route);
+    }
+
+    /** Checks the theme and computed background of the current screen. */
+    private void assertLightTheme(Page page, String route) {
         Assertions.assertEquals(CLAIR, bodyTheme(page),
                 "the screen /" + route + " must render with the clair theme");
         Assertions.assertTrue(minBackgroundLuminance(page, "body") > 0.5,

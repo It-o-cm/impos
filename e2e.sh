@@ -13,6 +13,9 @@
 #   ./e2e.sh B                GroupBIT only
 #   ./e2e.sh GroupBIT         the same
 #   ./e2e.sh B#someCase       one case of one group
+#   POS_E2E_PORT=18081 ./e2e.sh   run on a different local port
+#   POS_DEMO_VALUATION_URL=http://localhost:18090 ./e2e.sh   use the seeded test engine
+#   POS_DEMO_FIDELITY_URL=http://localhost:18060 ./e2e.sh   use a fresh seeded loyalty service
 #   ./e2e.sh --report         explain the LAST run again, without re-running
 #
 # What it writes:
@@ -87,7 +90,20 @@ if [ "$REPORT_ONLY" -eq 0 ]; then
   echo "== Journal complet : $LOG"
   echo
   set -o pipefail
-  "$MVN" verify -DskipITs=false -DskipUTs=true ${ONLY} 2>&1 | tee "$LOG"
+  MAVEN_ARGS=(verify -DskipITs=false -DskipUTs=true)
+  if [ -n "${POS_E2E_PORT:-}" ]; then
+    MAVEN_ARGS+=("-Dpos.e2e.port=$POS_E2E_PORT")
+  fi
+  if [ -n "${POS_DEMO_VALUATION_URL:-}" ]; then
+    MAVEN_ARGS+=("-Dpos.demo.valuation.url=$POS_DEMO_VALUATION_URL")
+  fi
+  if [ -n "${POS_DEMO_FIDELITY_URL:-}" ]; then
+    MAVEN_ARGS+=("-Dpos.demo.fidelity.url=$POS_DEMO_FIDELITY_URL")
+  fi
+  if [ -n "$ONLY" ]; then
+    MAVEN_ARGS+=("$ONLY")
+  fi
+  "$MVN" "${MAVEN_ARGS[@]}" 2>&1 | tee "$LOG"
   STATUS=${PIPESTATUS[0]}
 fi
 

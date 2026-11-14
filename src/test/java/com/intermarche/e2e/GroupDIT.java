@@ -66,10 +66,21 @@ import java.net.URL;
  * ({@code Ticket.fidelityCard}) is the durable oracle of the draft.
  */
 @QuarkusTest
-@TestProfile(E2eTestProfile.class)
+@TestProfile(GroupDIT.UnavailableFidelityProfile.class)
 @WithPlaywright(headless = true)
 @TestMethodOrder(MethodOrderer.MethodName.class)
 public class GroupDIT {
+    /** Isolates the degraded lookup from a locally running demonstration service. */
+    public static class UnavailableFidelityProfile extends E2eTestProfile {
+        /** Routes loyalty requests to the test server, which has no loyalty lookup endpoint. */
+        @Override
+        public java.util.Map<String, String> getConfigOverrides() {
+            var overrides = new java.util.HashMap<>(super.getConfigOverrides());
+            overrides.put("pos.fid.url", "http://localhost:" + testPort() + "/unavailable-fidelity");
+            return overrides;
+        }
+    }
+
 
     /** The seed cashier badge (Jean Dupont / jdupont). */
     private static final String CASHIER_BADGE = "12341234";
@@ -236,7 +247,7 @@ public class GroupDIT {
      * D4 — Recherche manuelle (lookup) — branche jouable en caisse seule.
      * <p>
      * A lookup against the imfid backend that is unreachable in an autonomous e2e
-     * run (default {@code :8060}) degrades to {@code SERVICE FIDÉLITÉ
+     * run degrades to {@code SERVICE FIDÉLITÉ
      * INDISPONIBLE}. That unavailable check runs FIRST (a breaker short-circuit),
      * so the no-criterion, CRM-managed, service-refusal, empty-result, over-20 and
      * real-match branches are only reachable with a live imfid (there is no

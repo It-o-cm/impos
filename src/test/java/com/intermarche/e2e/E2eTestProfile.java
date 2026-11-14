@@ -52,6 +52,16 @@ public class E2eTestProfile implements QuarkusTestProfile {
         return port.isEmpty() ? DEFAULT_PORT : port;
     }
 
+    /** Assigns an independent register identity to scenarios that publish real tickets. */
+    protected static String demoTerminalId(String prefix) {
+        return prefix + java.util.UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    /** Returns the real engine endpoint used by the demonstration profiles. */
+    protected static String demoValuationUrl() {
+        return System.getProperty("pos.demo.valuation.url", "http://localhost:8090");
+    }
+
     /**
      * Supplies the configuration overrides shared by every E2E group.
      *

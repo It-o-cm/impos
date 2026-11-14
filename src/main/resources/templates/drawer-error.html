@@ -78,18 +78,24 @@
     document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR');
   }, 1000);
 
-  // Polling automatique pour vérifier l'état du tiroir
-  setInterval(() => {
+  // Wait for each status request before polling again: a closed drawer
+  // consumes the return URL, and a second response could redirect to home.
+  function pollDrawerStatus() {
     fetch('/api/drawer-status')
             .then(response => response.json())
             .then(data => {
-              // Si le tiroir est fermé ("open" == false), on redirige
               if (!data.open) {
                 window.location.href = data.redirect;
+                return;
               }
+              setTimeout(pollDrawerStatus, 1000);
             })
-            .catch(err => console.error("Erreur vérification tiroir", err));
-  }, 1000); // Vérifie toutes les secondes
+            .catch(err => {
+              console.error("Erreur vérification tiroir", err);
+              setTimeout(pollDrawerStatus, 1000);
+            });
+  }
+  setTimeout(pollDrawerStatus, 1000);
 </script>
 
 </body>

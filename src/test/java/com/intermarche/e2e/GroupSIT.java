@@ -1,8 +1,10 @@
 package com.intermarche.e2e;
 
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sync.ConsumptionOutbox;
 import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 
 import java.net.URL;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Group S end-to-end scenario (Supervision locale des échanges), played THROUGH
@@ -72,6 +75,10 @@ public class GroupSIT {
     @Inject
     PosState posState;
 
+    /** The administered supervisor settings. */
+    @Inject
+    PosSettingsService settings;
+
     /**
      * S1 — Panneau « Santé des échanges ».
      * <p>
@@ -105,6 +112,73 @@ public class GroupSIT {
                 new Page.GetByRoleOptions().setName("Relancer le tirage").setExact(true)).click();
         mgr.getByText("Tirage des référentiels en échec").waitFor();
         mgr.close();
+    }
+
+    /**
+     * S2 — The supervisor screen offers the administered reasons in order and
+     * disables the call when their list is empty.
+     */
+    @Test
+    void s2_administered_service_reasons() {
+        String originalReasons = settings.supervisorServiceReasons();
+        try (Page page = openSupervisorScreen()) {
+            settings.store("supervisor.service-reasons", "Contrôle prix; Assistance scanner");
+            page.reload();
+            Assertions.assertEquals(List.of("Contrôle prix", "Assistance scanner"),
+                    page.locator("#supForm label.reason").allTextContents());
+            settings.store("supervisor.service-reasons", "");
+            page.reload();
+            Assertions.assertEquals(0, page.locator("#supForm label.reason").count());
+            Assertions.assertTrue(page.locator("#supCall").isDisabled());
+        } finally {
+            settings.store("supervisor.service-reasons", originalReasons);
+        }
+    }
+
+    /**
+     * S3 — A call submitted with the tactile keyboard records its reason and
+     * message. Sending the same form with a blank message records only the reason.
+     */
+    @Test
+    void s3_service_message_is_journalled() {
+        String originalReasons = settings.supervisorServiceReasons();
+        String reason = "Assistance scanner";
+        try (Page page = openSupervisorScreen()) {
+            settings.store("supervisor.service-reasons", reason);
+            page.reload();
+            long withMessage = supervisorCalls(reason + " — 7");
+            long reasonOnly = supervisorCalls(reason);
+            page.getByText(reason, new Page.GetByTextOptions().setExact(true)).click();
+            page.locator("#supMessageKbArea").getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName("7").setExact(true)).click();
+            Assertions.assertEquals("7", page.locator("#supMessage").innerText());
+            page.locator("#supCall").click();
+            page.waitForURL(base.toString());
+            Assertions.assertEquals(withMessage + 1, supervisorCalls(reason + " — 7"));
+            Assertions.assertEquals(reasonOnly, supervisorCalls(reason));
+            page.navigate(base.toString() + "supervisor");
+            page.getByText(reason, new Page.GetByTextOptions().setExact(true)).click();
+            page.locator("#supCall").click();
+            page.waitForURL(base.toString());
+            Assertions.assertEquals(reasonOnly + 1, supervisorCalls(reason));
+        } finally {
+            settings.store("supervisor.service-reasons", originalReasons);
+        }
+    }
+
+    /** Signs in as the seeded cashier and opens the supervisor screen. */
+    private Page openSupervisorScreen() {
+        ensureOpenSession();
+        Page page = loginAs(CASHIER_BADGE, CASHIER_PIN);
+        page.navigate(base.toString() + "supervisor");
+        return page;
+    }
+
+    /** Counts the persisted calls with the exact detail from the seeded cashier. */
+    private long supervisorCalls(String detail) {
+        return QuarkusTransaction.requiringNew().call(() -> TechnicalEvent.count(
+                "eventType = ?1 and operatorBadgeId = ?2 and detail = ?3",
+                TechnicalEvent.EventType.SUPERVISOR_CALLED, CASHIER_BADGE, detail));
     }
 
     // --- Reusable gestures ---

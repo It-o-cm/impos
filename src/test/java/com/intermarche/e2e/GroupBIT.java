@@ -1141,6 +1141,128 @@ public class GroupBIT {
 
     // --- Reusable gestures (login recipe & hardware bus) ---
 
+    /** B25 — A 10 g default tare is deducted once from the scale reading. */
+    @Test
+    void b25_default_tare_deducted_once() {
+        assertWeighingWithTare(false, "0.290");
+    }
+
+    /** B26 — A 20 g product tare takes precedence over the 10 g default. */
+    @Test
+    void b26_product_tare_overrides_default() {
+        assertWeighingWithTare(true, "0.280");
+    }
+
+    /** Weighs a 300 g fixture through the real produce screen with the configured tare. */
+    private void assertWeighingWithTare(boolean productTare, String expectedWeight) {
+        String previousTare = posSettings.value("balance.default-tare");
+        try (Page page = freshSale()) {
+            posSettings.store("balance.default-tare", "0.010");
+            if (productTare) {
+                setProductAttribute(EAN_POMMES, "TARE", "0.020");
+            }
+            page.navigate(base.toString() + "fruits");
+            setScaleWeight("0.300");
+            page.locator("a.plu-btn[href='/action/add/" + PLU_POMMES + "']").click();
+            page.getByText(LABEL_POMMES).waitFor();
+            Assertions.assertEquals(1, posState.ticket.items.size());
+            Assertions.assertEquals(0, new BigDecimal(expectedWeight).compareTo(posState.ticket.items.get(0).quantity));
+        } finally {
+            if (productTare) {
+                removeProductAttribute(EAN_POMMES, "TARE");
+            }
+            posSettings.store("balance.default-tare", previousTare);
+        }
+    }
+
+    /** B27 — A selected container overrides both tare settings for one weighing. */
+    @Test
+    void b27_selected_container_tare_consumed_once() {
+        assertContainerTare(false);
+    }
+
+    /** B28 — A scanned container arms the same one-shot tare as the screen key. */
+    @Test
+    void b28_scanned_container_tare_consumed_once() {
+        assertContainerTare(true);
+    }
+
+    /** Exercises container selection, weighing, and explicit removal on the produce screen. */
+    private void assertContainerTare(boolean fromScan) {
+        String previousContainers = posSettings.value("balance.tare-containers");
+        String previousDefault = posSettings.value("balance.default-tare");
+        String code = "3760000000001";
+        try (Page page = freshSale()) {
+            posSettings.store("balance.tare-containers", code + ":Barquette S:0.035");
+            posSettings.store("balance.default-tare", "0.010");
+            setProductAttribute(EAN_POMMES, "TARE", "0.020");
+            page.navigate(base.toString() + "fruits");
+            Locator container = page.locator("a[href='/tare/select/" + code + "']");
+            if (fromScan) {
+                page.navigate(base.toString() + "tare/scan/" + code);
+            } else {
+                container.click();
+            }
+            page.locator("#tareBar").getByText("Barquette S (0.035 kg)").waitFor();
+            setScaleWeight("0.300");
+            page.locator("a.plu-btn[href='/action/add/" + PLU_POMMES + "']").click();
+            page.getByText(LABEL_POMMES).waitFor();
+            Assertions.assertEquals(0, new BigDecimal("0.265").compareTo(posState.ticket.items.get(0).quantity));
+            page.navigate(base.toString() + "fruits");
+            Assertions.assertEquals(0, page.locator("a[href='/tare/clear']").count());
+            container.click();
+            page.locator("a[href='/tare/clear']").click();
+            Assertions.assertEquals(0, page.locator("a[href='/tare/clear']").count());
+        } finally {
+            posState.tare.clear();
+            removeProductAttribute(EAN_POMMES, "TARE");
+            posSettings.store("balance.default-tare", previousDefault);
+            posSettings.store("balance.tare-containers", previousContainers);
+        }
+    }
+
+    /** B36 — Produce tiles remain reachable by scrolling the single grid. */
+    @Test
+    void b36_produce_tiles_scroll() {
+        try (Page page = freshSale()) {
+            page.navigate(base.toString() + "fruits");
+            Locator grid = page.locator("#pluGrid");
+            Locator lastTile = grid.locator("a.plu-btn").last();
+            lastTile.waitFor();
+            grid.evaluate("grid => grid.style.maxHeight = '32px'");
+            Assertions.assertTrue((Boolean) grid.evaluate("grid => grid.scrollHeight > grid.clientHeight"),
+                    "the seeded produce tiles must overflow the grid in the constrained grid");
+            lastTile.scrollIntoViewIfNeeded();
+            Assertions.assertTrue(((Number) grid.evaluate("grid => grid.scrollTop")).intValue() > 0,
+                    "the last tile must be reachable by scrolling the grid itself");
+            Assertions.assertEquals(1, page.locator(".plu-pagination a, .plu-pagination button").count(),
+                    "the footer should offer only the return action");
+        }
+    }
+
+    /** B37 — Repeated gestures and an explicitly entered quantity both permit four units. */
+    @Test
+    void b37_repeat_beyond_two_units() {
+        try (Page page = freshSale()) {
+            scan(EAN_HUILE);
+            page.locator("a.receipt-item-link").first().waitFor();
+            for (int quantity = 2; quantity <= 4; quantity++) {
+                page.locator(".grid-buttons a[href='/action/repeat']").click();
+                Assertions.assertEquals(0, BigDecimal.valueOf(quantity).compareTo(posState.ticket.items.get(0).quantity));
+                Assertions.assertEquals("ARTICLE RÉPÉTÉ : " + LABEL_HUILE, posState.ticket.transientError);
+            }
+        }
+        try (Page page = freshSale()) {
+            scan(EAN_HUILE);
+            page.locator("a.receipt-item-link").first().click();
+            applyQuantityModal(page, "3");
+            Assertions.assertEquals(0, BigDecimal.valueOf(3).compareTo(posState.ticket.items.get(0).quantity));
+            page.locator(".grid-buttons a[href='/action/repeat']").click();
+            Assertions.assertEquals(0, BigDecimal.valueOf(4).compareTo(posState.ticket.items.get(0).quantity));
+            Assertions.assertEquals("ARTICLE RÉPÉTÉ : " + LABEL_HUILE, posState.ticket.transientError);
+        }
+    }
+
     /**
      * Opens a browser page and lands it, logged in, on an empty sale screen of
      * the shared open session — the standard start of every scenario.

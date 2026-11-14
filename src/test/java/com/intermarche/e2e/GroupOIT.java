@@ -395,7 +395,9 @@ public class GroupOIT {
         Assertions.assertEquals("PAIEMENT REFUSÉ PAR LE TPE", posState.ticket.transientError,
                 "a refused virtual TPE must set the refusal message");
         Assertions.assertNull(posState.payment.pendingCardAmount, "the refused card request must be withdrawn");
+        page.close();
         get("action/cancel");
+        page = context.newPage();
         page.navigate(base.toString());
         page.getByText("TOTAL À PAYER").waitFor();
         clearCartWithManager(page);
@@ -561,7 +563,9 @@ public class GroupOIT {
                 "a number with no selected type must be rejected as an unknown type");
 
         post("action/voucher-cancel");
+        page.close();
         get("action/cancel");
+        page = context.newPage();
         page.navigate(base.toString());
         page.getByText("TOTAL À PAYER").waitFor();
         clearCartWithManager(page);
@@ -672,7 +676,7 @@ public class GroupOIT {
         page.getByText("PAIEMENT CARTE EN COURS").waitFor();
         Assertions.assertNotNull(posState.payment.pendingCardAmount, "the TPE overlay must carry a pending amount");
         virtualTerminal.accept();
-        page.navigate(base.toString() + "pay");
+        // The payment-status poll reloads the page when the terminal settles.
         page.getByText("TRANSACTION TERMINÉE").waitFor();
         Assertions.assertTrue(posState.payment.transactionComplete, "an accepted card at par must complete the sale");
         Long draftId = posState.payment.ticketDbId;
@@ -736,7 +740,9 @@ public class GroupOIT {
         get("action/card-cancel");
         Assertions.assertNull(posState.payment.pendingCardAmount, "register CANCEL must withdraw the card request");
 
+        page.close();
         get("action/cancel");
+        page = context.newPage();
         page.navigate(base.toString());
         page.getByText("TOTAL À PAYER").waitFor();
         clearCartWithManager(page);
@@ -763,11 +769,9 @@ public class GroupOIT {
         Assertions.assertTrue(page.url().endsWith("/drawer-error"),
                 "a guarded GET with the drawer open must divert to the drawer interstitial");
         closeDrawer();
-        // The interstitial polls /api/drawer-status and, once shut, auto-returns
-        // to the blocked path (/manual) — proven by its content reappearing.
-        page.getByText("SAISIE DIRECTE").waitFor(new Locator.WaitForOptions().setTimeout(15000));
-        Assertions.assertTrue(page.url().endsWith("/manual"),
-                "closing the drawer must return to the very path that was blocked");
+        // Wait for the automatic navigation to commit before checking its content.
+        page.waitForURL("**/manual");
+        page.getByText("SAISIE DIRECTE").waitFor();
 
         // --- POST block → return to the REFERER, never a replay ---
         openDrawer();

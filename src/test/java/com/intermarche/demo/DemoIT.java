@@ -78,7 +78,7 @@ public class DemoIT {
         public java.util.Map<String, String> getConfigOverrides() {
             java.util.Map<String, String> overrides =
                     new java.util.HashMap<>(super.getConfigOverrides());
-            overrides.put("pos.valuation.url", "http://localhost:8090");
+            overrides.put("pos.valuation.url", demoValuationUrl());
             return overrides;
         }
     }
@@ -105,7 +105,7 @@ public class DemoIT {
     private static final String APPLES_PLU = "4020";
 
     /** The external engine base URL the demo runs against. */
-    private static final String ENGINE_URL = "http://localhost:8090";
+    private static final String ENGINE_URL = System.getProperty("pos.demo.valuation.url", "http://localhost:8090");
 
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
@@ -152,9 +152,8 @@ public class DemoIT {
     /**
      * demo00 — The engine is up (the demo's non-negotiable prerequisite).
      * <p>
-     * Posts a minimal authenticated basket to {@code :8090/valuation}. Any
-     * HTTP answer proves the process is there; a transport failure aborts the
-     * whole pre-flight with the message to display before a demo.
+     * Checks that the configured engine can price a seeded register article.
+     * A healthy engine loaded with a different catalogue fails this check.
      */
     @Test
     void demo00_le_valorisateur_repond_sur_8090() {
@@ -164,9 +163,10 @@ public class DemoIT {
                             .setHeader("Content-Type", "application/json")
                             .setHeader("Authorization", "Basic "
                                     + Base64.getEncoder().encodeToString("admin:admin".getBytes()))
-                            .setData("{\"storeCode\":\"0101\",\"items\":[]}"));
-            Assertions.assertTrue(ping.status() < 500,
-                    "the engine answered " + ping.status() + " — check its seed/auth before the demo");
+                            .setData("{\"storeCode\":\"0101\",\"items\":[{\"lineId\":\"check\","
+                                    + "\"produceEan\":\"" + COFFEE_EAN + "\",\"quantity\":1}]}"));
+            Assertions.assertTrue(ping.ok(), () -> "The engine could not price the seeded coffee " + COFFEE_EAN
+                    + " at store 0101 (HTTP " + ping.status() + "): " + ping.text());
         } catch (RuntimeException e) {
             Assertions.fail("LE VALORISATEUR NE RÉPOND PAS sur " + ENGINE_URL
                     + " — démarrez-le (avec son seed) AVANT le pre-flight et avant la démo. ("
@@ -254,7 +254,7 @@ public class DemoIT {
         page.getByText("CONCOMBRE").waitFor();
         page.getByText("CONCOMBRE").click();
         // Back on the sale: the weighed line carries exactly the armed weight.
-        page.getByText("0,850 kg").waitFor();
+        page.getByText("0,850 kg", new Page.GetByTextOptions().setExact(true)).waitFor();
         // Second beat: same weight again — the anti-oubli guard must refuse.
         context.request().post(root + "api/hardware/set-weight",
                 RequestOptions.create().setHeader("Content-Type", "text/plain").setData("0,850"));
@@ -323,18 +323,18 @@ public class DemoIT {
     @Test
     void demo04_module3_remise_sous_avenant() {
         Page page = openSaleScreen();
+        page.navigate(base.toString() + "action/cancel");
+        scanCode(COFFEE_EAN);
+        page.getByText("CAFÉ GRAINS 500G").waitFor();
         BigDecimal totalBefore = posState.ticket.totalAmount;
         // Select the coffee line (tap on the receipt row).
         page.locator(".receipt-item-link").locator("text=CAFÉ GRAINS 500G").first().click();
-        // REMISE opens the server-rendered gesture modal.
-        page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("REMISE").setExact(true)).click();
+        // The default menu exposes the combined discount and price entry under Générosité.
+        page.locator(".bottom-nav a[href='/action/menu/generosite']").click();
+        page.locator(".grid-buttons a[href='/action/price-mod/remise']").click();
         page.locator(".price-modal.active").waitFor();
-        // 1,00 € typed cents-style (1-0-0) on the modal pad, then VALIDER.
-        // The PRICE modal's keypad is DECIMAL mode (main.html PosInput
-        // setup) — "100" would mean ONE HUNDRED euros, silently clamped.
-        // The pay screen's cents convention does NOT apply here: "1" = 1,00.
-        tapDigits(page, "#priceKbArea", "1");
+        // The price keypad takes cents: 100 represents 1,00 €.
+        tapDigits(page, "#priceKbArea", "100");
         page.locator("#priceForm").getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("VALIDER").setExact(true)).click();
         // Endorsement: the manager BADGES (hardware bus), then taps the PIN.
